@@ -1,4 +1,4 @@
-.PHONY: install up down seed ingest check-index test fmt lint serve client journal
+.PHONY: install up down seed ingest reindex check-index test fmt lint serve client journal
 
 install:
 	uv sync
@@ -11,6 +11,9 @@ up:
 
 ingest:
 	uv run python -m ingest.cli
+
+reindex:
+	uv run python -m ingest.cli --reset
 
 check-index:
 	uv run python scripts/check_index.py

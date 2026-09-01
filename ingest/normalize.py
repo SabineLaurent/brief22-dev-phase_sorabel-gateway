@@ -167,9 +167,7 @@ def _read_html(path: Path, root: Path, doc_type: str) -> Edition:
         title=title,
         version=version,
         date=date,
-        # `<meta name="type">` porte déjà `procedure_sav` ; le dossier fait foi
-        # pour rester homogène avec les PDF, qui n'ont pas cette métadonnée.
-        doc_type=meta("type") or doc_type,
+        doc_type=_resolve_doc_type(meta("type"), doc_type),
         url=path.relative_to(root.parent.parent).as_posix(),
         indexed_text=_strip_outbound_links(full_text),
         full_text=full_text,
@@ -199,13 +197,37 @@ def _read_markdown(path: Path, root: Path, doc_type: str) -> Edition:
         title=title,
         version=version,
         date=date,
-        doc_type=str(front_matter.get("type") or doc_type),
+        doc_type=_resolve_doc_type(front_matter.get("type"), doc_type),
         url=path.relative_to(root.parent.parent).as_posix(),
         indexed_text=_strip_outbound_links(full_text),
         full_text=full_text,
         theme=match.group("theme") if match else None,
         filename_version=filename_version,
     )
+
+
+def _resolve_doc_type(declared: object, doc_type: str) -> str:
+    """Le dossier fait foi ; un type déclaré divergent est une erreur, pas un choix.
+
+    Les HTML et les Markdown portent leur type documentaire (``<meta name="type">``,
+    frontmatter ``type:``) ; les PDF n'ont rien de tel, d'où l'arbitrage sur le
+    dossier, seul indice commun aux quatre formats.
+
+    Laisser la valeur du fichier l'emporter serait pire qu'un détail de style :
+    ``doc_type`` est le champ sur lequel la matrice d'accès filtre. Un
+    ``content="fiche_technique"`` égaré dans un fichier de ``sav/`` reclasserait ce
+    document dans une autre classe d'accès sans que rien ne le signale. On refuse
+    donc le fichier plutôt que d'arbitrer entre deux sources qui se contredisent.
+    """
+    if declared is None:
+        return doc_type
+    declared_type = str(declared).strip()
+    if declared_type and declared_type != doc_type:
+        raise NormalizationError(
+            f"type documentaire contradictoire : le fichier déclare "
+            f"« {declared_type} », son dossier impose « {doc_type} »"
+        )
+    return doc_type
 
 
 def _split_front_matter(raw: str) -> tuple[dict | None, str]:

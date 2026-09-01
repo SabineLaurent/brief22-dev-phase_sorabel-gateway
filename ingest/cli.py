@@ -1,8 +1,13 @@
 """Ingestion du corpus : `python -m ingest.cli` (ou `make ingest`).
 
 Lit les 400 fichiers, les normalise, désigne les éditions courantes, puis écrit
-l'index. Rejouable : l'``upsert`` sur ``edition_id`` rend une seconde exécution
-sans effet sur le contenu de l'index.
+l'index. Rejouable : l'``upsert`` sur ``edition_id`` réécrit ce qui a changé, et
+la passe de réconciliation retire ce qui a disparu du corpus.
+
+**Le code de sortie porte l'anomalie, pas seulement l'échec de lecture.** Un
+fichier illisible, une version incohérente, un corpus vide : chacun laisse
+l'index dans un état partiel, et chacun sort en 1. Sans cela, une ingestion
+silencieusement incomplète passerait pour un succès en intégration continue.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from pathlib import Path
 
 from config import Settings
 from config import settings as default_settings
-from ingest.index import index_editions
+from ingest.index import IndexReport, index_editions
 from ingest.normalize import Edition, NormalizationError, corpus_files, normalize
 from ingest.registry import Registry, build_registry
 
@@ -35,7 +40,7 @@ def build_report(
     editions: list[Edition],
     failures: list[str],
     registry: Registry,
-    written: int,
+    index_report: IndexReport,
 ) -> str:
     """Le compte rendu d'ingestion, à lire après chaque exécution."""
     by_doc_type = Counter(edition.doc_type for edition in registry.editions)
@@ -49,7 +54,8 @@ def build_report(
         "--- Rapport d'ingestion ---",
         f"fichiers lus          : {len(editions) + len(failures)}",
         f"éditions normalisées  : {len(editions)}",
-        f"éditions indexées     : {written}",
+        f"éditions indexées     : {index_report.written}",
+        f"éditions retirées     : {len(index_report.deleted)}",
         f"documents (doc_key)   : {len(registry.current_version)}",
         f"éditions courantes    : {len(registry.current_edition_ids)}",
         "",
@@ -62,23 +68,74 @@ def build_report(
         "",
         f"n_caracteres max      : {max_chars}",
     ]
+    if index_report.deleted:
+        lines += [
+            "",
+            f"éditions retirées de l'index : {len(index_report.deleted)}",
+            *(f"  {edition_id}" for edition_id in index_report.deleted),
+        ]
     if registry.mismatches:
         lines += [
             "",
             f"éditions écartées (version incohérente) : {len(registry.mismatches)}",
             *(f"  {mismatch}" for mismatch in registry.mismatches),
+            "",
+            "documents privés d'édition courante en conséquence : "
+            f"{len(registry.undetermined_doc_keys)}",
+            *(f"  {doc_key}" for doc_key in sorted(registry.undetermined_doc_keys)),
         ]
     if failures:
         lines += ["", f"fichiers illisibles : {len(failures)}", *(f"  {f}" for f in failures)]
     return "\n".join(lines)
 
 
-def run(settings: Settings, write_index: bool = True) -> int:
-    editions, failures = collect(settings.corpus_dir)
+def run(settings: Settings, write_index: bool = True, reset: bool = False) -> int:
+    root = settings.corpus_dir
+    if not root.is_dir():
+        print(
+            f"Corpus introuvable : {root} — vérifier CORPUS_DIR dans l'environnement "
+            "ou dans `.env`.",
+            file=sys.stderr,
+        )
+        return 1
+
+    editions, failures = collect(root)
+    if not editions:
+        print(
+            f"Aucune édition exploitable sous {root} : rien n'a été indexé. Vérifier "
+            "que CORPUS_DIR pointe bien sur un corpus contenant "
+            "fiches/, notices/, sav/ et notes/.",
+            file=sys.stderr,
+        )
+        return 1
+
     registry = build_registry(editions)
-    written = index_editions(registry.editions, registry, settings) if write_index else 0
-    print(build_report(editions, failures, registry, written))
-    return 0 if not failures else 1
+    try:
+        index_report = (
+            index_editions(registry.editions, registry, settings, reset=reset)
+            if write_index
+            else IndexReport(written=0, deleted=[])
+        )
+    except (RuntimeError, ValueError) as error:
+        # Chroma injoignable, URL inexploitable, collection incompatible : le
+        # message porte déjà le remède, une trace de pile n'ajouterait rien.
+        print(f"Indexation impossible : {error}", file=sys.stderr)
+        return 1
+    print(build_report(editions, failures, registry, index_report))
+
+    anomalies = []
+    if failures:
+        anomalies.append(f"{len(failures)} fichier(s) illisible(s)")
+    if registry.mismatches:
+        anomalies.append(f"{len(registry.mismatches)} édition(s) écartée(s)")
+    if anomalies:
+        print(
+            "\nIngestion incomplète : " + ", ".join(anomalies) + ". "
+            "Corriger le corpus à la source, puis rejouer l'ingestion.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,8 +145,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="normalise et contrôle sans écrire dans l'index",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="reconstruit la collection à neuf au lieu de la mettre à jour",
+    )
     args = parser.parse_args(argv)
-    return run(default_settings, write_index=not args.dry_run)
+    return run(default_settings, write_index=not args.dry_run, reset=args.reset)
 
 
 if __name__ == "__main__":

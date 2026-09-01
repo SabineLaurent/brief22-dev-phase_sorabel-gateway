@@ -216,3 +216,112 @@ du modèle e5-base compris.
 ```bash
 make up && make ingest && make check-index
 ```
+
+---
+
+## 2026-09-02 — Chantier RAG, étape 1 : revue de code et correctifs
+
+Revue de l'étape 1 avant d'ouvrir l'étape 2, sur la branche de travail `rag`. Neuf
+constats, tous latents : l'ingestion était juste sur le corpus réel (400/400, 18
+contrôles au vert), les défauts se déclenchaient sur d'autres données ou une autre
+configuration. Les neuf sont corrigés et vérifiés un par un.
+
+### Le constat qui comptait — une édition écartée en promouvait une périmée
+
+`build_registry()` filtrait les éditions dont la version du nom de fichier contredit
+celle du contenu, **puis** désignait l'édition courante sur ce qui restait. Si
+`REF-8842-v2.1` annonçait `2.0` dans son corps — exactement le cas que ce contrôle
+existe pour attraper —, elle était écartée et `REF-8842-v1.0` devenait la seule
+survivante de son `doc_key` : elle héritait de `is_current`. La gateway aurait servi
+une édition périmée avec l'assurance d'une édition courante, ce que le contrôle était
+censé empêcher.
+
+Décision : **un document dont une édition est écartée n'a plus d'édition courante du
+tout.** Aucune ne fait autorité tant que l'incohérence n'est pas corrigée à la source.
+Le registre trace ces `doc_key` (`undetermined_doc_keys`), le rapport les nomme, et
+l'ingestion sort en échec. Fermer plutôt que deviner : sur un corpus documentaire sous
+matrice d'accès, servir la mauvaise version coûte plus cher que ne rien servir.
+
+### Les huit autres
+
+1. **Code de sortie aveugle** (`ingest/cli.py`). Le code ne dépendait que des fichiers
+   illisibles : une édition écartée, un `CORPUS_DIR` mal pointé (quatre globs vides,
+   « éditions normalisées : 0 ») sortaient en 0. C'est ainsi que le constat ci-dessus
+   serait passé inaperçu en intégration continue. Désormais toute anomalie sort en 1,
+   avec un motif sur `stderr`.
+2. **Aucune réconciliation des suppressions** (`ingest/index.py`). L'`upsert` seul rend
+   la ré-ingestion idempotente sur un corpus qui ne fait que croître — pas au-delà. Un
+   fichier supprimé, renommé (l'`edition_id` est son chemin : le renommer en crée un
+   nouveau et laisse l'ancien orphelin) ou nouvellement écarté survivait dans l'index
+   avec son `is_current` de la passe précédente. La passe se termine maintenant par une
+   suppression des `edition_id` absents du registre, comptés dans le rapport.
+3. **Le type déclaré primait sur le dossier** (`ingest/normalize.py`). Le commentaire
+   disait « le dossier fait foi », le code faisait gagner le `<meta name="type">` du
+   fichier. Comme la matrice d'accès filtre sur `doc_type`, une balise erronée dans un
+   fichier de `sav/` aurait reclassé ce document dans une autre classe d'accès sans un
+   mot — un défaut d'autorisation, pas un détail de style. Le dossier fait foi, et une
+   divergence lève désormais `NormalizationError`.
+4. **Le vérificateur plantait sur les index qu'il doit attraper**
+   (`scripts/check_index.py`). `max()` sur une collection vide levait `ValueError` :
+   `make check-index` avant `make ingest` rendait une trace de pile au lieu de la ligne
+   « éditions indexées 0 (attendu 400) ÉCHEC » qu'il s'apprêtait à écrire. Même classe
+   sur les champs obligatoires, déréférencés avant le contrôle de leur présence. Les
+   entrées incomplètes sont maintenant mises de côté et rapportées ; les 18 contrôles
+   restent les mêmes.
+5. **`CHROMA_URL` : schéma perdu, port faux** (`ingest/index.py`). Aucun `ssl=` n'était
+   passé (`https://` se connectait en clair), une URL sans port retombait sur 8000 alors
+   que tout le projet est en 8002, et `localhost:8002` sans schéma donnait
+   `hostname=None` donc `localhost:8000`. Parsing strict : hôte et schéma obligatoires,
+   port implicite déduit du schéma, TLS transmis.
+6. **Le modèle d'embeddings n'était pas persisté** (`ingest/index.py`). Le commentaire
+   « Chroma persiste ce nom avec la collection » est faux pour chromadb 0.5.23 —
+   vérifié dans le paquet installé : la fonction d'embeddings reste côté client, son nom
+   n'est ni stocké ni comparé. Changer `EMBEDDING_MODEL` pour un autre modèle en 768
+   dimensions et ré-ingérer aurait réussi, en mélangeant deux espaces vectoriels dans la
+   même collection, sans erreur. L'empreinte du modèle est maintenant écrite dans la
+   métadonnée de la collection et vérifiée à l'ouverture.
+7. **Tri de versions dupliqué** (`scripts/check_index.py`). Le contrôle réécrivait le
+   classement de l'ingestion sans son garde-fou : une version non numérique le faisait
+   planter là où l'ingestion l'acceptait, et deux tris divergents auraient pu dénoncer
+   un coupable qui n'en était pas un. `version_sort_key()` est devenue publique et est
+   importée.
+8. **L'adaptateur d'embeddings devinait** (`ingest/index.py`). `ChromaEmbeddingFunction`
+   routait tout vers `embed_documents()`, donc préfixait `passage:`. Un appel à
+   `collection.query(query_texts=…)` — l'API la plus naturelle de Chroma, et le piège
+   tendu à l'étape 2 — aurait encodé chaque question comme un document, dégradant le
+   rappel sans rien signaler. L'adaptateur lève désormais une exception : la gateway
+   fournit toujours ses vecteurs explicitement.
+
+### Conséquence opérationnelle : `make reindex`
+
+Le contrôle d'empreinte refuse une collection qui n'en porte pas — celle de la première
+ingestion, construite avant le contrôle. Plutôt qu'une suppression manuelle,
+l'ingestion reçoit `--reset`, exposé en `make reindex`, nommé dans le message d'erreur.
+L'index a été reconstruit avec : 400 éditions, 350 documents, 350 courantes, 18
+contrôles au vert, chiffres identiques à ceux de la première ingestion.
+
+### Vérifications
+
+Chaque correctif a été vérifié par un scénario de reproduction, pas seulement relu :
+registre avec une édition incohérente (le document perd sa courante, le document voisin
+garde la sienne), HTML au type contradictoire (refusé), corpus introuvable / vide /
+avec écart (code 1 dans les trois cas), sept formes de `CHROMA_URL`, adaptateur appelé
+(lève), collection au modèle divergent (refusée), collection non estampillée (refusée
+puis reconstruite par `--reset`), disparition d'une édition du corpus (retirée de
+l'index à la passe suivante), index vide et entrée incomplète (rapportés, pas de trace
+de pile). Puis `make lint`, `make reindex`, `make check-index`, et une ré-ingestion à
+vide pour l'idempotence.
+
+### Ce qui n'a pas bougé
+
+Aucune clé de données n'a changé : `titre`, `n_caracteres` et les neuf autres champs
+suivent toujours le contrat, et `build_metadata()` reste le seul point de conversion.
+Les 18 contrôles de `check_index.py` sont les mêmes, aux mêmes valeurs attendues.
+
+### Écarté après vérification
+
+Quatre pistes examinées et closes : le découpage du frontmatter sur la sous-chaîne
+`---` (les cas dégénérés échouent bruyamment), la troncature YAML d'un `version:` non
+quoté (les 80 notes le quotent), `_RE_OUTBOUND_LINKS` en mono-ligne (le bloc accessoires
+tient sur une ligne dans les PDF, vérifié), et l'écart `n_caracteres` 799 vs 923 (déjà
+documenté plus haut).

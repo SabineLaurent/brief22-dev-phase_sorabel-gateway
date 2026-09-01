@@ -9,7 +9,8 @@ Phase de conception terminée (`LIVRABLES_CONCEPTION/`). Phase de développement
 
 - **Chantier RAG, étape 1 — ingestion : faite.** `config.py`, `ingest/` (normalize,
   registry, index, cli), `retrieval/embedder.py`, `scripts/check_index.py`. 400 éditions
-  indexées dans Chroma, 18 contrôles au vert.
+  indexées dans Chroma, 18 contrôles au vert. Revue de code passée : neuf constats
+  corrigés et vérifiés, consignés au journal.
 - **Chantier RAG, étape 2 — recherche dense, citations, refus hors corpus : à faire.**
   C'est la prochaine étape.
 - Étape 3 (hybride BM25 + rerank, mesure du gain E6), puis chantier Text-to-SQL, puis
@@ -70,7 +71,8 @@ fois**, vérifiée et journalisée avant de passer à la suivante.
 
 ```bash
 make up            # Chroma (docker compose, port 8002)
-make ingest        # ingestion du corpus dans Chroma
+make ingest        # ingestion du corpus dans Chroma (met l'index à jour)
+make reindex       # reconstruit la collection à neuf (modèle d'embeddings changé)
 make check-index   # contrôles d'intégrité de l'index
 make seed          # génère data/sorabel.db
 make test          # suite d'acceptance
