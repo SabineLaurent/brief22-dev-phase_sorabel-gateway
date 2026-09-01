@@ -5,7 +5,7 @@ Sorabel, sous matrice d'accès et journalisation.
 
 ## Où en est le projet
 
-Phase de conception terminée (`LIVRABLES_CONCEPTION/`). Phase de développement en cours.
+Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase de développement en cours.
 
 - **Chantier RAG, étape 1 — ingestion : faite.** `config.py`, `ingest/` (normalize,
   registry, index, cli), `retrieval/embedder.py`, `scripts/check_index.py`. 400 éditions
@@ -47,7 +47,7 @@ contrat, même quand elles sont en français. Ne jamais les renommer pour des
 raisons de style.
 
 - `docs/cadrage_dsi.md` — enveloppe de réponse, noms des tools, champs du journal ;
-- `LIVRABLES_CONCEPTION/02-modele-chunk.md` — les onze champs de métadonnées, dont
+- `docs/conception/LIVRABLES_CONCEPTION/02-modele-chunk.md` — les onze champs de métadonnées, dont
   **`titre`** et **`n_caracteres`** ;
 - `tests/acceptance/` — la suite lit littéralement certaines clés (`src["titre"]`,
   `metadata["doc_type"]`, `hits[0]["doc_id"]`).

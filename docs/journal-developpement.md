@@ -10,7 +10,7 @@ MCP), et trois étapes à l'intérieur du chantier RAG. **Une étape est implém
 vérifiée et journalisée avant que la suivante ne commence.**
 
 Documents de référence : `docs/cadrage_dsi.md` (contrat DSI, normatif),
-`LIVRABLES_CONCEPTION/` (dossier de conception), `tests/` (suite d'acceptance).
+`docs/conception/LIVRABLES_CONCEPTION/` (dossier de conception), `tests/` (suite d'acceptance).
 
 ---
 
@@ -71,7 +71,7 @@ retomber sur le `doc_key` quand la référence produit n'existe pas.
 
 ### Décisions d'ingestion appliquées
 
-Toutes reprises de `LIVRABLES_CONCEPTION/02-modele-chunk.md`, et confirmées sur le
+Toutes reprises de `docs/conception/LIVRABLES_CONCEPTION/02-modele-chunk.md`, et confirmées sur le
 corpus réel avant d'être codées.
 
 - **Pas de chunker.** Une édition = un chunk. Le plus long document indexé fait

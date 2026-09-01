@@ -1,0 +1,296 @@
+<mxfile host="65bd71144e">
+    <diagram name="Flux Text-to-SQL" id="flux-t2sql">
+        <mxGraphModel dx="1249" dy="3380" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1220" pageHeight="2434" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="BG" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=none;movable=1;resizable=1;deletable=1;editable=1;connectable=1;pointerEvents=0;rotatable=1;locked=0;" parent="1" vertex="1">
+                    <mxGeometry x="10" y="-148" width="1220" height="2440" as="geometry"/>
+                </mxCell>
+                <mxCell id="T1x" value="&lt;b&gt;Flux Text-to-SQL gouverné&lt;/b&gt; — Sorabel Data Gateway, chantier 2" style="text;html=1;align=left;verticalAlign=top;fontSize=18;" parent="1" vertex="1">
+                    <mxGeometry x="15" y="-130" width="760" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="T2x" value="&lt;b&gt;Les quatre tests d&#39;acceptance fournis avec le brief&lt;/b&gt;, et l&#39;étape du schéma qui les&lt;div&gt;fait passer :&lt;div&gt;&lt;font color=&quot;#000000&quot;&gt;&lt;br&gt;&lt;/font&gt;&lt;b&gt;T1&lt;/b&gt; le résultat est rendu avec la requête qui l&#39;a produit → &lt;b&gt;S1&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;T2&lt;/b&gt; une demande d&#39;écriture est refusée, et journalisée → &lt;b&gt;R2 + J&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;T3&lt;/b&gt; les marges sont refusées au profil support → &lt;b&gt;R3&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;T4&lt;/b&gt; une question hors schéma est refusée → &lt;b&gt;R1&lt;/b&gt;&lt;/div&gt;&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=13;shadow=0;glass=0;rounded=0;fillColor=none;strokeColor=#B3B3B3;fontColor=#333333;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="1730" width="530" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="LGx" value="&lt;b&gt;Légendes&lt;br&gt;&lt;/b&gt;&lt;br&gt;Les lettres ne sont que des repères de lecture, elles n&#39;ont pas d&#39;autre sens :&lt;br&gt;&lt;b&gt;N&lt;/b&gt;&amp;nbsp;étape &lt;b&gt;nominale&lt;/b&gt; —&amp;gt; le cas normal, celui où rien ne dérape &amp;nbsp;&lt;i&gt;(bleu)&lt;/i&gt;&lt;br&gt;&lt;b&gt;R&lt;/b&gt;&amp;nbsp;&lt;b&gt;refus&lt;/b&gt; —&amp;gt; on s&#39;arrête là, aucune requête n&#39;est exécutée &amp;nbsp;&lt;i&gt;(rouge)&lt;/i&gt;&lt;br&gt;&lt;b&gt;C&amp;nbsp;&lt;/b&gt;demande de &lt;b&gt;clarification&lt;/b&gt; renvoyée au client &amp;nbsp;&lt;i&gt;(orange)&lt;/i&gt;&lt;br&gt;&lt;b&gt;A&lt;/b&gt; &lt;b&gt;autre sortie&lt;/b&gt; —&amp;gt; exécuté, mais inexploitable tel quel &amp;nbsp;&lt;i&gt;(orange)&lt;/i&gt;&lt;br&gt;&lt;b&gt;S&lt;/b&gt;&amp;nbsp;sortie réussie&lt;font color=&quot;#000000&quot;&gt;&lt;br&gt;&lt;/font&gt;&lt;b&gt;J&lt;/b&gt;&amp;nbsp;journal &amp;nbsp;&lt;i&gt;(gris)&lt;br&gt;&lt;/i&gt;&lt;br&gt;&lt;i&gt;vert&lt;/i&gt;&amp;nbsp; barrière de gouvernance : elle a le pouvoir d&#39;arrêter la requête&lt;br&gt;trait plein = chemin nominal&lt;div&gt;pointillé = sortie latérale&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b3b3b3;align=left;spacingLeft=14;spacingRight=14;spacingTop=8;verticalAlign=top;fontSize=11;dashed=1;" parent="1" vertex="1">
+                    <mxGeometry x="850" y="-120" width="350" height="250" as="geometry"/>
+                </mxCell>
+                <mxCell id="IN" value="&lt;b&gt;ask_database&lt;/b&gt;(question, profil) et&amp;nbsp;&lt;b&gt;get_schema&lt;/b&gt;(profil)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="120" width="400" height="72.5" as="geometry"/>
+                </mxCell>
+                <mxCell id="N1" value="&lt;b&gt;N1 · Matrice d&amp;#x27;accès&lt;/b&gt;&lt;br/&gt;&lt;i&gt;qui a le droit de lire quoi&lt;/i&gt; — profil × table × colonne" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="244.5" width="400" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="N2" value="&lt;b&gt;N2 · Ce qu&amp;#x27;on donne au modèle&lt;/b&gt; &lt;i&gt;(c&amp;#x27;est le tool get_schema)&lt;/i&gt;&lt;br/&gt;· la description des tables (le &lt;b&gt;DDL&lt;/b&gt;), réduite aux colonnes que ce profil a le droit de lire&lt;br/&gt;· la liste des valeurs possibles de chaque colonne&lt;br/&gt;· la période réellement couverte par les données&lt;br/&gt;· les conventions métier &lt;i&gt;(ex. : montant_ht est un montant brut, avant remise)&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="344.5" width="400" height="154" as="geometry"/>
+                </mxCell>
+                <mxCell id="S2" value="&lt;b&gt;S2 · get_schema s&amp;#x27;arrête ici&lt;/b&gt;&lt;br/&gt;&lt;i&gt;il rend au profil son contrat de lecture — DDL filtré, valeurs possibles, période, conventions. Aucun SQL n&amp;#x27;est généré&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="397.5" width="310" height="92" as="geometry"/>
+                </mxCell>
+                <mxCell id="N3" value="&lt;b&gt;N3 · Appel au modèle de langage&lt;/b&gt;&lt;br/&gt;&lt;i&gt;un seul appel, et la réponse doit avoir une forme imposée&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="546.5" width="400" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="D" value="&lt;b&gt;que renvoie&lt;br/&gt;le modèle ?&lt;/b&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="485" y="646.5" width="180" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="N4" value="&lt;b&gt;N4 · Validation de la requête&lt;/b&gt;&lt;br/&gt;&lt;i&gt;on n&amp;#x27;inspecte pas le texte de la requête mais sa structure — son arbre syntaxique, ou &lt;b&gt;AST&lt;/b&gt;. Cinq contrôles :&lt;/i&gt;&lt;br/&gt;1 · une seule instruction, pas deux collées&lt;br/&gt;2 · elle commence par SELECT, donc elle lit&lt;br/&gt;3 · aucune écriture nulle part, &lt;i&gt;y compris à l&amp;#x27;intérieur d&amp;#x27;une sous-requête nommée (WITH … AS)&lt;/i&gt;&lt;br/&gt;4 · aucune commande de moteur &lt;i&gt;(PRAGMA, ATTACH, VACUUM : elles ne lisent pas des données)&lt;/i&gt;&lt;br/&gt;5 · toutes les colonnes figurent dans la matrice, &lt;i&gt;les surnoms de tables (alias) étant d&amp;#x27;abord résolus&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="784.5" width="400" height="205" as="geometry"/>
+                </mxCell>
+                <mxCell id="N5" value="&lt;b&gt;N5 · Plafond de lignes&lt;/b&gt;&lt;br/&gt;&lt;i&gt;si la requête ne borne pas son résultat, on ajoute nous-mêmes un LIMIT&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="1037.5" width="400" height="69" as="geometry"/>
+                </mxCell>
+                <mxCell id="N6" value="&lt;b&gt;N6 · Exécution en lecture seule&lt;/b&gt;&lt;br/&gt;une connexion neuve à chaque requête, et :&lt;br/&gt;· ouverte en lecture seule &lt;i&gt;(mode=ro)&lt;/i&gt;&lt;br/&gt;· verrou interne du moteur &lt;i&gt;(query_only=ON)&lt;/i&gt;&lt;br/&gt;· un délai maximal, au-delà duquel on interrompt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="1154.5" width="400" height="103" as="geometry"/>
+                </mxCell>
+                <mxCell id="N7" value="&lt;b&gt;N7&lt;/b&gt;&lt;br/&gt;&lt;i&gt;le résultat est-il&lt;br/&gt;exploitable ?&lt;/i&gt;" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="465" y="1305.5" width="220" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="S1" value="&lt;b&gt;S1 · Réponse&lt;/b&gt;&lt;br/&gt;le résultat, &lt;b&gt;la requête SQL qui l&amp;#x27;a produit&lt;/b&gt;,&lt;br/&gt;et les conventions métier appliquées" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="375" y="1443.5" width="400" height="69" as="geometry"/>
+                </mxCell>
+                <mxCell id="J" value="&lt;b&gt;J · Journal&lt;/b&gt;&lt;br/&gt;&lt;i&gt;tous les appels y figurent,&lt;br/&gt;ceux qu&amp;#x27;on a servis comme&lt;br/&gt;ceux qu&amp;#x27;on a refusés&lt;/i&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=14;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="405" y="1560.5" width="340" height="86" as="geometry"/>
+                </mxCell>
+                <mxCell id="REC" value="&lt;b&gt;Les quatre tools, et le chemin que chacun emprunte&lt;/b&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;ask_database&lt;/b&gt;(question, profil) &lt;i&gt;génératif&lt;/i&gt; &amp;#8594; N1 · N2 · N3 · N4 · N5 · N6 · N7 · &lt;b&gt;S1&lt;/b&gt;&lt;br/&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&lt;i&gt;le seul qui produise du SQL, donc le seul qui ait besoin de N3 et N4&lt;/i&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;get_schema&lt;/b&gt;(profil) &lt;i&gt;aide&lt;/i&gt; &amp;#8594; N1 · N2 · &lt;b&gt;S2&lt;/b&gt;&lt;br/&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&lt;i&gt;s&amp;#x27;arrête au contrat de lecture : un client peut vouloir composer sa question sans rien déclencher&lt;/i&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;check_stock&lt;/b&gt;(ref) &amp;nbsp;·&amp;nbsp; &lt;b&gt;order_status&lt;/b&gt;(order_id) &lt;i&gt;figés&lt;/i&gt; &amp;#8594; N1 · N6 · N7 · &lt;b&gt;S1&lt;/b&gt;&lt;br/&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&lt;i&gt;leur requête est écrite d&amp;#x27;avance : ni schéma à fournir, ni modèle à appeler, ni requête à valider&lt;/i&gt;&lt;br/&gt;&lt;br/&gt;&lt;b&gt;Les quatre passent par N1 et aboutissent à J.&lt;/b&gt; Ce qui change d&amp;#x27;un tool à l&amp;#x27;autre, c&amp;#x27;est &lt;i&gt;quand&lt;/i&gt;&lt;br/&gt;leur périmètre est vérifié — pas &lt;i&gt;s&amp;#x27;il&lt;/i&gt; l&amp;#x27;est." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fbfbfb;strokeColor=#b3b3b3;align=left;spacingLeft=14;spacingRight=14;spacingTop=8;verticalAlign=top;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="1730" width="530" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="TF" value="&lt;b&gt;Tools figés&lt;/b&gt;&lt;br&gt;&lt;i&gt;des requêtes écrites à l&#39;avance&lt;/i&gt;&lt;br&gt;check_stock(ref)&lt;br&gt;order_status(order_id)&lt;i&gt;&lt;br&gt;&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="10" y="120" width="350" height="72.5" as="geometry"/>
+                </mxCell>
+                <mxCell id="R0" value="&lt;b&gt;R0 · Refus&lt;/b&gt; non_autorise&lt;br/&gt;&lt;i&gt;ce profil n&amp;#x27;a pas droit à ce tool&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="292.5" width="310" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="R1" value="&lt;b&gt;R1 · Refus&lt;/b&gt; hors_schema&lt;br/&gt;&lt;i&gt;la base ne contient pas cette donnée — aucune requête n&amp;#x27;est produite, ni tentée&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="577.5" width="310" height="69" as="geometry"/>
+                </mxCell>
+                <mxCell id="C1" value="&lt;b&gt;C1 · Clarification&lt;/b&gt;&lt;br/&gt;&lt;i&gt;on propose des choix fermés, limités à ce que ce profil a le droit de lire (filtrés par N1)&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="706.5" width="310" height="86" as="geometry"/>
+                </mxCell>
+                <mxCell id="R2" value="&lt;b&gt;R2 · Refus&lt;/b&gt; ecriture_refusee&lt;br/&gt;&lt;i&gt;déclenché par les contrôles 1 à 4&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="809.5" width="310" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="R3" value="&lt;b&gt;R3 · Refus&lt;/b&gt; perimetre_interdit&lt;br/&gt;&lt;i&gt;contrôle 5 — le message nomme la colonne en cause&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="903.5" width="310" height="69" as="geometry"/>
+                </mxCell>
+                <mxCell id="R4" value="&lt;b&gt;R4 · Erreur d&amp;#x27;exécution&lt;/b&gt;&lt;br/&gt;&lt;i&gt;délai dépassé, ou trop de lignes rendues&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="1180" width="310" height="52" as="geometry"/>
+                </mxCell>
+                <mxCell id="A1" value="&lt;b&gt;A1 · Aucune ligne&lt;/b&gt;&lt;br/&gt;&lt;i&gt;ce n&amp;#x27;est ni un refus ni une erreur : la réponse est « rien ne correspond »&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="1240.5" width="310" height="69" as="geometry"/>
+                </mxCell>
+                <mxCell id="A2" value="&lt;b&gt;A2 · Des lignes se ressemblent&lt;/b&gt;&lt;br/&gt;&lt;i&gt;deux produits portent le même nom : on les rend toutes, chacune avec sa référence&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="865" y="1374.5" width="310" height="69" as="geometry"/>
+                </mxCell>
+                <mxCell id="a28" value="&lt;i&gt;tous les chemins, servis comme refusés,&lt;br/&gt;aboutissent au journal&lt;/i&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="775" y="1527.5" width="300" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="G1" value="&lt;b&gt;Acronymes&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;MCP&lt;/b&gt; &lt;i&gt;(Model Context Protocol)&lt;/i&gt; — le protocole par lequel un serveur met ses outils à disposition de plusieurs clients : le bot du support, l&#39;éditeur de code des devs, le poste des commerciaux.&lt;br&gt;&lt;br&gt;&lt;b&gt;Profil&lt;/b&gt; — le rôle de celui qui appelle : &lt;i&gt;support&lt;/i&gt; ou &lt;i&gt;commercial&lt;/i&gt;. C&#39;est lui, et non la personne, qui décide de ce qui est lisible.&lt;br&gt;&lt;br&gt;&lt;b&gt;DDL&lt;/b&gt; &lt;i&gt;(Data Definition Language)&lt;/i&gt; — la partie du SQL qui décrit les tables (CREATE TABLE …). C&#39;est cette description du schéma qu&#39;on montre au modèle.&lt;br&gt;&lt;br&gt;&lt;b&gt;AST&lt;/b&gt; &lt;i&gt;(arbre syntaxique)&lt;/i&gt; — la requête vue comme une structure d&#39;instructions, et non comme une suite de caractères. Un mot d&#39;écriture dissimulé dans un commentaire ne trompe pas l&#39;arbre, alors qu&#39;il trompe une recherche de mots interdits.&lt;br&gt;&lt;br&gt;&lt;b&gt;WITH … AS (…)&lt;/b&gt; — une sous-requête à laquelle on donne un nom pour la réutiliser plus bas. Il faut l&#39;inspecter comme le reste : sans cela, une écriture peut s&#39;y loger sans être vue.&lt;br&gt;&lt;br&gt;&lt;b&gt;Alias&lt;/b&gt; — le surnom donné à une table dans la requête &lt;i&gt;(FROM produits p)&lt;/i&gt;. Tant qu&#39;il n&#39;est pas résolu, &lt;i&gt;p.marge_pct&lt;/i&gt; ne ressemble pas à une colonne interdite." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b3b3b3;align=left;spacingLeft=14;spacingRight=14;spacingTop=8;verticalAlign=top;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="70" y="1950" width="530" height="303" as="geometry"/>
+                </mxCell>
+                <mxCell id="G2" value="&lt;b&gt;Les verrous, et les repères venus du brief&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;mode=ro&lt;/b&gt; &lt;i&gt;(read-only)&lt;/i&gt; — la connexion est ouverte en lecture seule : par ce canal, le fichier de la base ne peut pas être modifié.&lt;br&gt;&lt;br&gt;&lt;b&gt;query_only=ON&lt;/b&gt; — un verrou interne au moteur SQLite, qui refuse toute écriture. Il double le précédent : deux verrous de nature différente, pour qu&#39;une seule faille ne suffise pas.&lt;br&gt;&lt;br&gt;&lt;b&gt;PRAGMA · ATTACH · VACUUM&lt;/b&gt; — des commandes SQLite qui ne lisent aucune donnée : elles règlent le moteur, ouvrent un second fichier de base, ou réorganisent le stockage. Aucune n&#39;a sa place dans une question métier.&lt;br&gt;&lt;br&gt;&lt;b&gt;LIMIT&lt;/b&gt; — le nombre maximal de lignes qu&#39;une requête a le droit de rendre.&lt;br&gt;&lt;br&gt;&lt;b&gt;E1 à E6&lt;/b&gt; — les six exigences imposées par la note de cadrage de la DSI. &lt;b&gt;E3&lt;/b&gt; : tout SQL exécuté est en lecture seule, et la requête est tracée. &lt;b&gt;E5&lt;/b&gt; : tout appel est journalisé, et ni les prix d&#39;achat ni les marges ne sortent pour le support.&lt;br&gt;&lt;br&gt;&lt;b&gt;T1 à T4&lt;/b&gt; — les quatre tests d&#39;acceptance du volet Text-to-SQL, fournis avec le brief &lt;i&gt;(bandeau du haut)&lt;/i&gt;." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b3b3b3;align=left;spacingLeft=14;spacingRight=14;spacingTop=8;verticalAlign=top;fontSize=11;" parent="1" vertex="1">
+                    <mxGeometry x="620" y="1950" width="530" height="303" as="geometry"/>
+                </mxCell>
+                <mxCell id="e11" value="get_schema :&lt;br/&gt;c&amp;#x27;est terminé" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="N2" target="S2" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-18" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j9" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="S2" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="443.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="IN" target="N1" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="N1" target="N2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e2" value="seul ask_database&lt;br/&gt;continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="N2" target="N3" edge="1">
+                    <mxGeometry x="-0.2083" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="N3" target="D" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="N5" target="N6" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="N6" target="N7" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="e6" value="une requête SQL" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="D" target="N4" edge="1">
+                    <mxGeometry x="-0.125" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e7" value="les cinq contrôles&lt;br/&gt;sont passés" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="N4" target="N5" edge="1">
+                    <mxGeometry x="-0.25" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="e8" value="exploitable" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeWidth=2;strokeColor=#2f4f6f;fontColor=#2f4f6f;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="N7" target="S1" edge="1">
+                    <mxGeometry x="-0.0833" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f0" value="profil non autorisé" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="N1" target="R0" edge="1">
+                    <mxGeometry x="-0.1014" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f1" value="« la base&lt;br/&gt;ne sait pas »" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;jettySize=20;exitX=1;exitY=0.3;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="D" target="R1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-20" as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f2" value="« la question&lt;br/&gt;est ambiguë »" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#d79b00;jettySize=20;exitX=1;exitY=0.7;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="D" target="C1" edge="1">
+                    <mxGeometry x="0.099" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;jettySize=20;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="N4" target="R2" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;jettySize=20;exitX=1;exitY=0.75;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="N4" target="R3" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#b85450;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="N6" target="R4" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="f6" value="aucune ligne" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#d79b00;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="N7" target="A1" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint y="-17" as="offset"/>
+                        <Array as="points">
+                            <mxPoint x="795" y="1350.5"/>
+                            <mxPoint x="795" y="1274.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f7" value="des lignes&lt;br/&gt;homonymes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#d79b00;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="N7" target="A2" edge="1">
+                    <mxGeometry x="0.1488" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                        <Array as="points">
+                            <mxPoint x="795" y="1350.5"/>
+                            <mxPoint x="795" y="1409.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="f8" value="requête écrite à l&amp;#x27;avance :&lt;br/&gt;ni schéma ni modèle —&lt;br/&gt;elle saute N2 · N3 · N4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#9673a6;jettySize=20;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeWidth=2;" parent="1" target="N6" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="200" y="1205.5"/>
+                        </Array>
+                        <mxPoint x="200" y="370" as="sourcePoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="S1" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="j1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="R0" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1175" y="317.5"/>
+                            <mxPoint x="1195" y="317.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="R1" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="613.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="C1" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="749.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="R2" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="835.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="R3" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="938.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="R4" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="1205.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="A1" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="1275.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="j8" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;strokeColor=#999999;endArrow=open;jettySize=20;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="A2" target="J" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1195" y="1410.5"/>
+                            <mxPoint x="1195" y="1603.5"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="2" value="&lt;b&gt;Entrée : un appel de tool reçu par le serveur&lt;/b&gt;&lt;br&gt;&lt;i&gt;un nom de tool et des arguments typés&lt;/i&gt;&lt;div&gt;&lt;i&gt;&lt;br&gt;&lt;/i&gt;&lt;/div&gt;&lt;div&gt;&lt;i style=&quot;color: rgb(63, 63, 63); scrollbar-color: rgb(226, 226, 226) rgb(251, 251, 251);&quot;&gt;c&#39;est le client qui les appelle, guidé par leur description : &quot;tools figés&quot; et tools libres.&lt;/i&gt;&lt;i&gt;&lt;br&gt;&lt;/i&gt;&lt;div&gt;&lt;br&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;spacingLeft=12;spacingRight=10;verticalAlign=middle;fontSize=12;arcSize=16;" vertex="1" parent="1">
+                    <mxGeometry x="170" y="-40" width="400" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="6" value="" style="edgeStyle=elbowEdgeStyle;elbow=vertical;endArrow=classic;html=1;curved=0;rounded=0;endSize=6;startSize=6;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;" edge="1" parent="1" source="2" target="TF">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="150" y="300" as="sourcePoint"/>
+                        <mxPoint x="200" y="250" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="8" value="" style="edgeStyle=elbowEdgeStyle;elbow=vertical;endArrow=classic;html=1;curved=0;rounded=0;endSize=6;startSize=6;entryX=0.118;entryY=0.048;entryDx=0;entryDy=0;strokeWidth=2;entryPerimeter=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="TF" target="N1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="195" y="192.5" as="sourcePoint"/>
+                        <mxPoint x="30" y="232.5" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="350" y="220"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="11" value="" style="edgeStyle=elbowEdgeStyle;elbow=vertical;endArrow=none;html=1;curved=0;rounded=0;endSize=8;startSize=8;dashed=1;strokeColor=#9673A6;fillColor=#e1d5e7;strokeWidth=2;endFill=0;" edge="1" parent="1">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="200" y="376.5" as="sourcePoint"/>
+                        <mxPoint x="426" y="296.5" as="targetPoint"/>
+                        <Array as="points">
+                            <mxPoint x="310" y="320"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="13" value="" style="edgeStyle=elbowEdgeStyle;elbow=vertical;endArrow=classic;html=1;curved=0;rounded=0;endSize=6;startSize=6;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=2;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" edge="1" parent="1" source="2" target="IN">
+                    <mxGeometry width="50" height="50" relative="1" as="geometry">
+                        <mxPoint x="465" y="60" as="sourcePoint"/>
+                        <mxPoint x="280" y="130" as="targetPoint"/>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
