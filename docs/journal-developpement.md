@@ -459,3 +459,53 @@ L'étape 1 est conforme au dossier sur tout ce qui touche au modèle de données
 versionnement. Elle s'en écarte sur **un** point de fond — le périmètre du nettoyage du
 texte indexé — et sur un point de forme sans effet. Trois chiffres du dossier sont, eux, à
 corriger. Rien de tout cela ne remet en cause l'index existant au-delà d'une réindexation.
+
+---
+
+## 2026-09-02 — Protocole de mesure arrêté avant l'étape 2
+
+Décision prise avant d'écrire la recherche, pour que le protocole ne se façonne pas au fil
+de l'implémentation. Le détail est dans **`eval/protocole-mesure.md`** ; ne sont consignées
+ici que les décisions et leur motif.
+
+**Un « RAG simple » construit de bout en bout est écarté.** L'intention — disposer d'un point
+de comparaison — est juste et nécessaire, mais un pipeline naïf séparé produirait un seul
+chiffre indécomposable, mélangeant le nettoyage du texte (+5 en Hit@3 à lui seul, Q3 §2), le
+filtre de version (dénominateur 350 au lieu de 400) et la stratégie de recherche — la seule
+que le brief demande de mesurer. C'est exactement le défaut que Q5 §2 reproche au protocole
+à deux configurations.
+
+**À la place : quatre drapeaux orthogonaux et deux axes.** `--text clean|raw` à l'ingestion ;
+`--config A|B|C`, `--version-filter on|off`, `--tiebreak on|off` à la recherche. Axe 1 = la
+recherche à ingestion constante (c'est E6) ; axe 2 = l'ingestion à recherche constante (que
+le dossier ne mesure pas). Le « RAG simple » devient un **coin de l'espace** — `raw`, `A`,
+`off`, `off` — publiable comme ligne parlante, jamais à la place de la décomposition.
+
+**Le dédoublonnage n'est pas un axe.** Zéro doublon d'octets sur 400 fichiers (Q1 §3) : une
+étape qui ne se déclenche jamais. Le doublon réel est l'édition multiple — 50 documents à
+0,965 de similarité — et c'est `--version-filter` qui le traite.
+
+**Pas d'évaluateur de RAG** (RAGAS, DeepEval, LLM-juge). Quatre raisons, dont deux
+décisives : le jeu n'a pas de réponses de référence, donc il faudrait les écrire puis se
+noter dessus ; et ces métriques sont jugées par un LLM, donc non déterministes, sur un
+sous-ensemble de huit questions. Surtout, l'architecture a retiré le besoin : la citation
+étant construite en Python et jamais rédigée par le modèle (Q4 §1), il n'y a pas de fidélité
+à vérifier après coup. À écrire comme un choix argumenté dans le rapport, pas comme un oubli.
+
+**Outillage.** Le harnais est `scripts/eval_rag.py`, lancé par chemin comme
+`scripts/check_index.py`, et il attaque la recherche **sans passer par le serveur MCP** —
+c'est ce qui permet de mesurer E6 dès l'étape 2, alors que les tests d'acceptance attendent
+le chantier 3. Les cibles Make portent les runs publiés (`eval`, `eval-axe1`, `eval-axe2`,
+`calibrer`, `ingest-brut`), pas les 24 combinaisons ; l'exploration passe par les drapeaux.
+Les CSV portent les quatre drapeaux dans leur nom.
+
+**Deux fichiers de questions, jamais mélangés** : `questions_rag.jsonl` mesure,
+`questions_calibration.jsonl` — huit questions hors corpus à écrire — calibre les seuils
+(Q4 §6).
+
+### Conséquence sur l'étape 2
+
+**La recherche prend sa collection et sa stratégie en paramètres, jamais en constantes.**
+C'est la seule contrainte d'architecture qu'impose ce protocole. Et le seuil de refus de
+l'étape 2 porte sur la **distance cosinus** du premier résultat — le critère que Q5 §4
+prévoit pour la configuration A, faute de reranker avant l'étape 3.
