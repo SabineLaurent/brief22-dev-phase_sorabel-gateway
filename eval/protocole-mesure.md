@@ -161,11 +161,12 @@ BM25 seul. Le critère exigeant est celui du test d'acceptance ; celui du jeu se
 interprétation. Et `--tiebreak` est publié **dans ses deux positions, sur les trois
 sous-ensembles** — c'est sur `couverte` que la règle peut nuire.
 
-## 8. Nommage des drapeaux
+## 8. Nommage
 
-Ils sont en **anglais**, par cohérence avec `--dry-run` et `--reset` déjà en place, et parce
-qu'ils apparaîtront tels quels dans le rapport publié : ils ne changent plus une fois qu'un
-chiffre les cite.
+**Le vocabulaire publié est celui des cibles Make, en français** — c'est lui qui apparaît
+dans le rapport et qui doit rester stable une fois qu'un chiffre le cite. Les drapeaux du
+script restent en anglais par cohérence avec `--dry-run` et `--reset` ; ils sont un détail
+d'implémentation, pas l'interface. Voir §10.
 
 ## 9. Ce que ce protocole ne mesure pas — à dire, pas à cacher
 
@@ -218,39 +219,73 @@ différents, et elles n'ont pas le même calendrier.
 Le script est `scripts/eval_rag.py`, lancé par chemin comme `scripts/check_index.py` — pas
 un module importable, pour ne pas nommer un paquet `eval`.
 
-### Le Makefile porte les runs publiés, pas la matrice entière
+### Une cible Make par mesure publiée
 
-Quatre drapeaux font 24 combinaisons : une cible Make par combinaison serait illisible et
-personne ne les rejouerait toutes. Les cibles portent donc **ce qui est publié** ;
-l'exploration ponctuelle passe par le script.
+Les quatre drapeaux forment 24 combinaisons, mais **on n'en publie que sept**. À ce
+nombre-là, une cible nommée par mesure vaut mieux qu'une chaîne de drapeaux : c'est la
+convention du dépôt — tous les flux passent par `make` —, c'est ce qui rend un chiffre
+rejouable tel quel, et c'est le seul endroit où le protocole se lit d'un coup d'œil.
 
 ```make
-ingest        # ingestion nettoyée      -> collection sorabel_corpus       (défaut, existant)
-ingest-brut   # ingestion texte brut    -> collection sorabel_corpus_raw   (axe 2)
-eval          # rejoue tout le protocole et réécrit eval/rapport_gain.md
-eval-axe1     # A / B / C à ingestion constante
-eval-axe2     # les deux ablations d'ingestion
-calibrer      # règle les seuils sur questions_calibration.jsonl, n'écrit aucun chiffre publié
+# — ingestion —
+ingest                   # texte nettoyé -> sorabel_corpus        (défaut, existant)
+ingest-brut              # texte brut    -> sorabel_corpus_raw    (axe 2a)
+
+# — axe 1 : la recherche, à ingestion constante —
+mesure-dense             # A · clean · filtre on   — l'« avant » du brief
+mesure-lexical           # B · clean · filtre on   — le témoin
+mesure-hybride           # C · clean · filtre on   — l'« après »
+
+# — axe 2 : l'ingestion, à recherche constante —
+mesure-sans-nettoyage    # C · raw   · filtre on   — ce que vaut le nettoyage
+mesure-sans-versions     # C · clean · filtre off  — ce que vaut le versionnement
+
+# — la ligne parlante —
+mesure-rag-simple        # A · raw   · filtre off · départage off
+
+# — orchestration —
+mesure                   # rejoue les sept et réécrit eval/rapport_gain.md
+calibrer                 # règle les seuils sur questions_calibration.jsonl
 ```
 
-Pour un run isolé, le script prend les drapeaux directement — même esprit que la cible
-`client` existante, qui passe déjà `PROFILE` en variable :
+**Les cibles sont l'interface publiée ; les drapeaux restent dessous.** Le script les accepte
+— il en a besoin — mais aucun chiffre du rapport ne cite une ligne de commande à drapeaux :
+il cite une cible. L'exploration ponctuelle et le débogage passent par le script directement,
+sans que ça devienne une manière de produire un résultat publiable.
 
 ```bash
-uv run python scripts/eval_rag.py --config A --text raw --version-filter off --tiebreak off
+uv run python scripts/eval_rag.py --config A --text raw --version-filter off   # exploration
+make mesure-rag-simple                                                          # publication
 ```
+
+**`--tiebreak` n'a pas sa cible.** La règle de départage est un réordonnancement de la liste
+finale : le harnais calcule les deux positions dans la même passe et publie les deux colonnes
+([`Q3`](../docs/conception/1-rag-avance/Q3.md) §5). Une cible par position doublerait le
+nombre de runs pour un post-traitement qui ne coûte rien.
+
+**Les noms de cibles sont en français**, comme le reste du `Makefile` et comme le fixe
+`CLAUDE.md`. Les drapeaux du script restent en anglais, par cohérence avec `--dry-run` et
+`--reset` — ils ne sont plus le vocabulaire publié, donc la question de leur langue ne se
+pose plus.
 
 ### Ce qui est écrit sur le disque
 
 ```
-eval/resultats/<config>-<text>-<version-filter>-<tiebreak>.csv   une ligne par question
-eval/rapport_gain.md                                             le tableau de synthèse publié
+eval/resultats/mesure-dense.csv            une ligne par question
+eval/resultats/mesure-sans-nettoyage.csv
+eval/resultats/…                           un fichier par cible
+eval/rapport_gain.md                       le tableau de synthèse publié
 ```
 
-Le nom du CSV **porte les quatre drapeaux**. C'est volontaire : un fichier de résultats dont
-on ne peut pas relire la configuration n'est pas une mesure, c'est un souvenir. Et
-`make eval` réécrit `rapport_gain.md` en entier, jamais par retouche — un rapport à moitié
-régénéré mélangerait deux exécutions.
+**Le CSV porte le nom de la cible qui l'a produit**, et son en-tête rappelle les quatre
+drapeaux effectifs. Un fichier de résultats dont on ne peut pas relire la configuration n'est
+pas une mesure, c'est un souvenir — et le nom de la cible est la manière la plus courte de la
+relire, puisqu'il suffit de la relancer.
+
+Un run d'exploration lancé au script écrit dans `eval/resultats/adhoc-*.csv`, jamais sous un
+nom de cible : ce qui n'est pas reproductible par un `make` ne prend pas la place de ce qui
+l'est. Et `make mesure` réécrit `rapport_gain.md` **en entier**, jamais par retouche — un
+rapport à moitié régénéré mélangerait deux exécutions.
 
 ## 11. Pas d'évaluateur de RAG — et c'est une décision, pas une paresse
 

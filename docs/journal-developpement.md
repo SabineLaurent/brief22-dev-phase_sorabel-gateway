@@ -495,9 +495,15 @@ sous-ensemble de huit questions. Surtout, l'architecture a retiré le besoin : l
 **Outillage.** Le harnais est `scripts/eval_rag.py`, lancé par chemin comme
 `scripts/check_index.py`, et il attaque la recherche **sans passer par le serveur MCP** —
 c'est ce qui permet de mesurer E6 dès l'étape 2, alors que les tests d'acceptance attendent
-le chantier 3. Les cibles Make portent les runs publiés (`eval`, `eval-axe1`, `eval-axe2`,
-`calibrer`, `ingest-brut`), pas les 24 combinaisons ; l'exploration passe par les drapeaux.
-Les CSV portent les quatre drapeaux dans leur nom.
+le chantier 3. **Une cible Make par mesure publiée** — `mesure-dense`,
+`mesure-lexical`, `mesure-hybride`, `mesure-sans-nettoyage`, `mesure-sans-versions`,
+`mesure-rag-simple`, plus `mesure` qui rejoue les sept, `calibrer` et `ingest-brut`. Le
+premier jet de ce protocole écartait cette solution au motif que les quatre drapeaux font
+24 combinaisons : l'argument était faux, on n'en publie que **sept**, et à ce nombre-là la
+cible nommée est meilleure que la chaîne de drapeaux — elle est rejouable telle quelle, elle
+suit la convention du dépôt, et elle tranche du même coup la langue du vocabulaire publié
+(français, comme les autres cibles). Les drapeaux restent sous les cibles pour
+l'exploration ; les CSV portent le nom de leur cible.
 
 **Deux fichiers de questions, jamais mélangés** : `questions_rag.jsonl` mesure,
 `questions_calibration.jsonl` — huit questions hors corpus à écrire — calibre les seuils
