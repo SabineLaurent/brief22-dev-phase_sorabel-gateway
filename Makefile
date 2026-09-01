@@ -1,4 +1,4 @@
-.PHONY: install up down seed test fmt lint serve client journal
+.PHONY: install up down seed ingest check-index test fmt lint serve client journal
 
 install:
 	uv sync
@@ -8,6 +8,12 @@ seed:
 
 up:
 	docker compose up -d
+
+ingest:
+	uv run python -m ingest.cli
+
+check-index:
+	uv run python scripts/check_index.py
 
 down:
 	docker compose down

@@ -1,0 +1,154 @@
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="catalogue-tools-sorabel" name="Catalogue des tools MCP — les huit">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1780" pageHeight="1520" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <!-- ====== TITRE ====== -->
+        <mxCell id="TITRE" value="&lt;b&gt;Catalogue des tools MCP — Sorabel Data Gateway&lt;/b&gt;&lt;br&gt;8 tools &amp;#183; le discriminant réel entre les 4 documentaires est le &lt;b&gt;mode d'adressage&lt;/b&gt; (similarité / identité), pas « haut niveau / briques »&lt;br&gt;&lt;i&gt;fiches complètes, outputSchema d'union et les 12 codes : 03-catalogue-tools.md&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1700" height="62" as="geometry"/>
+        </mxCell>
+        <!-- ====== EN-TETE ====== -->
+        <mxCell id="H_Famille" value="&lt;b&gt;Famille&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="100" width="170" height="44" as="geometry"/>
+        </mxCell>
+        <mxCell id="H_Nom" value="&lt;b&gt;Nom&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="220" y="100" width="220" height="44" as="geometry"/>
+        </mxCell>
+        <mxCell id="H_Entrées" value="&lt;b&gt;Entrées&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="450" y="100" width="320" height="44" as="geometry"/>
+        </mxCell>
+        <mxCell id="H_Sorties" value="&lt;b&gt;Sorties&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="780" y="100" width="340" height="44" as="geometry"/>
+        </mxCell>
+        <mxCell id="H_Garanties" value="&lt;b&gt;Garanties&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="100" width="610" height="44" as="geometry"/>
+        </mxCell>
+        <mxCell id="answer_question_Famille" value="RAG complet" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="148" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="answer_question_Nom" value="answer_question(question, collections)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="148" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="answer_question_Entrées" value="question (texte libre) &amp;#183; collections (option.)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="148" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="answer_question_Sorties" value="réponse rédigée + citations structurées" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="148" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="answer_question_Garanties" value="&lt;b&gt;E1&lt;/b&gt; : citations construites en Python, jamais rédigées par le LLM &amp;#183; ne rédige pas quand une barrière tombe &amp;#183; lecture seule &amp;#183; journalisé" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="148" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="search_docs_Famille" value="brique RAG — similarité" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="256" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="search_docs_Nom" value="search_docs(question, collections)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="256" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="search_docs_Entrées" value="question (texte libre) &amp;#183; collections (option.)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="256" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="search_docs_Sorties" value="extraits classés, avec leurs 11 métadonnées" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="256" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="search_docs_Garanties" value="aucune génération : zéro risque d'hallucination &amp;#183; seul tool où &lt;b&gt;E6&lt;/b&gt; est mesurable &amp;#183; même filtrage documentaire qu'answer_question" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="256" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_document_Famille" value="brique RAG — identité" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="364" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_document_Nom" value="get_document(doc_key, version)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="364" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_document_Entrées" value="doc_key (obligatoire) &amp;#183; version (option., défaut = courante)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="364" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_document_Sorties" value="texte de l'édition, liens sortants inclus, + métadonnées" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="364" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_document_Garanties" value="vérifie collection &lt;b&gt;et&lt;/b&gt; thème avant tout accès &amp;#183; refus = &lt;i&gt;perimetre_interdit&lt;/i&gt;, jamais &lt;i&gt;introuvable&lt;/i&gt; (écart S3 refermé)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="364" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="list_sources_Famille" value="brique RAG — identité" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="472" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="list_sources_Nom" value="list_sources(collections)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="472" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="list_sources_Entrées" value="collections (option.)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="472" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="list_sources_Sorties" value="inventaire par collection : documents, éditions, plage de dates" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="472" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="list_sources_Garanties" value="construit depuis filtre_index(profil) &amp;#183; ne publie jamais l'existence d'une note fermée" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="472" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_schema_Famille" value="aide SQL" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="580" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_schema_Nom" value="get_schema()" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="580" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_schema_Entrées" value="&lt;b&gt;aucun argument exposé&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="580" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_schema_Sorties" value="DDL filtré et commenté, énumérations, plage temporelle, conventions" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="580" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="get_schema_Garanties" value="aucune colonne hors matrice, &lt;b&gt;pas même son nom&lt;/b&gt; &amp;#183; aucun échantillon de lignes &amp;#183; accordé aussi au profil &lt;i&gt;dev&lt;/i&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="580" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="ask_database_Famille" value="SQL génératif" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="688" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="ask_database_Nom" value="ask_database(question)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="688" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="ask_database_Entrées" value="question (texte libre) — seul argument exposé" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="688" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="ask_database_Sorties" value="résultat + &lt;b&gt;la requête SQL qui l'a produite&lt;/b&gt; + conventions appliquées" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="688" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="ask_database_Garanties" value="AST sqlglot, 5 contrôles &amp;#183; connexion mode=ro + query_only=ON &amp;#183; requête toujours rendue (T1) &amp;#183; refus nomme la colonne en cause" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="688" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="check_stock_Famille" value="SQL figé" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="796" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="check_stock_Nom" value="check_stock(ref)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="796" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="check_stock_Entrées" value="ref — pattern ^REF-\d{4}$, validé avant exécution" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="796" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="check_stock_Sorties" value="une ligne par entrepôt (quantité, seuil, sous_seuil) + total" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="796" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="check_stock_Garanties" value="requête écrite d'avance : rien à générer, rien à valider &amp;#183; jamais un scalaire — 114/120 réf. en plusieurs entrepôts" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="796" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="order_status_Famille" value="SQL figé" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="904" width="170" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="order_status_Nom" value="order_status(order_id)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="220" y="904" width="220" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="order_status_Entrées" value="order_id — pattern ^CMD-\d{4}-\d{4}$, validé avant exécution" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="904" width="320" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="order_status_Sorties" value="id, statut, date_commande, montant_ht, client_id — l'en-tête seul" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="904" width="340" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="order_status_Garanties" value="requête écrite d'avance &amp;#183; distingue résultat / aucune ligne / refus" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="904" width="610" height="108" as="geometry"/>
+        </mxCell>
+        <!-- ====== LEGENDE ====== -->
+        <mxCell id="LEG" value="&lt;b&gt;Lecture&lt;/b&gt;&lt;br&gt;violet — RAG complet, seul tool qui rédige (E1) &amp;#183; bleu — briques RAG (similarité ou identité) &amp;#183; gris — aide SQL, rend la forme, pas le contenu &amp;#183; vert — SQL, génératif ou figé, gouverné par l'AST et mode=ro&lt;br&gt;&lt;br&gt;&lt;b&gt;Ce que ce tableau ne montre pas&lt;/b&gt; : l'outputSchema d'union (code requis partout, charge utile absente si vide) et les 12 codes de sortie — 03-catalogue-tools.md §4-5.&lt;br&gt;&lt;b&gt;Le paramètre profil n'apparaît dans aucune signature&lt;/b&gt; : il est lu par le serveur dans SORABEL_PROFILE, jamais reçu du client." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=6;fontSize=11;fontColor=#333333;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1032" width="1700" height="130" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
