@@ -325,3 +325,137 @@ Quatre pistes examinées et closes : le découpage du frontmatter sur la sous-ch
 quoté (les 80 notes le quotent), `_RE_OUTBOUND_LINKS` en mono-ligne (le bloc accessoires
 tient sur une ligne dans les PDF, vérifié), et l'écart `n_caracteres` 799 vs 923 (déjà
 documenté plus haut).
+
+---
+
+## 2026-09-02 — Confrontation de l'étape 1 au dossier de conception
+
+Le dossier de conception complet est arrivé dans le dépôt (`docs/conception/`) : les cinq
+questions de chaque chantier, la description du corpus et de la base, les notes de
+transport. L'étape 1 avait été écrite en s'appuyant surtout sur `docs/cadrage_dsi.md`,
+`tests/acceptance/` et `02-modele-chunk.md` ; elle est ici confrontée point par point à ce
+que `1-rag-avance/` prévoit. Tous les chiffres ci-dessous sont mesurés sur le corpus réel,
+pas relus.
+
+### Ce qui est conforme
+
+Vérifié un par un contre Q1, Q2 et le livrable `02-modele-chunk.md` :
+
+- **un document = un chunk**, aucun chunker, la citation E1 ne peut pas être coupée ;
+- **400 éditions indexées, 350 courantes**, `is_current` en métadonnée et non en filtre
+  d'index — l'option « indexer 350 » écartée en Q1 §5 l'est aussi dans le code ;
+- **règle de dérivation des identifiants** : `edition_id` = chemin relatif privé de
+  l'extension, `doc_key` = `edition_id` privé du suffixe de version, `doc_key == edition_id`
+  pour les notes. Le motif du JSON Schema est celui que `check_index.py` contrôle ;
+- **onze champs scalaires**, exactement ceux du schéma, dont les neuf `required` ;
+  `additionalProperties: false` tenu — rien d'autre n'est écrit ;
+- **la clé absente est omise, jamais vide** (§5 du livrable), pour `reference` et `theme` ;
+- **`doc_type` vient du dossier** (Q1 §1) — c'est ce que la revue de code avait corrigé la
+  veille sans connaître ce texte, qui le dit explicitement ;
+- **`version` ∈ {1.0, 1.1, 2.0, 2.1}** : mesuré, l'`enum` du schéma est exact ;
+- **`theme`** : 5 valeurs, 16 notes chacune, dérivé du nom de fichier ;
+- **`url`** : chemin relatif depuis la racine du dépôt ;
+- **`upsert` déterministe, jamais `add`** (Q1 §3) ;
+- **contrôle version du nom / version du contenu** (Q1 §6) — et le durcissement apporté par
+  la revue de code va plus loin que le dossier, qui ne dit pas ce que devient le document
+  dont une édition est écartée ;
+- **tri sur la version, pas sur la date** (Q1 §7) ;
+- **préfixes `passage:` / `query:`** de la famille e5, signalés en Q3 §6 comme le piège
+  d'implémentation à ne pas découvrir en route ;
+- **`.DS_Store` non ingéré** (Q1 §1) : le filtrage par extension l'écarte.
+
+### Divergence réelle — les références-exemples des procédures SAV
+
+Q2 §2 étend le nettoyage du texte indexé au-delà des seuls blocs « Accessoires et produits
+associés » : les 90 procédures SAV citent une référence **en exemple**, qui change d'une
+édition à l'autre, et le dossier la neutralise aussi. La fonction `sans_liens()` de Q3 §8
+est normative sur ce point ; l'ingestion ne retire que les liens sortants.
+
+Mesure sur les 7 références des 8 questions `reference_exacte`, sur les 400 éditions —
+« éditions contenant la référence (dont parasites) » :
+
+| réf | annoncé Q2 §2 | règle du dossier, rejouée | index actuel |
+|---|---|---|---|
+| `REF-8842` | 4 (1) | 4 (1) | **5 (2)** |
+| `REF-5313` | 3 (1) | 3 (1) | **5 (3)** |
+| `REF-8836` | 3 (0) | 3 (0) | **5 (2)** |
+| `REF-5719` | 3 (1) | 3 (1) | 3 (1) |
+| `REF-5603` | 3 (0) | 3 (0) | **4 (1)** |
+| `REF-4581` | 1 (0) | 1 (0) | 1 (0) |
+| `REF-9382` | 3 (1) | 3 (1) | **4 (2)** |
+
+**11 parasites au lieu de 4**, et **90 procédures SAV sur 90** portent encore une référence
+produit dans leur texte indexé. La règle du dossier reproduit sa propre table à
+l'identique : c'est bien l'ingestion qui s'en écarte, pas la table qui serait fausse.
+
+L'enjeu n'est pas cosmétique : Q3 §2 attribue au nettoyage **+5 en Hit@3** sur les huit
+questions par référence exacte, et c'est la mesure que le brief demande de publier (E6).
+Laisser ces parasites gonflerait artificiellement l'écart entre les configurations.
+
+**À corriger avant l'étape 2** — le texte indexé doit être celui du dossier avant qu'on
+mesure quoi que ce soit dessus.
+
+### Trois écarts documentaires, où c'est le dossier qui se trompe
+
+1. **`reference` : 190 / 400 annoncé, 230 mesuré.** Confirmé une seconde fois : 230
+   **éditions** portent une référence (150 fiches + 80 notices), pour 190 **documents**
+   distincts. Le livrable affiche un décompte de documents sur un dénominateur d'éditions.
+   Q2 §4 porte la même erreur (« 190 éditions sur 400 en portent une, aucune dans `sav/` ni
+   `notes/` » — les deux moitiés de la phrase se contredisent). Le code a raison.
+2. **`n_caracteres` : les deux exemples du livrable §7 ne suivent pas la même règle.**
+   L'exemple SAV (`sav/proc-casse-transport-01-v2.0`, 793) correspond **exactement** au
+   texte indexé produit par l'ingestion. L'exemple fiche (`fiches/REF-8842-v2.1`, 633)
+   correspond au texte **brut**, liens sortants compris : l'extraction brute fait 631
+   caractères, et la ligne « Accessoires » en fait 53. L'ingestion suit la règle écrite au
+   §2 du livrable — « après ces deux retraits » —, donc 563. C'est l'exemple qui est
+   incohérent avec sa propre règle, pas l'ingestion.
+3. **Le maximum de 923 n'est reproductible par aucune méthode.** Avec le nettoyage du
+   dossier et son extraction par expression régulière (espaces conservés) : 882. Avec
+   l'ingestion (BeautifulSoup + condensation) : 799. Les deux tiennent la contrainte
+   `maximum: 923` du schéma, qui reste un majorant valide.
+
+### Divergence de spécification sans effet mesuré
+
+Q1 §1 prescrit de lire le titre d'une procédure SAV dans `<title>` ; l'ingestion le lit dans
+`<h1>`. **Vérifié : les deux balises portent la même chaîne sur les 90 fichiers, zéro
+écart.** Aucun effet sur la citation E1, mais l'écart est nommé ici plutôt que laissé
+implicite. À aligner sur `<title>` en même temps que le nettoyage ci-dessus, le coût étant nul.
+
+### Point bloquant du dossier : levé
+
+Q5 §9 signalait `eval/questions_rag.jsonl` absent du dossier livré, et les 30 questions
+transcrites depuis une capture d'écran. **Le fichier est présent dans le dépôt** :
+30 questions, 8 `reference_exacte` · 14 `couverte` · 8 `hors_corpus`, 7 références
+distinctes pour 8 questions — le dénominateur que Q5 §6.5 met en garde de ne pas confondre.
+Nuance : `attendu_type` n'est présent que sur **13** des 14 questions `couverte`. Les
+mesures E6 pourront donc être publiées comme résultat, et non plus comme ordre de grandeur.
+
+### Ce que le dossier impose aux étapes suivantes, et qui n'est pas encore fait
+
+Relevé ici pour n'avoir pas à le redécouvrir :
+
+- **le filtre `is_current` s'applique dans chaque liste avant sa troncature**, jamais après
+  la fusion RRF (Q1 §5) — côté Chroma, `where={"is_current": True}` dans la requête ;
+- **la citation est construite en Python**, jamais rédigée par le modèle, et porte
+  `titre + version + date`, plus `reference` quand elle existe (Q4 §2). C'est un écart
+  assumé avec la lettre d'E1, motivé par 52 titres pour 150 fiches ;
+- **deux barrières de refus, deux codes** : `hors_corpus` (seuil) et `contexte_insuffisant`
+  (garde de suffisance), aucun des deux n'étant une erreur au sens du journal (Q4 §7) ;
+- **le seuil de refus ne peut pas porter sur un score lexical** : les plages BM25 des
+  questions couvertes et hors corpus se chevauchent (Q4 §3). Il porte sur le score du
+  reranker — qui n'existe qu'à l'étape 3. **Pour l'étape 2, Q5 §4 prévoit explicitement le
+  critère de la configuration A : la distance cosinus du premier résultat**, bornée donc
+  comparable. C'est ce qu'il faut implémenter, en le nommant comme tel ;
+- **huit questions hors corpus supplémentaires**, écrites par nous, servent à calibrer ; les
+  huit du jeu servent à mesurer (Q4 §6). À versionner à côté du jeu fourni, jamais mélangées ;
+- **règle de départage fiche / notice**, exprimée en rangs et non en scores, `FENETRE = 3`,
+  publiée avec et sans (Q3 §5) ;
+- **trois configurations A / B / C** et non deux, mesure publiée sur le profil `commercial`
+  (Q5 §2 et §5).
+
+### Conclusion
+
+L'étape 1 est conforme au dossier sur tout ce qui touche au modèle de données et au
+versionnement. Elle s'en écarte sur **un** point de fond — le périmètre du nettoyage du
+texte indexé — et sur un point de forme sans effet. Trois chiffres du dossier sont, eux, à
+corriger. Rien de tout cela ne remet en cause l'index existant au-delà d'une réindexation.
