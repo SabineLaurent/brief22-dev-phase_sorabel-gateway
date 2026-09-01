@@ -38,6 +38,46 @@ L'espace de mesure est un produit de quatre paramètres, pas une collection de p
 | `--version-filter` | `on` *(défaut)* · `off` | recherche | `is_current` appliqué dans chaque liste **avant sa troncature** ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5), ou pas de filtre |
 | `--tiebreak` | `on` · `off` | recherche | la règle de départage fiche/notice, en rangs, `FENETRE = 3` ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §5) |
 
+### Ce que chaque levier change, concrètement
+
+**`--text` — texte nettoyé ou brut.** Ce qui part dans l'**index**, jamais ce qui est
+affiché : le texte rendu par `get_document` et l'extrait cité restent complets dans les deux
+cas. Le nettoyage retire les deux endroits où une édition cite une référence **qui n'est pas
+son sujet** :
+
+```
+Référence produit : REF-8842                            <- le sujet, conservé
+Accessoires et produits associés : REF-4581, REF-6825   <- ligne retirée      (fiches)
+… exemple traité sur la référence REF-2303.             <- la REF est retirée (SAV)
+```
+
+Sans ce retrait, la fiche de `REF-8842` remonte sur une recherche `REF-4581` aussi haut que
+la fiche de `REF-4581` elle-même : pour BM25 une référence est un terme à IDF très élevé.
+Chiffré à **+5 en Hit@3** ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §2).
+
+**`--version-filter` — le filtre `is_current`.** Les 400 éditions sont indexées ; 350 sont
+la version la plus récente de leur document.
+
+| | Ce que la recherche voit | Effet |
+|---|---|---|
+| `on` | les **350** éditions courantes | un document = une place |
+| `off` | les **400** | les deux éditions d'un même document sortent côte à côte — elles se ressemblent à **0,965** ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §4) — soit deux places du top-5 pour un contenu unique |
+
+**`--tiebreak` — le départage fiche / notice.** Une règle de fin de course, appliquée à la
+liste finale. Sur la requête `REF-8842`, où la question *est* la référence, nue :
+
+```
+1. notices/notice-REF-8842     <- la notice cite la référence 2 fois
+2. notes/…-politique-tarifaire
+3. fiches/REF-8842-v2.1        <- la fiche la cite 1 fois
+```
+
+Le test d'acceptance exige la **fiche** en tête, or rien dans la requête ne demande une fiche
+plutôt qu'une notice — aucun étage de recherche ne peut le deviner
+([`Q3`](../docs/conception/1-rag-avance/Q3.md) §5). D'où la règle : **à référence égale,
+dans les trois premiers, la fiche technique passe devant la notice.** Un seul échange, jamais
+un reclassement, et elle ne lit jamais le texte de la question.
+
 **Chaque valeur de `--text` a sa collection Chroma**, parce que le texte indexé détermine
 les vecteurs : `sorabel_corpus` pour `clean`, `sorabel_corpus_raw` pour `raw`. Les trois
 autres drapeaux ne touchent pas à l'index et se règlent à la requête.
@@ -182,13 +222,6 @@ d'implémentation, pas l'interface. Voir §10.
 - **rejouer A après C**, pas seulement avant
   ([`Q5`](../docs/conception/1-rag-avance/Q5.md) §6) : une mesure « avant » faite sur un
   index qui a changé entre-temps n'est pas une mesure.
-
-## Conséquence sur le code à écrire
-
-**La recherche prend sa collection et sa stratégie en paramètres, jamais en constantes.**
-C'est la seule décision d'architecture qu'impose ce protocole, et elle se prend à l'étape 2 :
-si elle est prise, chaque axe de mesure coûte un drapeau ; si elle ne l'est pas, il faudra
-rouvrir la recherche à l'étape 3, au moment précis où il faudra la rejouer à l'identique.
 
 ## 10. Comment ça se joue
 
@@ -340,6 +373,13 @@ Celui-ci n'en a pas besoin parce qu'il ne peut pas mentir sur ses sources.
 **La seule chose qui pourrait faire revenir la question** : si le brief demandait de noter
 la *qualité rédactionnelle* des réponses. Il ne le demande pas — E1 porte sur la citation et
 le refus, E6 sur le gain de la recherche. Les deux sont structurels et déterministes.
+
+## Conséquence sur le code à écrire
+
+**La recherche prend sa collection et sa stratégie en paramètres, jamais en constantes.**
+C'est la seule décision d'architecture qu'impose ce protocole, et elle se prend à l'étape 2 :
+si elle est prise, chaque axe de mesure coûte un drapeau ; si elle ne l'est pas, il faudra
+rouvrir la recherche à l'étape 3, au moment précis où il faudra la rejouer à l'identique.
 
 ## Renvois
 
