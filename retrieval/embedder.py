@@ -18,6 +18,7 @@ from typing import Protocol, cast
 
 from config import Settings
 from config import settings as default_settings
+from retrieval.azure_client import build_azure_openai_client
 
 #: Les modèles e5 sont entraînés avec ces préfixes ; les omettre coûte du rappel.
 _DOCUMENT_PREFIX = "passage: "
@@ -88,15 +89,10 @@ class AzureEmbedder:
 
     def _get_client(self):  # type: ignore[no-untyped-def]
         if self._client is None:
-            try:
-                from openai import OpenAI
-            except ImportError as error:  # pragma: no cover - dépend de la config
-                raise RuntimeError(
-                    "AZURE_EMBEDDING_DEPLOYMENT est configuré mais le paquet `openai` "
-                    "n'est pas installé — ajouter la dépendance ou vider la variable "
-                    "pour retomber sur le modèle local."
-                ) from error
-            self._client = OpenAI(base_url=f"{self._endpoint}/openai/v1", api_key=self._api_key)
+            self._client = build_azure_openai_client(
+                self._endpoint, self._api_key,
+                setting_name="AZURE_EMBEDDING_DEPLOYMENT", fallback="le modèle local",
+            )
         return self._client
 
     def _encode(self, texts: list[str]) -> list[Vector]:

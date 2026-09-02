@@ -15,10 +15,13 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `retrieval/search.py` (tout paramétré : collection, étage, filtre, départage, seuil),
   `scripts/calibrate_threshold.py`, `eval/questions_calibration.jsonl`. Mesure « avant »
   posée : Hit@1 2/8 en dense seul, refus 7/8 au seuil 0,831.
-- **Chantier RAG, étape 3 — hybride BM25 + RRF + rerank, mesure du gain E6 : à faire.**
-  C'est la prochaine étape. Le protocole est arrêté d'avance dans
-  `eval/protocole-mesure.md` — le lire avant de coder.
-- Puis chantier Text-to-SQL, puis chantier serveur MCP, puis l'interface graphique.
+- **Chantier RAG, étape 3 — hybride BM25 + RRF + rerank, mesure du gain E6 : faite.**
+  `retrieval/lexical.py` (BM25), `retrieval/reranker.py` (cross-encoder / LLM Azure,
+  commutables), `scripts/eval_rag.py`, sept cibles `mesure-*`. E6 mesuré et publié dans
+  `eval/rapport_gain.md` : Hit@1 référence 2/8 (A) → 3/8 (B) → **8/8 (C)**, MRR 1,000 en
+  hybride. Chantier RAG terminé.
+- **Chantier Text-to-SQL : à faire.** C'est la prochaine étape.
+- Puis chantier serveur MCP, puis l'interface graphique.
 
 Aucun test d'acceptance ne passe encore : ils exigent tous un serveur MCP, qui n'existe
 pas avant le troisième chantier.

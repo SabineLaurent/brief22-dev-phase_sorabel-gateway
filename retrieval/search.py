@@ -17,18 +17,27 @@ Trois décisions du dossier sont matérialisées ici :
 
 from __future__ import annotations
 
+import collections
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
+from chromadb.api.models.Collection import Collection
+
 from config import Settings
 from config import settings as default_settings
-from ingest.index import connect, get_collection
+from ingest.index import collection_name, connect, get_collection
 from ingest.normalize import TextProfile
 from retrieval.embedder import Embedder, build_embedder
+from retrieval.lexical import bm25_path, load_lexical_index
+from retrieval.reranker import Reranker, build_reranker
 
-#: Les trois étages de recherche comparés par le protocole. Seul « dense » existe à
-#: l'étape 2 ; les deux autres arrivent à l'étape 3, sans changer cette signature.
+#: Les trois étages de recherche comparés par le protocole (``Q5`` §2) : A — dense seul,
+#: B — lexical seul (le témoin), C — hybride BM25 + dense + RRF + rerank.
 Strategy = Literal["dense", "lexical", "hybrid"]
+
+#: Constante de la fusion RRF (``Q3`` §4) : pas de calibration, la décroissance en
+#: ``1 / (k + rang)`` est volontairement douce.
+_RRF_K = 60
 
 #: Statuts du contrat DSI. `contexte_insuffisant` est la seconde barrière (Q4 §5), qui
 #: vit au niveau de `answer_question` — elle suppose un appel au modèle.
@@ -138,21 +147,50 @@ def apply_tiebreak(hits: list[Hit], window: int = TIEBREAK_WINDOW) -> list[Hit]:
     return hits
 
 
-def _dense_search(
-    query: str,
-    top_k: int,
-    version_filter: bool,
-    settings: Settings,
-    embedder: Embedder,
-    text: TextProfile,
+def _fetch(collection: Collection, ids: list[str]) -> dict[str, tuple[str, dict]]:
+    """Récupère textes et métadonnées de plusieurs éditions en un seul aller-retour
+    Chroma. ``collection.get()`` ne garantit pas de rendre les identifiants dans l'ordre
+    demandé — c'est à l'appelant de reclasser depuis ce dictionnaire."""
+    if not ids:
+        return {}
+    fetched = collection.get(ids=ids, include=["metadatas", "documents"])  # type: ignore[list-item]
+    return {
+        edition_id: (str(document or ""), dict(metadata or {}))
+        for edition_id, document, metadata in zip(
+            fetched["ids"],
+            cast(list, fetched["documents"] or []),
+            cast(list, fetched["metadatas"] or []),
+        )
+    }
+
+
+def _reciprocal_rank_fusion(id_lists: list[list[str]], k: int = _RRF_K) -> list[str]:
+    """Fusionne des classements sans mélanger leurs scores (``Q3`` §4) : chaque
+    identifiant reçoit ``1 / (k + rang)`` par liste où il apparaît, puis le tri se fait
+    sur la somme. Un document excellent dans une seule liste survit ; un document moyen
+    dans les deux remonte — le comportement voulu entre deux étages aux angles morts
+    complémentaires (dense : synonymie et flexion ; lexical : références et sigles)."""
+    scores: dict[str, float] = collections.defaultdict(float)
+    for ids in id_lists:
+        for rank, edition_id in enumerate(ids, start=1):
+            scores[edition_id] += 1 / (k + rank)
+    return sorted(scores, key=lambda edition_id: scores[edition_id], reverse=True)
+
+
+def _dense_query(
+    collection: Collection, embedder: Embedder, query: str, top_k: int, version_filter: bool
 ) -> list[Hit]:
-    """Recherche dense seule — la configuration A, l'« avant » que nomme le brief.
+    """Le corps de la recherche dense, sur une collection déjà résolue.
+
+    Séparée de ``_dense_search`` pour que ``_hybrid_search`` puisse réutiliser la même
+    collection pour son étage dense et pour son ``_fetch`` final, au lieu d'ouvrir une
+    deuxième connexion Chroma pour la même collection dans le même appel.
 
     Le filtre de version part **dans la requête** : Chroma l'applique avant de tronquer à
     ``top_k``, ce qui est exactement ce que demande ``Q1`` §5. Filtrer après coup rendrait
-    le rang ininterprétable, et c'est le rang que consommera la fusion RRF de l'étape 3.
+    le rang ininterprétable, et c'est le rang que consomme la fusion RRF de la
+    configuration hybride.
     """
-    collection = get_collection(connect(settings), embedder, settings, text)
     response = collection.query(
         query_embeddings=[embedder.embed_query(query)],  # type: ignore[arg-type]
         n_results=top_k,
@@ -182,7 +220,106 @@ def _dense_search(
     return hits
 
 
-_STRATEGIES = {"dense": _dense_search}
+def _dense_search(
+    query: str,
+    top_k: int,
+    version_filter: bool,
+    settings: Settings,
+    embedder: Embedder,
+    reranker: Reranker | None,
+    text: TextProfile,
+) -> list[Hit]:
+    """Recherche dense seule — la configuration A, l'« avant » que nomme le brief.
+
+    ``reranker`` n'est pas utilisé : cette configuration n'en a pas. Il reste dans la
+    signature pour que les trois étages partagent le même point d'appel dans
+    ``_STRATEGIES``.
+    """
+    collection = get_collection(connect(settings), embedder, settings, text)
+    return _dense_query(collection, embedder, query, top_k, version_filter)
+
+
+def _lexical_search(
+    query: str,
+    top_k: int,
+    version_filter: bool,
+    settings: Settings,
+    embedder: Embedder,
+    reranker: Reranker | None,
+    text: TextProfile,
+) -> list[Hit]:
+    """Recherche lexicale seule — la configuration B, le témoin (``Q3`` §2, ``Q5`` §2).
+
+    ``embedder`` et ``reranker`` ne sont pas utilisés : BM25 ne vectorise rien et ne se
+    reclasse pas. Ils restent dans la signature pour le même point d'appel commun.
+
+    Le score rendu est le score BM25 brut, non borné : c'est la case B de ``Q5`` §4,
+    « aucun seuil de refus possible » — un résultat, pas un trou.
+    """
+    index = load_lexical_index(bm25_path(collection_name(settings, text)))
+    ranked = index.search(query, top_k, version_filter)
+    if not ranked:
+        return []
+    found = _fetch(get_collection(connect(settings), embedder, settings, text), [i for i, _ in ranked])
+    return [
+        Hit(doc_id=edition_id, score=score, text=found[edition_id][0], metadata=found[edition_id][1])
+        for edition_id, score in ranked
+        if edition_id in found
+    ]
+
+
+def _hybrid_search(
+    query: str,
+    top_k: int,
+    version_filter: bool,
+    settings: Settings,
+    embedder: Embedder,
+    reranker: Reranker | None,
+    text: TextProfile,
+) -> list[Hit]:
+    """BM25 + dense + RRF + rerank — la configuration C, l'« après » (``Q3`` §4-5).
+
+    Les deux listes qui entrent dans la fusion sont chacune filtrées par version à leur
+    propre profondeur ``rerank_candidates`` — plus large que ``top_k`` pour laisser RRF un
+    choix entre plusieurs candidats. Le reranker ne note que les candidats fusionnés,
+    jamais tout le corpus, et c'est son score qui devient le score final : c'est la seule
+    échelle bornée du pipeline (``Q4`` §3), et ``search()`` a déjà résolu ``reranker``
+    avant d'appeler cette fonction.
+    """
+    if reranker is None:
+        # search() construit toujours reranker avant d'appeler cette fonction pour la
+        # stratégie « hybrid » — un appel direct qui ne le ferait pas est un bug appelant,
+        # pas un cas à absorber silencieusement (Python retire les `assert` sous `-O`,
+        # ce message resterait, lui, une erreur explicite dans tous les cas).
+        raise RuntimeError("_hybrid_search : reranker manquant — passer par search(), pas cette fonction.")
+    depth = settings.rerank_candidates
+
+    # Une seule collection, réutilisée pour l'étage dense et le _fetch final : deux
+    # allers-retours Chroma évitables pour la même collection dans le même appel.
+    collection = get_collection(connect(settings), embedder, settings, text)
+    dense_ids = [hit.doc_id for hit in _dense_query(collection, embedder, query, depth, version_filter)]
+    lexical_index = load_lexical_index(bm25_path(collection_name(settings, text)))
+    lexical_ids = [i for i, _ in lexical_index.search(query, depth, version_filter)]
+
+    fused_ids = _reciprocal_rank_fusion([dense_ids, lexical_ids])[:depth]
+    if not fused_ids:
+        return []
+
+    found = _fetch(collection, fused_ids)
+    ordered = [(edition_id, *found[edition_id]) for edition_id in fused_ids if edition_id in found]
+    if not ordered:
+        return []
+
+    scores = reranker.score(query, [document for _, document, _ in ordered])
+    hits = [
+        Hit(doc_id=edition_id, score=score, text=document, metadata=metadata)
+        for (edition_id, document, metadata), score in zip(ordered, scores)
+    ]
+    hits.sort(key=lambda hit: hit.score, reverse=True)
+    return hits[:top_k]
+
+
+_STRATEGIES = {"dense": _dense_search, "lexical": _lexical_search, "hybrid": _hybrid_search}
 
 
 def search(
@@ -196,31 +333,44 @@ def search(
     threshold: float | None = None,
     settings: Settings | None = None,
     embedder: Embedder | None = None,
+    reranker: Reranker | None = None,
 ) -> SearchResult:
     """Cherche dans le corpus. Rend des résultats, ou un refus ``hors_corpus``.
 
     Chaque paramètre est un axe du protocole de mesure, et aucun n'a de valeur en dur
     ailleurs que dans la configuration.
 
-    ``threshold`` est un **score minimal** — la similarité cosinus du premier résultat,
-    soit ``1 - distance``. ``Q4`` §3 établit qu'un seuil ne peut pas porter sur un score
-    lexical, non borné et incomparable d'une requête à l'autre ; ``Q5`` §4 désigne pour la
-    configuration dense la distance cosinus, qui est bornée. C'est elle qu'on lit ici.
-    Passer ``None`` désactive le refus — utile pour mesurer le rappel sans que la barrière
-    ne masque un résultat.
+    ``threshold`` est un **score minimal**, sur l'échelle propre à ``strategy`` — jamais la
+    même grandeur d'une configuration à l'autre (``Q5`` §4) : la similarité cosinus du
+    premier résultat pour ``dense`` (``1 - distance``, bornée), le score du reranker pour
+    ``hybrid`` (bornée, apprise). ``lexical`` n'a pas d'échelle sur laquelle un seuil soit
+    une opération sensée (``Q4`` §3) — passer un ``threshold`` avec ``strategy="lexical"``
+    lève ``ValueError`` plutôt que de comparer silencieusement un score BM25 non borné à
+    une valeur qui n'aurait aucun sens sur cette échelle. Passer ``None`` désactive le refus
+    — utile pour mesurer le rappel sans que la barrière ne masque un résultat.
+
+    ``reranker`` n'est construit — via ``build_reranker`` — que si ``strategy="hybrid"`` :
+    inutile de charger le cross-encoder, ou d'appeler Azure, pour une mesure dense ou
+    lexicale seule.
     """
     settings = settings or default_settings
     embedder = embedder or build_embedder(settings)
-    top_k = top_k or settings.search_top_k
+    top_k = settings.search_top_k if top_k is None else top_k
+
+    if strategy == "lexical" and threshold is not None:
+        raise ValueError(
+            "un seuil de refus n'a pas de sens pour la configuration lexicale : le score "
+            "BM25 n'est pas borné (Q4 §3). Passer threshold=None pour « lexical »."
+        )
 
     run = _STRATEGIES.get(strategy)
     if run is None:
-        raise NotImplementedError(
-            f"étage de recherche « {strategy} » non disponible : seul « dense » existe à "
-            "l'étape 2, le lexical et l'hybride arrivent à l'étape 3."
-        )
+        raise NotImplementedError(f"étage de recherche « {strategy} » inconnu.")
 
-    hits = run(query, top_k, version_filter, settings, embedder, text)
+    if reranker is None and strategy == "hybrid":
+        reranker = build_reranker(settings)
+
+    hits = run(query, top_k, version_filter, settings, embedder, reranker, text)
     if tiebreak:
         hits = apply_tiebreak(hits)
 

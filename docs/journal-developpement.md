@@ -686,3 +686,227 @@ questions ferait constater un réglage au lieu de mesurer une capacité (Q4 §6)
 ```bash
 make up && make reindex && make check-index && make calibrer
 ```
+
+---
+
+## 2026-09-02 — Chantier RAG, étape 3 : hybride BM25 + RRF + rerank, mesure du gain E6
+
+> *« BM25 + dense + RRF + rerank, mesure du gain de la recherche avancée sur la recherche
+> simple (E6). »*
+
+### Périmètre tenu
+
+`retrieval/lexical.py` (BM25), `retrieval/reranker.py` (cross-encoder / LLM Azure,
+commutables), les stratégies `lexical` et `hybrid` de `retrieval/search.py`, la
+construction de l'index BM25 à l'ingestion (`ingest/index.py`), `scripts/calibrate_threshold.py
+--config C`, `scripts/eval_rag.py` (nouveau — le harnais de mesure), sept cibles Make.
+Rien de tout cela n'était à inventer sur le fond : les formules (RRF, départage), les
+modèles et les seuils sont ceux de `Q3.md`, `Q4.md`, `Q5.md` et `eval/protocole-mesure.md`.
+Seules les valeurs d'implémentation que le dossier laisse ouvertes ont été tranchées ici,
+et le sont explicitement ci-dessous.
+
+**Hors périmètre, comme prévu** : `answer_question`, la garde de suffisance
+(`contexte_insuffisant`), le serveur MCP — ils supposent un appel au modèle et arrivent
+au chantier 3.
+
+### Décisions d'implémentation prises ici
+
+Le dossier fixe la formule et les modèles ; il ne fixe pas ces valeurs-là.
+
+- **`rerank_candidates = 20`** : profondeur des deux listes (BM25, dense) avant fusion RRF,
+  et nombre de candidats effectivement notés par le reranker. Choisi sans balayage formel —
+  assez large pour laisser RRF un vrai choix (`top_k` vaut 5), assez étroit pour qu'un
+  cross-encoder CPU reste rapide sur 30 questions.
+- **Score du reranker borné par sigmoïde.** `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`
+  rend des logits, pas un score natif dans `[0, 1]` : `Q4` §3 exige une échelle bornée pour
+  qu'un seuil soit une opération sensée, la sigmoïde le garantit sans dépendre de la plage
+  de sortie du modèle.
+- **BM25 : `rank-bm25` (`BM25Okapi`, `k1=1.5`, `b=0.75`)**, les mêmes paramètres que le
+  script de référence de `Q3.md` §8, plutôt qu'une réécriture — la dépendance était déjà
+  posée en prévision de cette étape.
+- **L'index BM25 est reconstruit en entier à chaque ingestion**, sur les 400 éditions comme
+  le dense, et sérialisé à côté de lui (`data/bm25/<collection>.pkl`, gitignoré comme
+  `data/sorabel.db`). BM25 n'a pas de mise à jour incrémentale sensée : l'IDF de chaque
+  terme dépend de tout le corpus.
+- **`--tiebreak` n'est pas un drapeau du harnais de mesure**, conformément à
+  `eval/protocole-mesure.md` §10 : chaque question est jouée une seule fois par le pipeline
+  (`tiebreak=False` côté `search()`), puis `apply_tiebreak()` — pure — est rejouée localement
+  pour produire la seconde colonne. Un rerank ne coûte donc jamais deux fois.
+- **Schéma du CSV** : `id, type, critere, rang_avec_departage, rang_sans_departage, score,
+  refus, code`. Les questions `reference_exacte` écrivent **deux lignes** (`critere`
+  = `reference` puis `fiche_technique`) pour porter les deux critères de Hit@1 exigés par
+  `Q5` §3 sans les confondre dans une seule colonne. Le refus est calculé **pour toute
+  question**, pas seulement `hors_corpus` : une question `couverte` refusée à tort doit
+  pouvoir se lire dans le CSV (c'est le cas de RAG-19, voir plus bas).
+- **Rerank LLM Azure** : un seul appel `chat.completions.create` par requête, les candidats
+  numérotés dans le prompt, sortie JSON `{"scores": [{"index", "score"}, …]}`. Écrit sur le
+  même modèle que `AzureEmbedder` (import paresseux d'`openai`, même message d'erreur) mais
+  **non exercé contre un déploiement réel** : aucun déploiement Azure n'est configuré dans
+  cette session, comme pour les embeddings depuis l'étape 1.
+
+### Calibration
+
+`make calibrer` (config A) reproduit exactement le seuil de l'étape 2 : **0,8308**, 8/8
+refus corrects, 5/6 réponses tenues sur les 6 `couverte` du jeu de calibration — l'index
+n'a pas changé, la configuration A non plus.
+
+`make calibrer-hybride` (config C), en revanche, change la nature du problème : le score du
+reranker **sépare proprement** les deux populations, ce que la distance cosinus de la
+configuration A ne faisait qu'approximativement (étape 2) :
+
+| population | plage du score reranker |
+|---|---|
+| couverte (6) | 0,053 – 0,993 |
+| hors_corpus (8) | 0,000 – 0,016 |
+
+**Seuil retenu : 0,0530**, séparable (`min(couverte) > max(hors_corpus)`), 8/8 refus
+corrects et 6/6 réponses tenues sur le jeu de calibration. Les deux seuils sont écrits en
+dur dans `config.py` — même convention que `refusal_threshold` depuis l'étape 2, il n'existe
+pas de `.env` local dans cette session.
+
+### La mesure E6
+
+Profil `commercial`, texte nettoyé, filtre de version actif, départage appliqué dans les
+trois configurations (`eval/protocole-mesure.md` §1). Table complète dans
+`eval/rapport_gain.md`, générée par `make mesure` :
+
+| sous-ensemble | métrique | A dense | B lexical | C hybride |
+|---|---|---:|---:|---:|
+| reference_exacte | Hit@1 (référence) | 2/8 | 3/8 | **8/8** |
+| reference_exacte | Hit@1 (fiche technique) | 2/8 | 3/8 | **8/8** |
+| reference_exacte | MRR | 0,375 | 0,688 | **1,000** |
+| couverte | Recall@5 (`attendu_type`, n=13) | 11/13 | 11/13 | 12/13 |
+| hors_corpus | refus corrects | 7/8 | n/a (`Q4` §3) | 5/8 |
+
+**La démonstration tient** : l'hybride résout à 8/8 sur les deux critères de Hit@1 ce que le
+dense seul résout à 2/8 — exactement le trou que `Q3.md` décrit — et le fait *mieux* que
+prévu par le dossier, qui n'attendait le Hit@1 fiche à 8/8 qu'au prix d'une règle de
+départage qui se déclenche ; ici RRF et le reranker corrigent déjà la moitié des cas avant
+même le départage (voir plus bas). La ligne « RAG simple » (A, texte brut, filtre et
+départage désactivés) confirme l'écart : **1/8** contre **8/8** pour le RAG avancé.
+
+### Écart mesuré, chassé jusqu'à sa cause — B lexical à 3/8, pas 8/8
+
+`Q3.md` §2 annonce le lexical seul à 8/8 en Hit@1 référence. La mesure en rend **3/8**.
+Chassé, pas ignoré : rejouer le script de référence de `Q3.md` §8 caractère pour caractère
+confirme ses propres chiffres (`notice 6,10 · note 5,47 · fiche 4,49` sur « REF-8842 ») —
+donc l'écart n'est pas une erreur de formule BM25 ni de paramètres (`rank-bm25` en
+`k1=1,5, b=0,75` est le même calcul).
+
+**La cause : la longueur du document.** Le script de `Q3.md` tokenize le texte brut du
+fichier, frontmatter YAML compris, pour les notes. L'ingestion de l'étape 1 — décision prise
+avant cette étape, pour toutes les recherches, dense comme lexicale — retire le frontmatter
+de `indexed_text` : c'est une métadonnée structurée, pas de la prose à indexer. Conséquence
+mesurée sur la note `politique-tarifaire-01`, seule à changer entre les deux méthodes :
+
+| | note (tokens) | notice (tokens) | note devant la notice ? |
+|---|---:|---:|---|
+| script `Q3.md` (frontmatter inclus) | 49 | 94 | non — 5,47 < 6,10 |
+| index de la gateway (frontmatter exclu) | 33 | 94 | **oui** — 5,88 > 5,77 |
+
+BM25 normalise par la longueur du document (`b = 0,75`) : une note plus courte, à occurrence
+égale du terme cherché, obtient un score plus haut. Retirer 16 tokens de frontmatter suffit à
+inverser l'ordre note/notice sur une course déjà serrée. Le même mécanisme joue sur 5 des 8
+questions `reference_exacte` : une note interne, sans métadonnée `reference`, prend le rang 1
+à la place de la notice ou de la fiche.
+
+**Ce n'est pas un défaut du code.** L'exclusion du frontmatter est une décision de l'étape 1,
+déjà appliquée au dense depuis le début — BM25 est seulement le premier étage à exposer sa
+sensibilité à la longueur, que le dense (un vecteur par document, sans normalisation
+croisée) ne partage pas. Revenir dessus casserait la cohérence « un seul texte indexé »
+qui tient tout le pipeline depuis `Q2.md`, pour un score BM25 « témoin » dont le rôle — `Q5`
+§2 le dit — n'est pas d'être la mesure publiée mais la comparaison qui empêche l'hybride de
+s'attribuer un gain qui ne serait pas le sien. La règle de départage confirme le diagnostic
+sans le résoudre : elle sait échanger une notice contre une fiche (Hit@1 fiche passe de 1/8 à
+3/8 avec départage), mais une note interne n'a pas de `reference` — `apply_tiebreak()`
+s'arrête à sa première condition (`if not top.reference: return hits`) et ne la déplace
+jamais. C'est voulu : la règle départage, elle ne classe pas.
+
+### Le refus en configuration C : 5/8, trois cas distincts
+
+- **RAG-19** (« différentiel pour une plaque de cuisson ») est refusé — score 0,0049, très
+  en dessous du seuil. C'est correct : `description-corpus.md` §7.2 signale ce sujet comme
+  absent du corpus, l'étiquette `couverte` du jeu est ce qui est en tension, pas la réponse
+  du pipeline (`Q5` §3 : « une configuration qui les rate n'a pas régressé »).
+- **RAG-23** (« politique de télétravail », 0,0868) et **RAG-29** (« résilier le contrat
+  d'électricité de l'entrepôt de Lyon », 0,5175) passent le seuil à tort. RAG-29 est déjà
+  identifié à l'étape 2 comme le piège le plus difficile du jeu, en dense comme en BM25 — il
+  reste un piège dans l'hybride.
+- **RAG-24** (« chiffre d'affaires de Sorabel en 2025 », 0,8422) est un piège **nouveau,
+  découvert ici** : le cross-encoder attribue un score élevé à une fiche technique de
+  goulotte sans rapport, dont la métadonnée porte `Date : 2025-09-02`. Le modèle semble
+  accrocher sur la présence du seul terme « 2025 » commun aux deux textes — un faux ami
+  lexical que ni le jeu de calibration ni la mesure de l'étape 2 ne pouvaient exposer, aucune
+  de leurs questions ne portant une année. Limite méthodologique déjà nommée par `Q4` §6 :
+  un seuil réglé sur huit questions ne peut pas anticiper tous les pièges d'un corpus de 400
+  documents.
+
+### Axe 2 — nettoyage et versionnement, effet nul sur l'hybride
+
+Chiffre notable, à l'opposé de ce que `Q3.md` §2 mesure sur BM25 seul (+5 en Hit@3) :
+`mesure-sans-nettoyage` (texte brut) et `mesure-sans-versions` (filtre désactivé) rendent
+**exactement** les mêmes chiffres que `mesure-hybride` — 8/8, 8/8, 12/13, 5/8. Le RRF et le
+reranker absorbent le bruit que le nettoyage retirait et les doublons de version que le
+filtre écartait : sur ce corpus et à cette profondeur de candidats (`rerank_candidates=20`),
+les décisions d'ingestion mesurées à l'axe 2 ne changent plus le résultat final une fois le
+reranker en bout de chaîne. Ne pas généraliser : la mesure porte sur 8 questions
+`reference_exacte`, et le nettoyage reste requis en amont — c'est lui qui évite qu'un
+candidat parasite occupe une des 20 places avant la fusion.
+
+### Ce qui a été écrit
+
+| Fichier | Rôle |
+|---|---|
+| `retrieval/lexical.py` | Tokenizer (regex de `Q3.md` §8), `LexicalIndex` (BM25Okapi + filtre de version avant troncature), sérialisation |
+| `retrieval/reranker.py` | `Reranker` (protocole), `LocalReranker` (cross-encoder + sigmoïde), `AzureReranker` (LLM-juge), sélecteur |
+| `ingest/index.py` | Construction de l'index BM25 en fin d'`index_editions()` — remplace le commentaire « point de greffe » |
+| `retrieval/search.py` | `_reciprocal_rank_fusion`, `_lexical_search`, `_hybrid_search`, `_fetch` (un aller-retour Chroma par lot d'identifiants) |
+| `scripts/calibrate_threshold.py` | `--config {A,C}` |
+| `scripts/eval_rag.py` | Nouveau — mode run (une configuration, un CSV) et mode `--report` (les sept CSV → `eval/rapport_gain.md`) |
+| `Makefile` | `calibrer-hybride`, les sept cibles de mesure, `mesure` |
+| `config.py`, `.env.example` | `rerank_candidates`, `reranker_model`, `azure_rerank_deployment`, `rerank_threshold` |
+| `.gitignore` | `data/bm25/` — dérivé de l'ingestion, comme `data/sorabel.db` |
+
+`ruff check .` et `mypy ingest retrieval sql mcp_server` : verts.
+
+### Vérifications passées
+
+`make reindex`, `make ingest-brut` : 400 éditions, 350 courantes, index BM25 écrit dans les
+deux collections. `make check-index` : 18 contrôles toujours au vert, inchangés. `make
+calibrer` puis `make calibrer-hybride` : seuils ci-dessus. Les sept cibles de mesure jouées
+individuellement puis `make mesure --report` : `eval/rapport_gain.md` généré, chiffres
+recoupés à la main contre les CSV et contre les ordres de grandeur de `Q3.md`/`Q4.md`/`Q5.md`
+pour la configuration A (identiques à l'étape 2 — aucune régression).
+
+### Environnement de la session
+
+`uv sync --extra vector` a dû être rejoué (`sentence-transformers`/`torch` absents au début
+de cette session). Une ingestion `--text raw` a une fois planté **après** avoir écrit son
+rapport et son index (« `recursive_mutex lock failed` », une exception native à la fermeture
+de l'interpréteur) ; rejouée, exit 0. Le conteneur Chroma a une fois été recréé par `docker
+compose up -d` juste après un démarrage à froid de Docker Desktop ; les données ont survécu
+(volume monté sur `.docker-data/chroma`), vérifié par comptage (400/400 dans les deux
+collections). Aucun des deux n'a affecté un résultat mesuré — consignés ici pour ne pas être
+repris pour un défaut du code s'ils se reproduisent.
+
+### Points ouverts
+
+- **`answer_question` et la garde de suffisance** (`contexte_insuffisant`) : chantier 3,
+  inchangé.
+- **Le rerank LLM Azure n'est pas exercé** contre un déploiement réel — même situation que
+  `AzureEmbedder` depuis l'étape 1. Le prompt et le format de sortie sont un choix
+  d'implémentation, à revoir à la première exécution réelle.
+- **`rerank_candidates = 20`** n'a pas fait l'objet d'un balayage — une valeur plus grande
+  pourrait changer le taux de refus (RAG-24 en particulier) sans changer les Hit@1, déjà à
+  8/8.
+- **Le seuil de la configuration C reste réglé sur 8 questions hors corpus**, comme celui de
+  la configuration A à l'étape 2 — limite méthodologique nommée par `Q4` §6, RAG-24 en est
+  une illustration mesurée, pas une raison de recalibrer sur le jeu de mesure.
+
+### Rejouer cette étape
+
+```bash
+make up && make reindex && make ingest-brut && make check-index
+make calibrer && make calibrer-hybride
+make mesure
+```

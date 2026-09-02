@@ -27,6 +27,7 @@ from config import settings as default_settings
 from ingest.normalize import Edition, TextProfile
 from ingest.registry import Registry, build_metadata
 from retrieval.embedder import Embedder, build_embedder
+from retrieval.lexical import bm25_path, build_lexical_index, save_lexical_index
 
 #: Les vecteurs sont comparés en cosinus — la métrique des modèles e5.
 _DISTANCE_METADATA = {"hnsw:space": "cosine"}
@@ -231,12 +232,14 @@ def index_editions(
     deleted = _reconcile_deletions(collection, {edition.edition_id for edition in editions})
     if deleted:
         print(f"index : {len(deleted)} édition(s) obsolète(s) retirée(s)", file=sys.stderr)
+
+    # L'index BM25 est reconstruit en entier, sur les mêmes éditions et le même texte que
+    # l'index dense qui précède : les deux index de cette collection sont donc toujours en
+    # phase, et le lexical n'a pas de mise à jour incrémentale sensée — l'IDF de chaque
+    # terme change globalement dès qu'une édition apparaît ou disparaît.
+    save_lexical_index(
+        build_lexical_index(editions, registry, text),
+        bm25_path(collection_name(settings, text)),
+    )
+
     return IndexReport(written=written, deleted=deleted)
-
-
-# --- Point de greffe de l'étape 3 -------------------------------------------
-# La recherche hybride ajoutera ici la construction de l'index lexical BM25 sur
-# `edition.indexed_text`, sérialisé à côté de l'index vectoriel pour ne pas être
-# reconstruit à chaque démarrage du serveur MCP. `index_editions()` en sera le
-# point d'appel : les deux index sont produits par la même passe d'ingestion, sur
-# le même texte, pour qu'ils ne puissent pas diverger.

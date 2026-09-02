@@ -1,4 +1,6 @@
-.PHONY: install up down seed ingest ingest-brut reindex check-index calibrer test fmt lint serve client journal
+.PHONY: install up down seed ingest ingest-brut reindex check-index calibrer calibrer-hybride \
+	mesure-dense mesure-lexical mesure-hybride mesure-sans-nettoyage mesure-sans-versions \
+	mesure-rag-simple mesure test fmt lint serve client journal
 
 install:
 	uv sync
@@ -22,7 +24,31 @@ check-index:
 	uv run python scripts/check_index.py
 
 calibrer:
-	uv run python scripts/calibrate_threshold.py
+	uv run python scripts/calibrate_threshold.py --config A
+
+calibrer-hybride:
+	uv run python scripts/calibrate_threshold.py --config C
+
+mesure-dense:
+	uv run python scripts/eval_rag.py --config A --text clean --version-filter on --out mesure-dense
+
+mesure-lexical:
+	uv run python scripts/eval_rag.py --config B --text clean --version-filter on --out mesure-lexical
+
+mesure-hybride:
+	uv run python scripts/eval_rag.py --config C --text clean --version-filter on --out mesure-hybride
+
+mesure-sans-nettoyage:
+	uv run python scripts/eval_rag.py --config C --text raw --version-filter on --out mesure-sans-nettoyage
+
+mesure-sans-versions:
+	uv run python scripts/eval_rag.py --config C --text clean --version-filter off --out mesure-sans-versions
+
+mesure-rag-simple:
+	uv run python scripts/eval_rag.py --config A --text raw --version-filter off --out mesure-rag-simple
+
+mesure: mesure-dense mesure-lexical mesure-hybride mesure-sans-nettoyage mesure-sans-versions mesure-rag-simple
+	uv run python scripts/eval_rag.py --report
 
 down:
 	docker compose down

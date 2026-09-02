@@ -25,6 +25,7 @@ htmlcov/
 chroma-data/
 logs/*.jsonl
 data/sorabel.db
+data/bm25/
 
 # IDE / OS
 .idea/
