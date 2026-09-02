@@ -76,5 +76,7 @@ journal:
 api:
 	uv run uvicorn packages.agent.api:app --reload
 
+# Chainlit écoute sur 8000 par défaut, comme l'API ci-dessus : port explicite pour
+# que `make api` et `make web` puissent tourner en même temps.
 web:
-	uv run chainlit run packages/web_client/app.py
+	uv run chainlit run packages/web_client/app.py --port 8100

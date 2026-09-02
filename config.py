@@ -15,6 +15,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 REPO_ROOT = Path(__file__).resolve().parent
 
 
+def llm_base_url(endpoint: str) -> str:
+    """Rend la ``base_url`` de l'API v1 pour un endpoint donné.
+
+    Le suffixe ``/openai/v1`` est ajouté s'il manque, et jamais dupliqué : le portail
+    Azure affiche l'endpoint tantôt nu, tantôt déjà suffixé, et la duplication rend un
+    404 « Resource not found » indiscernable d'un déploiement inexistant.
+    """
+    return endpoint.rstrip("/").removesuffix("/openai/v1").rstrip("/") + "/openai/v1"
+
+
 class Settings(BaseSettings):
     """Réglages de la gateway, lus dans l'environnement puis dans ``.env``."""
 
@@ -60,9 +70,9 @@ class Settings(BaseSettings):
     reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     #: Renseigné ⇒ le rerank part sur Azure AI Foundry (API v1), en LLM-juge.
     azure_rerank_deployment: str = ""
-    #: Déploiement de chat Azure AI Foundry (API v1), utilisé par l'agent conversationnel
-    #: de scripts/rag_chat.py — aucune fonction du RAG lui-même n'en dépend.
-    azure_chat_deployment: str = ""
+    #: Modèle de chat (API v1), utilisé par l'agent conversationnel de
+    #: packages/agent/cli.py — aucune fonction du RAG lui-même n'en dépend.
+    llm_chat_model: str = ""
     #: Score minimal du premier résultat, sur l'échelle du reranker — critère de
     #: refus de la configuration hybride (Q4 §3, Q5 §4). Calibré par
     #: `make calibrer-hybride`, jamais sur le jeu de mesure.

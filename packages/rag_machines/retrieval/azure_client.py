@@ -8,6 +8,8 @@ Ce module porte cette seule construction pour que les deux ne divergent pas.
 
 from __future__ import annotations
 
+from config import llm_base_url
+
 
 def build_azure_openai_client(endpoint: str, api_key: str, *, setting_name: str, fallback: str):  # type: ignore[no-untyped-def]
     """Client OpenAI standard pointant sur ``{endpoint}/openai/v1`` — pas d'``api_version``,
@@ -24,4 +26,4 @@ def build_azure_openai_client(endpoint: str, api_key: str, *, setting_name: str,
             f"{setting_name} est configuré mais le paquet `openai` n'est pas installé — "
             f"ajouter la dépendance ou vider la variable pour retomber sur {fallback}."
         ) from error
-    return OpenAI(base_url=f"{endpoint.rstrip('/')}/openai/v1", api_key=api_key)
+    return OpenAI(base_url=llm_base_url(endpoint), api_key=api_key)

@@ -19,7 +19,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.tools import tool
 from pydantic import SecretStr
 
-from config import settings
+from config import llm_base_url, settings
 from packages.rag_machines.retrieval.search import Strategy, citation, search
 
 _SYSTEM_PROMPT = (
@@ -44,16 +44,16 @@ def build_agent(strategy: Strategy):  # type: ignore[no-untyped-def]
             for hit in result.hits
         )
 
-    if not settings.azure_chat_deployment:
+    if not settings.llm_chat_model:
         raise RuntimeError(
-            "AZURE_CHAT_DEPLOYMENT n'est pas renseigné dans .env — c'est le déploiement "
+            "LLM_CHAT_MODEL n'est pas renseigné dans .env — c'est le modèle "
             "de chat que cet agent appelle."
         )
 
     llm = init_chat_model(
-        settings.azure_chat_deployment,
+        settings.llm_chat_model,
         model_provider="openai",
-        base_url=f"{settings.azure_ai_endpoint.rstrip('/')}/openai/v1",
+        base_url=llm_base_url(settings.azure_ai_endpoint),
         api_key=SecretStr(settings.azure_ai_api_key),
     )
     return create_agent(llm, tools=[search_docs], system_prompt=_SYSTEM_PROMPT)
