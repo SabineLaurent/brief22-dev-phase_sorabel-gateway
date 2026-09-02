@@ -1,0 +1,14 @@
+{"id": "CAL-01", "type": "hors_corpus", "question": "quelle est la politique de confidentialité des données clients ?", "piege": "le mot « politique », pont vers les notes politique-tarifaire"}
+{"id": "CAL-02", "type": "hors_corpus", "question": "qui décide de la politique d'achat d'électricité pour nos entrepôts ?", "piege": "« politique » et vocabulaire électrique mêlés à la vie interne"}
+{"id": "CAL-03", "type": "hors_corpus", "question": "qui contacter en cas de panne d'imprimante au siège ?", "piege": "« panne » est le vocabulaire des 90 procédures SAV"}
+{"id": "CAL-04", "type": "hors_corpus", "question": "comment poser un congé exceptionnel ?"}
+{"id": "CAL-05", "type": "hors_corpus", "question": "quel est le montant de la prime de fin d'année ?"}
+{"id": "CAL-06", "type": "hors_corpus", "question": "comment réinitialiser son mot de passe sur l'intranet ?"}
+{"id": "CAL-07", "type": "hors_corpus", "question": "quelles sont les règles de remboursement des frais de déplacement ?"}
+{"id": "CAL-08", "type": "hors_corpus", "question": "quand a lieu le séminaire annuel de l'entreprise ?"}
+{"id": "CAL-09", "type": "couverte", "question": "sous quel délai le client est-il servi après un échange standard ?"}
+{"id": "CAL-10", "type": "couverte", "question": "que faire si le client a modifié le produit lui-même ?"}
+{"id": "CAL-11", "type": "couverte", "question": "quels documents joindre à l'ouverture d'un dossier SAV ?"}
+{"id": "CAL-12", "type": "couverte", "question": "où trouver les consignes de sécurité avant installation ?"}
+{"id": "CAL-13", "type": "couverte", "question": "quelles sont les caractéristiques d'un disjoncteur courbe C ?"}
+{"id": "CAL-14", "type": "couverte", "question": "à quoi sert une pince à sertir ?"}

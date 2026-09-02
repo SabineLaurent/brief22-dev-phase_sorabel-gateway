@@ -1,4 +1,4 @@
-.PHONY: install up down seed ingest reindex check-index test fmt lint serve client journal
+.PHONY: install up down seed ingest ingest-brut reindex check-index calibrer test fmt lint serve client journal
 
 install:
 	uv sync
@@ -12,11 +12,17 @@ up:
 ingest:
 	uv run python -m ingest.cli
 
+ingest-brut:
+	uv run python -m ingest.cli --text raw --reset
+
 reindex:
 	uv run python -m ingest.cli --reset
 
 check-index:
 	uv run python scripts/check_index.py
+
+calibrer:
+	uv run python scripts/calibrate_threshold.py
 
 down:
 	docker compose down

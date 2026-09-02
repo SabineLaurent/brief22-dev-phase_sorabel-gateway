@@ -175,9 +175,20 @@ seuil. Il n'existe pas de grandeur commune aux trois.
 
 | Configuration | Critère de refus | Grandeur |
 |---|---|---|
-| **A** | distance cosinus du premier résultat | bornée, comparable entre requêtes |
+| **A** | similarité cosinus du premier résultat | bornée, comparable entre requêtes — **mais pas séparable**, voir ci-dessous |
 | **B** | **aucun seuil possible** — case vide, et c'est un résultat | — |
 | **C** | score du reranker | bornée, apprise |
+
+> **Mesuré à l'étape 2, et le dossier ne l'anticipait pas.** Q5 §4 retient la distance
+> cosinus pour la configuration A parce qu'elle est *bornée*. Bornée ne veut pas dire
+> *séparable* : sur le jeu de calibration, les scores des questions couvertes tiennent dans
+> **0,820 – 0,882** et ceux des questions hors corpus dans **0,793 – 0,831**. Les deux
+> populations se chevauchent, exactement comme les plages BM25 de
+> [`Q4`](../docs/conception/1-rag-avance/Q4.md) §3 — la famille e5 comprime ses similarités
+> dans une bande étroite. Le meilleur seuil, 0,831, refuse 8 questions hors corpus sur 8 au
+> prix d'une question couverte sur 6. **La barrière de la configuration A existe donc, mais
+> elle est marginale** — ce qui renforce l'argument de Q4 §3 : le seuil a besoin d'une
+> échelle apprise, celle du reranker.
 
 > La ligne se lit **« chaque configuration à son meilleur réglage »**, jamais « le même
 > seuil ». Le seuil de chacune est calibré sur le **même jeu de calibration** — huit

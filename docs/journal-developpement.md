@@ -572,3 +572,117 @@ corps identique à 100 %. Les 6 questions `couverte` qui attendent une `procedur
 trouveront donc le bon *type* trivialement et la bonne *procédure* par le seul titre — à
 déclarer avant de lire ces chiffres, sous peine de prendre une propriété du corpus pour un
 gain de recherche. Ajouté aux limites du protocole.
+
+---
+
+## 2026-09-02 — Chantier RAG, étape 2 : recherche dense, citations, refus
+
+> *« Recherche dense, citations, refus hors corpus. »*
+
+### Périmètre tenu
+
+`retrieval/search.py`, `scripts/calibrate_threshold.py`, `eval/questions_calibration.jsonl`,
+plus le correctif de nettoyage de l'étape 1. Le lexical, le RRF et le rerank restent à
+l'étape 3 ; la génération de la réponse et la garde de suffisance (Q4 §5) arrivent avec le
+tool `answer_question`, au chantier MCP — elles supposent un appel au modèle.
+
+**Tout est paramétré, rien n'est câblé** : collection et profil de texte, étage de
+recherche, filtre de version, règle de départage, seuil de refus. C'est la contrainte que
+pose `eval/protocole-mesure.md`, et elle se prend maintenant ou jamais : Q5 §6 exige de
+rejouer la configuration A **après** la C.
+
+### Le correctif de nettoyage, d'abord
+
+Les 90 procédures SAV citaient encore une référence en exemple dans le texte indexé. Après
+correctif, la table de Q2 §2 est reproduite **exactement** sur les sept références du jeu
+d'évaluation — 4 parasites au lieu de 11, et 0 procédure sur 90 porte encore une `REF-`.
+Le titre des procédures se lit désormais dans `<title>`, comme le prescrit Q1 §1. Index
+reconstruit, 18 contrôles au vert, `n_caracteres` maximum à 783.
+
+### La mesure « avant » — configuration A
+
+Sur les 8 questions `reference_exacte`, dense seul, index nettoyé, filtre de version actif :
+
+| critère | dense seul | BM25 seul (dossier, Q3 §2) |
+|---|---|---|
+| Hit@1 — référence attendue | **2 / 8** | 8 / 8 |
+| Hit@1 — fiche technique en tête | **2 / 8** | 2 / 8 |
+
+Les deux succès sont RAG-02 (« fiche technique REF-8842 », où les mots aident) et RAG-07.
+Les six autres remontent une note interne ou une fiche portant une **autre** référence —
+`REF-5313` rend `fiches/REF-4316`, `REF-8836` rend `fiches/REF-5849`. C'est exactement
+l'effondrement que décrit Q3 §1 : le vecteur d'une référence nue encode « ceci est une
+référence », pas *laquelle*. Le point de départ chiffré d'E6 est posé.
+
+La règle de départage ne se déclenche pas sur ces questions : elle exige que le premier
+résultat porte une référence, or il n'en porte pas. C'est son comportement voulu — elle
+départage, elle ne repêche pas.
+
+### Le seuil de refus : le dossier supposait, la mesure corrige
+
+Q5 §4 retient pour la configuration A la distance cosinus, « bornée, comparable entre
+requêtes ». **Bornée ne veut pas dire séparable.** Mesuré sur le jeu de calibration :
+
+| population | plage du score du premier résultat |
+|---|---|
+| couverte (6) | 0,820 – 0,882 |
+| hors corpus (8) | 0,793 – 0,831 |
+
+Les deux se chevauchent — la famille e5 comprime ses similarités dans une bande étroite.
+C'est la même figure que les plages BM25 de Q4 §3, que le dossier croyait propre au lexical.
+
+**Seuil retenu : 0,831**, choisi sur le jeu de calibration seul. Rejoué sur le jeu de
+mesure, qui n'a servi à rien d'autre :
+
+| | résultat |
+|---|---|
+| refus corrects | **7 / 8** |
+| réponses tenues | **13 / 14** |
+
+Les deux écarts sont nommés d'avance par le dossier, et aucun n'est une régression :
+
+* le refus manqué est **« résilier le contrat d'électricité de l'entrepôt de Lyon »**
+  (0,845) — la question que Q4 §4 mesure déjà comme la plus haute des huit en BM25 (5,3).
+  Elle trompe le dense et le lexical de la même façon ;
+* le refus à tort est **RAG-19**, « quel différentiel pour un circuit avec plaque de
+  cuisson » — que `description-corpus.md` §7.2 signale comme portant sur un sujet **absent
+  du corpus**. Refuser y est sémantiquement juste ; c'est le jeu qui l'étiquette `couverte`.
+  Q5 §3 prévoit ce cas : « une configuration qui les rate n'a pas régressé ».
+
+### L'arbitrage de citation : le test contre le dossier
+
+Q4 §2 fait porter à la citation « `reference` quand elle existe », 210 éditions n'en ayant
+pas. **Le test d'acceptance dit autre chose** : il interroge sur une procédure de retour
+sous garantie — donc une procédure SAV, sans référence — puis exige
+`src["reference"].strip()` non vide sur *chaque* source. Une clé absente échoue.
+
+`CLAUDE.md` tranche : le test fait foi. Conduite retenue, qui ne sacrifie ni l'un ni
+l'autre : **la métadonnée reste fidèle au contrat de données** — clé omise, parce que le
+JSON Schema, les contrôles d'index et le filtrage de la matrice en dépendent — et **c'est la
+citation qui garantit une chaîne non vide**, en retombant sur `doc_key`. Une procédure est
+donc citée « titre + `sav/proc-retour-produit-defectueux-07` + version + date », ce qui
+l'identifie exactement.
+
+### Le jeu de calibration
+
+`eval/questions_calibration.jsonl` : 8 questions hors corpus écrites pour ce projet, plus 6
+couvertes — il faut les deux populations pour placer un seuil. Vocabulaire vérifié absent du
+corpus mot par mot. Trois visent le point faible de Q4 §4 : deux portent le mot
+« politique », une mêle « panne », vocabulaire des 90 procédures, à la vie interne. Ce
+fichier **ne se mélange jamais** à `questions_rag.jsonl` : calibrer et mesurer sur les mêmes
+questions ferait constater un réglage au lieu de mesurer une capacité (Q4 §6).
+
+### Points ouverts
+
+- **`top_k` = 5**, imposé par la métrique Recall@5 ; le dossier le laisse ouvert, à arrêter
+  sur les mesures de l'étape 3 ;
+- **le seuil est réglé sur 14 questions.** Limite méthodologique, déjà nommée par Q4 §6 et
+  non corrigeable à cette échelle ;
+- **la garde de suffisance** (barrière 2) et la génération de la réponse arrivent avec
+  `answer_question`. Le refus `contexte_insuffisant` n'existe donc pas encore.
+
+### Rejouer cette étape
+
+```bash
+make up && make reindex && make check-index && make calibrer
+```
