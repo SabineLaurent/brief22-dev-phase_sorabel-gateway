@@ -515,3 +515,60 @@ l'exploration ; les CSV portent le nom de leur cible.
 C'est la seule contrainte d'architecture qu'impose ce protocole. Et le seuil de refus de
 l'étape 2 porte sur la **distance cosinus** du premier résultat — le critère que Q5 §4
 prévoit pour la configuration A, faute de reranker avant l'étape 3.
+
+---
+
+## 2026-09-02 — Dédoublonnage par proximité : impossible, mesuré
+
+Question posée : puisque les procédures SAV partagent leur contenu, les fusionner et garder
+les références-exemples dans un champ `ref_examples` améliorerait-il le RAG ?
+
+**Le dossier avait déjà tranché l'essentiel, et cette entrée ne le refait pas.** Sont déjà
+établis, et à citer plutôt qu'à re-démontrer :
+
+| Fait | Où |
+|---|---|
+| les 90 procédures sont **génériques**, leur référence est un exemple qui change entre deux versions | `description-corpus.md` §5 |
+| 86 % de leur texte est une trame partagée ; le dense y forme « un peloton très serré », car « ce qui distingue deux documents est ce qu'un embedding pondère le moins » | Q3 §1 |
+| deux éditions à 0,97 de similarité prennent **deux places du top-5** — d'où le filtre de version | Q1 §4 et §5 |
+| **« pas de liste de références associées »** : Chroma refuse les champs non scalaires, et `additionalProperties: false` interdit un douzième champ | `02-modele-chunk.md` §8 |
+| zéro doublon d'octets sur les 400 fichiers | Q1 §3 |
+
+Autrement dit, `ref_examples` est nommé et clos par le contrat, et l'avantage du lexical sur
+le dense face à une trame partagée est déjà argumenté. Rien à rouvrir.
+
+### La seule mesure qui manquait
+
+Q1 §4 mesure la similarité **entre les deux versions d'un même document** — 0,965 minimum,
+0,977 médiane sur 50 paires. **Personne n'avait mesuré la similarité entre documents
+différents.** Faite ici, sur les 3 160 paires de procédures SAV courantes :
+
+| | similarité |
+|---|---|
+| entre procédures **différentes** — 3 160 paires | 0,932 – **0,996**, médiane 0,952 |
+| entre v1.0 et v2.0 du **même** document — 10 paires | 0,983 – 0,986 |
+
+**Les deux bandes se recouvrent entièrement** : deux procédures différentes peuvent être
+plus semblables que deux versions du même document. Aucun seuil de proximité ne les sépare —
+réglé sous 0,95 il efface 79 procédures sur 80, au-dessus il ne dédoublonne rien.
+
+C'est la même figure que le seuil BM25 impossible de Q4 §3, et c'est ce qui fait de
+`doc_key` + `version` la **seule** séparation valide entre deux éditions. Reporté dans
+`eval/protocole-mesure.md`, où il ferme l'axe du dédoublonnage.
+
+Vérification de forme au passage : deux procédures différentes ne diffèrent que par leur
+titre, leur date et les deux occurrences de leur référence-exemple — « Conditions »,
+« Étapes » et « Cas hors périmètre » sont identiques au caractère près sur les 80.
+
+### Deux conséquences à retenir
+
+**La fusion est écartée** : le corps est identique mais le titre ne l'est pas, et c'est tout
+le contenu — « Colis reçu endommagé » et « Livraison incomplète ou erronée » sont deux
+situations distinctes. Fusionner supprimerait 79 réponses et ferait citer à E1 un titre qui
+ne correspond pas à la question.
+
+**Le titre est le seul discriminant des 80 procédures**, et le nettoyage SAV rendra leur
+corps identique à 100 %. Les 6 questions `couverte` qui attendent une `procedure_sav`
+trouveront donc le bon *type* trivialement et la bonne *procédure* par le seul titre — à
+déclarer avant de lire ces chiffres, sous peine de prendre une propriété du corpus pour un
+gain de recherche. Ajouté aux limites du protocole.

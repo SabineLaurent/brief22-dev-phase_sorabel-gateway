@@ -125,11 +125,33 @@ mesuré, pour ne pas l'ajuster après coup : **50 documents ont deux éditions �
 similarité** ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §4). Sans filtre, les deux
 occupent deux places du même top-5 pour un contenu unique.
 
-> **Le dédoublonnage par hash n'est pas un axe de mesure.** Il est mesuré à **zéro doublon
-> d'octets sur les 400 fichiers** ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §3) : une
-> étape qui ne se déclenche jamais. Le seul doublon réel du corpus est l'édition multiple,
-> et c'est l'axe `--version-filter` qui le traite. Le seul risque de doublon d'index est la
-> ré-ingestion, déjà couverte par l'`upsert` déterministe.
+> **Le dédoublonnage n'est pas un axe de mesure, et aucune de ses deux formes n'est
+> praticable ici.**
+>
+> *Par hash* : **zéro doublon d'octets sur les 400 fichiers**
+> ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §3) — une étape qui ne se déclenche jamais.
+>
+> *Par proximité* : impossible, mesuré. Les 80 procédures SAV courantes sont **un même
+> gabarit** — le dossier les dit « génériques »
+> ([`description-corpus.md`](../docs/conception/1-rag-avance/description-corpus.md) §5) et
+> chiffre à 86 % leur part de texte partagé ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §1).
+> Vérifié ligne à ligne : deux procédures **différentes** ne diffèrent que par leur titre,
+> leur date et les deux occurrences de leur référence-exemple ; « Conditions », « Étapes » et
+> « Cas hors périmètre » sont identiques au caractère près sur les 80.
+>
+> | | similarité |
+> |---|---|
+> | entre procédures **différentes** — 3 160 paires | 0,932 – **0,996**, médiane 0,952 |
+> | entre v1.0 et v2.0 du **même** document — 10 paires | 0,983 – 0,986 |
+>
+> **Les deux bandes se recouvrent entièrement** : deux procédures différentes peuvent être
+> plus semblables que deux versions du même document. Aucun seuil ne les sépare — réglé sous
+> 0,95 il efface **79 procédures sur 80**, réglé au-dessus il ne dédoublonne rien. C'est la
+> même figure que le seuil BM25 impossible de [`Q4`](../docs/conception/1-rag-avance/Q4.md) §3,
+> et c'est ce qui fait de `doc_key` + `version` la **seule** manière de séparer deux éditions.
+>
+> Le seul risque de doublon d'index reste la ré-ingestion, déjà couverte par l'`upsert`
+> déterministe.
 
 ## 4. Le « RAG simple » est un coin de l'espace, pas un second projet
 
@@ -215,6 +237,12 @@ d'implémentation, pas l'interface. Voir §10.
 - **`attendu_type` ne prend que trois valeurs** sur les questions `couverte` — et n'est
   présent que sur **13** des 14. Ce sous-ensemble détecte une régression, il ne démontre pas
   un gain ;
+- **sur les 6 questions `couverte` qui attendent une `procedure_sav`, le titre est le seul
+  discriminant.** Le corps des 80 procédures est le même gabarit, et le nettoyage SAV le rend
+  identique à 100 % en retirant la référence-exemple. Trouver le bon *type* est donc trivial ;
+  trouver la bonne *procédure* repose entièrement sur la ligne de titre. À lire avant les
+  chiffres de `couverte`, sous peine de prendre pour un gain de recherche ce qui n'est qu'une
+  propriété du corpus ;
 - **deux questions sont en tension avec le corpus** : RAG-19 porte sur un sujet absent,
   RAG-20 attend une fiche technique là où le terme n'existe qu'en notice. Elles sont
   mesurées comme les autres et **signalées dans le rapport** : une configuration qui les
