@@ -910,3 +910,41 @@ make up && make reindex && make ingest-brut && make check-index
 make calibrer && make calibrer-hybride
 make mesure
 ```
+
+---
+
+## 2026-09-02 — Piste non retenue : tester avec/sans calibration
+
+> Note en marge, prise en construisant le schéma pédagogique du protocole de mesure — pas
+> une étape livrée, un point ouvert à évaluer plus tard.
+
+Question posée : ne serait-il pas intéressant de mesurer l'effet du calibrage lui-même —
+seuil calibré vs seuil par défaut/non ajusté — dans le même esprit que le témoin BM25 qui
+isole la part imputable à l'hybridation plutôt qu'à la seule recherche lexicale ?
+
+**Pas retenu comme axe du protocole tel qu'écrit.** La calibration n'est pas un des quatre
+drapeaux de `eval/protocole-mesure.md` ; c'est une entrée fixe, appliquée identiquement à
+toutes les cibles mesurées. En faire un axe obligerait à rejouer les sept cibles une seconde
+fois pour une question assez orthogonale à E6 (le gain de la recherche), que le protocole
+visait justement à isoler seul.
+
+Piste plus légère, si creusée un jour : une mesure ciblée « seuil calibré vs seuil par
+défaut », limitée au sous-ensemble `hors_corpus` (8 questions), sans toucher aux cibles
+existantes ni au reste du protocole.
+
+**Outils de calibration envisagés, hors du script maison** (`scripts/calibrate_threshold.py`,
+balayage manuel sur 14 questions) :
+
+- `sklearn.metrics.roc_curve` / `precision_recall_curve` — seuil optimal choisi
+  systématiquement (point de Youden, F-bêta maximal) plutôt qu'à l'œil ;
+- `sklearn.calibration` (Platt scaling, isotonic regression) — suppose un score déjà
+  probabiliste en entrée, ce qui n'est pas le cas ici (cosinus brut, non borné/séparable
+  comme déjà constaté plus haut pour BM25 et le seuil dense) ;
+- **conformal prediction** (ex. bibliothèque `MAPIE`) — donnerait un seuil avec une garantie
+  statistique de taux d'erreur plutôt qu'un point choisi sur un petit échantillon ; piste la
+  plus pertinente sur le principe pour une décision de refus, mais réclame plus de données de
+  calibration que les 14 questions actuelles pour être fiable ;
+- **RAGAS** — écarté : c'est un cadre d'évaluation de la qualité d'une réponse déjà générée
+  (fidélité, pertinence, precision/recall du contexte), via LLM-juge — pas un outil de choix
+  de seuil. Son générateur de jeux de test synthétiques pourrait en revanche aider à étoffer
+  le jeu de calibration au-delà des 14 questions écrites à la main.
