@@ -16,7 +16,7 @@ import sys
 from collections import Counter
 
 from config import settings
-from ingest.index import connect, get_collection
+from ingest.index import collection_name, connect, get_collection
 from ingest.registry import version_sort_key
 from retrieval.embedder import build_embedder
 
@@ -61,7 +61,7 @@ def main() -> int:
         print("Tous les contrôles passent.")
         return 0
 
-    print("Index :", settings.chroma_collection, "sur", settings.chroma_url)
+    print("Index :", collection_name(settings), "sur", settings.chroma_url)
     print("\nVolumétrie")
     check("éditions indexées", len(metadatas), 400)
     if not metadatas:

@@ -19,8 +19,14 @@ from pathlib import Path
 
 from config import Settings
 from config import settings as default_settings
-from ingest.index import IndexReport, index_editions
-from ingest.normalize import Edition, NormalizationError, corpus_files, normalize
+from ingest.index import IndexReport, collection_name, index_editions
+from ingest.normalize import (
+    Edition,
+    NormalizationError,
+    TextProfile,
+    corpus_files,
+    normalize,
+)
 from ingest.registry import Registry, build_registry
 
 
@@ -41,6 +47,7 @@ def build_report(
     failures: list[str],
     registry: Registry,
     index_report: IndexReport,
+    text: TextProfile = "clean",
 ) -> str:
     """Le compte rendu d'ingestion, à lire après chaque exécution."""
     by_doc_type = Counter(edition.doc_type for edition in registry.editions)
@@ -48,10 +55,11 @@ def build_report(
         edition.theme for edition in registry.editions if edition.theme is not None
     )
     with_reference = sum(1 for edition in registry.editions if edition.reference is not None)
-    max_chars = max((edition.char_count for edition in registry.editions), default=0)
+    max_chars = max((len(e.text_for(text)) for e in registry.editions), default=0)
 
     lines = [
         "--- Rapport d'ingestion ---",
+        f"texte indexé          : {text}",
         f"fichiers lus          : {len(editions) + len(failures)}",
         f"éditions normalisées  : {len(editions)}",
         f"éditions indexées     : {index_report.written}",
@@ -89,7 +97,12 @@ def build_report(
     return "\n".join(lines)
 
 
-def run(settings: Settings, write_index: bool = True, reset: bool = False) -> int:
+def run(
+    settings: Settings,
+    write_index: bool = True,
+    reset: bool = False,
+    text: TextProfile = "clean",
+) -> int:
     root = settings.corpus_dir
     if not root.is_dir():
         print(
@@ -112,7 +125,7 @@ def run(settings: Settings, write_index: bool = True, reset: bool = False) -> in
     registry = build_registry(editions)
     try:
         index_report = (
-            index_editions(registry.editions, registry, settings, reset=reset)
+            index_editions(registry.editions, registry, settings, reset=reset, text=text)
             if write_index
             else IndexReport(written=0, deleted=[])
         )
@@ -121,7 +134,9 @@ def run(settings: Settings, write_index: bool = True, reset: bool = False) -> in
         # message porte déjà le remède, une trace de pile n'ajouterait rien.
         print(f"Indexation impossible : {error}", file=sys.stderr)
         return 1
-    print(build_report(editions, failures, registry, index_report))
+    print(build_report(editions, failures, registry, index_report, text))
+    if write_index:
+        print(f"collection            : {collection_name(settings, text)}")
 
     anomalies = []
     if failures:
@@ -146,12 +161,18 @@ def main(argv: list[str] | None = None) -> int:
         help="normalise et contrôle sans écrire dans l'index",
     )
     parser.add_argument(
+        "--text",
+        choices=("clean", "raw"),
+        default="clean",
+        help="texte indexé : « clean » (le contrat) ou « raw » (témoin de l'axe 2)",
+    )
+    parser.add_argument(
         "--reset",
         action="store_true",
         help="reconstruit la collection à neuf au lieu de la mettre à jour",
     )
     args = parser.parse_args(argv)
-    return run(default_settings, write_index=not args.dry_run, reset=args.reset)
+    return run(default_settings, write_index=not args.dry_run, reset=args.reset, text=args.text)
 
 
 if __name__ == "__main__":

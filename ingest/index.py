@@ -24,7 +24,7 @@ from chromadb.api.models.Collection import Collection
 
 from config import Settings
 from config import settings as default_settings
-from ingest.normalize import Edition
+from ingest.normalize import Edition, TextProfile
 from ingest.registry import Registry, build_metadata
 from retrieval.embedder import Embedder, build_embedder
 
@@ -129,14 +129,26 @@ def _check_embedding_model(collection: Collection, embedder: Embedder) -> None:
     )
 
 
+def collection_name(settings: Settings, text: TextProfile = "clean") -> str:
+    """La collection dépend du texte indexé.
+
+    Deux textes produisent deux jeux de vecteurs : les mélanger dans une même collection
+    rendrait la comparaison de l'axe 2 impossible à relire. Le suffixe est donc porté par
+    le nom, pas par une métadonnée.
+    """
+    base = settings.chroma_collection
+    return base if text == "clean" else f"{base}_raw"
+
+
 def get_collection(
     client: chromadb.ClientAPI,
     embedder: Embedder,
     settings: Settings | None = None,
+    text: TextProfile = "clean",
 ) -> Collection:
     settings = settings or default_settings
     collection = client.get_or_create_collection(
-        name=settings.chroma_collection,
+        name=collection_name(settings, text),
         embedding_function=ChromaEmbeddingFunction(embedder),  # type: ignore[arg-type]
         metadata={**_DISTANCE_METADATA, _MODEL_KEY: embedder.name},
     )
@@ -169,11 +181,13 @@ def _reconcile_deletions(collection: Collection, kept_ids: set[str]) -> list[str
     return stale
 
 
-def drop_collection(client: chromadb.ClientAPI, settings: Settings | None = None) -> None:
+def drop_collection(
+    client: chromadb.ClientAPI, settings: Settings | None = None, text: TextProfile = "clean"
+) -> None:
     """Supprime la collection si elle existe. Sans effet sinon."""
     settings = settings or default_settings
     try:
-        client.delete_collection(settings.chroma_collection)
+        client.delete_collection(collection_name(settings, text))
     except Exception:  # la collection n'existait pas : c'est l'état recherché
         pass
 
@@ -184,8 +198,12 @@ def index_editions(
     settings: Settings | None = None,
     embedder: Embedder | None = None,
     reset: bool = False,
+    text: TextProfile = "clean",
 ) -> IndexReport:
     """Vectorise puis ``upsert`` les éditions, et retire de l'index le reste.
+
+    ``text`` choisit le texte indexé et, avec lui, la collection : « clean » est le contrat,
+    « raw » n'existe que pour mesurer ce que le nettoyage apporte.
 
     ``reset`` reconstruit la collection à neuf. C'est le remède à une collection
     dont on ne peut plus garantir l'homogénéité — modèle d'embeddings changé, ou
@@ -195,17 +213,17 @@ def index_editions(
     embedder = embedder or build_embedder(settings)
     client = connect(settings)
     if reset:
-        drop_collection(client, settings)
-    collection = get_collection(client, embedder, settings)
+        drop_collection(client, settings, text)
+    collection = get_collection(client, embedder, settings, text)
 
     written = 0
     for start in range(0, len(editions), _BATCH_SIZE):
         batch = editions[start : start + _BATCH_SIZE]
-        texts = [edition.indexed_text for edition in batch]
+        texts = [edition.text_for(text) for edition in batch]
         collection.upsert(
             ids=[edition.edition_id for edition in batch],
             documents=texts,
-            metadatas=[build_metadata(edition, registry) for edition in batch],  # type: ignore[arg-type]
+            metadatas=[build_metadata(edition, registry, text) for edition in batch],  # type: ignore[arg-type]
             embeddings=embedder.embed_documents(texts),  # type: ignore[arg-type]
         )
         written += len(batch)

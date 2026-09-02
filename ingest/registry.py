@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from ingest.normalize import Edition
+from ingest.normalize import Edition, TextProfile
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,9 @@ def build_registry(editions: list[Edition]) -> Registry:
     )
 
 
-def build_metadata(edition: Edition, registry: Registry) -> dict[str, str | int | bool]:
+def build_metadata(
+    edition: Edition, registry: Registry, text: TextProfile = "clean"
+) -> dict[str, str | int | bool]:
     """Les onze champs de métadonnées, prêts pour l'index.
 
     C'est le seul endroit où les attributs Python (anglais) deviennent des clés
@@ -136,7 +138,7 @@ def build_metadata(edition: Edition, registry: Registry) -> dict[str, str | int 
         "date": edition.date,
         "doc_type": edition.doc_type,
         "url": edition.url,
-        "n_caracteres": edition.char_count,
+        "n_caracteres": len(edition.text_for(text)),
     }
     if edition.reference is not None:
         fields["reference"] = edition.reference

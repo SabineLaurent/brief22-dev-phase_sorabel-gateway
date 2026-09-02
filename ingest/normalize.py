@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from bs4 import BeautifulSoup
@@ -28,6 +29,10 @@ from pypdf import PdfReader
 
 #: Le répertoire porte le type documentaire ; les PDF n'ont aucune métadonnée
 #: structurée d'où le déduire. Les valeurs sont celles du contrat DSI.
+#: Les deux textes indexables. « clean » est le contrat ; « raw » n'existe que pour
+#: mesurer ce que le nettoyage apporte (eval/protocole-mesure.md, axe 2).
+TextProfile = Literal["clean", "raw"]
+
 DOC_TYPE_BY_FOLDER = {
     "fiches": "fiche_technique",
     "notices": "notice",
@@ -39,8 +44,13 @@ _RE_REFERENCE = re.compile(r"Référence produit\s*:\s*(REF-\d{4})")
 _RE_VERSION = re.compile(r"Version\s*:\s*(\d+\.\d+)")
 _RE_DATE = re.compile(r"Date\s*:\s*(\d{4}-\d{2}-\d{2})")
 _RE_PDF_TITLE = re.compile(r"^(?:FICHE TECHNIQUE|NOTICE D'INSTALLATION)\s*-\s*")
-#: Bloc de liens sortants : retiré du texte indexé, conservé à l'affichage.
+#: Bloc de liens sortants des fiches : retiré du texte indexé, conservé à l'affichage.
 _RE_OUTBOUND_LINKS = re.compile(r"^Accessoires et produits associés\s*:.*$", re.MULTILINE)
+#: Les deux tournures par lesquelles une procédure SAV cite une référence en exemple.
+_RE_EXAMPLE_LINE = re.compile(
+    r"^.*(?:exemple traité sur la référence|référence exacte \(ex\.).*$", re.MULTILINE
+)
+_RE_REFERENCE_TOKEN = re.compile(r"REF-\d{4}")
 #: Suffixe de version dans un nom de fichier (`REF-8842-v2.1` → `REF-8842`).
 _RE_VERSION_SUFFIX = re.compile(r"-v(\d+\.\d+)$")
 #: Nom d'une note : `note-AAAA-MM-JJ-<theme>-NN`.
@@ -81,6 +91,11 @@ class Edition:
     @property
     def char_count(self) -> int:
         return len(self.indexed_text)
+
+    def text_for(self, profile: TextProfile) -> str:
+        """Le texte à indexer selon le profil. Un seul endroit décide, pour que
+        ``n_caracteres`` ne puisse pas décrire un autre texte que celui qui est indexé."""
+        return self.indexed_text if profile == "clean" else self.full_text
 
 
 def _identifiers(path: Path, root: Path) -> tuple[str, str, str | None]:
@@ -133,7 +148,7 @@ def _read_pdf(path: Path, root: Path, doc_type: str) -> Edition:
         date=date.group(1),
         doc_type=doc_type,
         url=path.relative_to(root.parent.parent).as_posix(),
-        indexed_text=_strip_outbound_links(full_text),
+        indexed_text=_strip_foreign_references(full_text),
         full_text=full_text,
         reference=reference.group(1) if reference else None,
         filename_version=filename_version,
@@ -153,10 +168,12 @@ def _read_html(path: Path, root: Path, doc_type: str) -> Edition:
     if version is None or date is None:
         raise NormalizationError("balise <meta> version ou date manquante")
 
-    title_tag = soup.find("h1")
+    # Q1 §1 prescrit `<title>` ; `<h1>` porte la même chaîne sur les 90 fichiers, mais
+    # c'est la balise du dossier qui fait foi.
+    title_tag = soup.find("title") or soup.find("h1")
     title = title_tag.get_text(strip=True) if title_tag else ""
     if not title:
-        raise NormalizationError("titre introuvable : aucun <h1>")
+        raise NormalizationError("titre introuvable : ni <title> ni <h1>")
 
     body = soup.body or soup
     full_text = _condense(body.get_text(separator="\n"))
@@ -169,7 +186,7 @@ def _read_html(path: Path, root: Path, doc_type: str) -> Edition:
         date=date,
         doc_type=_resolve_doc_type(meta("type"), doc_type),
         url=path.relative_to(root.parent.parent).as_posix(),
-        indexed_text=_strip_outbound_links(full_text),
+        indexed_text=_strip_foreign_references(full_text),
         full_text=full_text,
         filename_version=filename_version,
     )
@@ -199,7 +216,7 @@ def _read_markdown(path: Path, root: Path, doc_type: str) -> Edition:
         date=date,
         doc_type=_resolve_doc_type(front_matter.get("type"), doc_type),
         url=path.relative_to(root.parent.parent).as_posix(),
-        indexed_text=_strip_outbound_links(full_text),
+        indexed_text=_strip_foreign_references(full_text),
         full_text=full_text,
         theme=match.group("theme") if match else None,
         filename_version=filename_version,
@@ -243,8 +260,30 @@ def _split_front_matter(raw: str) -> tuple[dict | None, str]:
     return (front_matter if isinstance(front_matter, dict) else None), parts[2]
 
 
-def _strip_outbound_links(text: str) -> str:
-    return _condense(_RE_OUTBOUND_LINKS.sub("", text))
+def _strip_foreign_references(text: str) -> str:
+    """Retire du texte indexé les références qui ne sont pas le sujet du document.
+
+    Deux endroits en portent, et aucun ne décrit le document qui les héberge :
+
+    * la ligne « Accessoires et produits associés » des fiches, qui cite deux autres
+      produits — elle sort entièrement ;
+    * la référence citée **en exemple** par les 90 procédures SAV, qui sont génériques
+      (« applicable à tout le catalogue »). Preuve qu'elle n'identifie rien : elle change
+      entre la v1.0 et la v2.0 d'une même procédure. Seul le jeton ``REF-XXXX`` est retiré,
+      la phrase reste — c'est la règle du dossier, et la reproduire à l'identique est ce qui
+      permet de retrouver ses chiffres.
+
+    Sans ce retrait, une référence est portée par jusqu'à sept éditions au lieu de trois :
+    pour BM25 c'est un terme à IDF très élevé, et la fiche de ``REF-8842`` remonterait sur
+    une recherche ``REF-4581`` aussi haut que la fiche de ``REF-4581``. Le dossier chiffre
+    le nettoyage à **+5 en Hit@3**.
+
+    Rien n'est perdu : ``full_text`` conserve le texte entier, que rendront l'extrait cité
+    et ``get_document``.
+    """
+    text = _RE_OUTBOUND_LINKS.sub("", text)
+    text = _RE_EXAMPLE_LINE.sub(lambda match: _RE_REFERENCE_TOKEN.sub("", match.group(0)), text)
+    return _condense(text)
 
 
 def _condense(text: str) -> str:
