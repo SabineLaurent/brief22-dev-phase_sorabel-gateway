@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     #: Calibré sur eval/questions_calibration.jsonl — jamais sur le jeu de mesure —
     #: par `make calibrer`. `None` désactive la barrière, ce que fait la mesure de
     #: rappel pour ne pas se masquer un résultat.
-    refusal_threshold: float | None = 0.831
+    refusal_threshold: float | None = 0.8308
 
     @property
     def uses_azure_embeddings(self) -> bool:

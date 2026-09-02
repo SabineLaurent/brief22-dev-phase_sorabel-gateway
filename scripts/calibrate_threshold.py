@@ -69,7 +69,7 @@ def main() -> int:
     print(f"\n  populations séparables : {'OUI' if separable else 'NON — elles se chevauchent'}")
 
     threshold, refused_ok, answered_ok = best_threshold(covered, out_of_corpus)
-    print(f"\nSeuil proposé : {threshold:.3f}")
+    print(f"\nSeuil proposé : {threshold:.4f}")
     print(f"  refus corrects  : {refused_ok} / {len(out_of_corpus)} questions hors corpus")
     print(f"  réponses tenues : {answered_ok} / {len(covered)} questions couvertes")
     print("\nÀ reporter dans REFUSAL_THRESHOLD (.env). Ce chiffre est un réglage, "
