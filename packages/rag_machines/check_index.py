@@ -1,6 +1,6 @@
 """Contrôles d'intégrité de l'index documentaire.
 
-À lancer après `python -m ingest.cli`. Vérifie ce que l'ingestion prétend avoir
+À lancer après `python -m packages.rag_machines.ingest.cli`. Vérifie ce que l'ingestion prétend avoir
 produit, directement dans Chroma — pas dans les objets Python qui l'ont écrit.
 
 Un contrôle qui plante ne contrôle rien. Ce script est écrit pour **rapporter**
@@ -16,9 +16,9 @@ import sys
 from collections import Counter
 
 from config import settings
-from ingest.index import collection_name, connect, get_collection
-from ingest.registry import version_sort_key
-from retrieval.embedder import build_embedder
+from packages.rag_machines.ingest.index import collection_name, connect, get_collection
+from packages.rag_machines.ingest.registry import version_sort_key
+from packages.rag_machines.retrieval.embedder import build_embedder
 
 _ID_PATTERN = re.compile(r"^(fiches|notices|sav|notes)/[A-Za-z0-9._-]+$")
 _EXPECTED_BY_DOC_TYPE = {

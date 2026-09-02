@@ -20,11 +20,11 @@ import sys
 from pathlib import Path
 
 from config import settings
-from retrieval.embedder import build_embedder
-from retrieval.reranker import build_reranker
-from retrieval.search import Strategy, search
+from packages.rag_machines.retrieval.embedder import build_embedder
+from packages.rag_machines.retrieval.reranker import build_reranker
+from packages.rag_machines.retrieval.search import Strategy, search
 
-CALIBRATION_SET = Path(__file__).resolve().parent.parent / "eval" / "questions_calibration.jsonl"
+CALIBRATION_SET = Path(__file__).resolve().parents[2] / "eval" / "questions_calibration.jsonl"
 
 _STRATEGY_BY_CONFIG: dict[str, Strategy] = {"A": "dense", "C": "hybrid"}
 _SETTING_NAME_BY_CONFIG = {"A": "REFUSAL_THRESHOLD", "C": "RERANK_THRESHOLD"}

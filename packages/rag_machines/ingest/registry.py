@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from ingest.normalize import Edition, TextProfile
+from packages.rag_machines.ingest.normalize import Edition, TextProfile
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,7 @@ class Registry:
 def version_sort_key(version: str) -> tuple[int, ...]:
     """Ordonne les versions numériquement : 1.10 vient après 1.9, pas avant.
 
-    Publique parce que ``scripts/check_index.py`` rejoue le même classement sur
+    Publique parce que ``packages/rag_machines/check_index.py`` rejoue le même classement sur
     l'index produit : deux implémentations pourraient diverger, et le contrôle
     validerait alors autre chose que ce que l'ingestion a écrit.
     """

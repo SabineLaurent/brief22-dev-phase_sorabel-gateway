@@ -10,12 +10,12 @@ Deux modes, un seul script lancé par chemin comme ``check_index.py`` :
 * **mode rapport** — ``--report`` : relit les six CSV nommés par les cibles Make
   publiées et réécrit **en entier** ``eval/rapport_gain.md``.
 
-Le harnais attaque ``retrieval.search`` directement, sans serveur MCP — c'est ce qui
+Le harnais attaque ``packages.rag_machines.retrieval.search`` directement, sans serveur MCP — c'est ce qui
 permet de mesurer E6 dès ce chantier, avant que le serveur n'existe (chantier 3).
 
 **La règle de départage n'a pas de drapeau ici** (protocole §10) : chaque question est
 jouée une seule fois par le pipeline, et les deux rangs — avec et sans départage — sont
-calculés dans la même passe (``retrieval.search.apply_tiebreak`` est pure, rejouable sans
+calculés dans la même passe (``packages.rag_machines.retrieval.search.apply_tiebreak`` est pure, rejouable sans
 second appel au reranker) et publiés comme deux colonnes du même CSV.
 """
 
@@ -31,9 +31,9 @@ from pathlib import Path
 from typing import Callable
 
 from config import settings
-from retrieval.embedder import build_embedder
-from retrieval.reranker import build_reranker
-from retrieval.search import (
+from packages.rag_machines.retrieval.embedder import build_embedder
+from packages.rag_machines.retrieval.reranker import build_reranker
+from packages.rag_machines.retrieval.search import (
     STATUS_OK,
     STATUS_OUT_OF_CORPUS,
     Hit,
@@ -42,7 +42,7 @@ from retrieval.search import (
     search,
 )
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 QUESTIONS_SET = REPO_ROOT / "eval" / "questions_rag.jsonl"
 RESULTS_DIR = REPO_ROOT / "eval" / "resultats"
 REPORT_PATH = REPO_ROOT / "eval" / "rapport_gain.md"
@@ -307,7 +307,7 @@ def build_report() -> str:
     lines = [
         "# Rapport de gain — recherche avancée (E6)",
         "",
-        "Généré par `scripts/eval_rag.py --report` à partir des CSV de `eval/resultats/` — "
+        "Généré par `packages/rag_machines/eval_rag.py --report` à partir des CSV de `eval/resultats/` — "
         "voir `eval/protocole-mesure.md` pour le protocole complet. **Ne pas éditer à la "
         "main** : `make mesure` réécrit ce fichier en entier.",
         "",

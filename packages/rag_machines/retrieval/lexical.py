@@ -3,9 +3,9 @@
 L'index BM25 est construit **à l'ingestion**, sur le même texte que l'index dense, et
 sérialisé à côté de lui : c'est ce qui évite de le reconstruire à chaque démarrage du
 serveur MCP, et ce qui garantit que le lexical et le dense ne peuvent pas diverger — les
-deux sont produits par la même passe (``ingest.index.index_editions``).
+deux sont produits par la même passe (``packages.rag_machines.ingest.index.index_editions``).
 
-Ce module ne dépend jamais de ``ingest.index`` : ``bm25_path()`` prend un nom de collection
+Ce module ne dépend jamais de ``packages.rag_machines.ingest.index`` : ``bm25_path()`` prend un nom de collection
 déjà résolu, pour que l'appelant (l'ingestion comme la recherche) reste seul responsable de
 la correspondance nom de collection / texte indexé, sans import circulaire.
 """
@@ -21,8 +21,8 @@ from pathlib import Path
 from rank_bm25 import BM25Okapi
 
 from config import REPO_ROOT
-from ingest.normalize import Edition, TextProfile
-from ingest.registry import Registry
+from packages.rag_machines.ingest.normalize import Edition, TextProfile
+from packages.rag_machines.ingest.registry import Registry
 
 #: Reprend au caractère près la regex de ``Q3.md`` §8 : c'est elle qui reproduit les
 #: scores mesurés dans le dossier (« REF-8842 » notice 6,1, note 5,5, fiche 4,5).
@@ -60,8 +60,8 @@ class LexicalIndex:
 
 def bm25_path(collection: str) -> Path:
     """Chemin du pickle BM25 d'une collection. ``collection`` est déjà résolu par
-    ``ingest.index.collection_name`` — jamais recalculé ici, pour éviter tout import
-    circulaire entre ``ingest.index`` (qui écrit ce fichier) et ce module (qui le lit)."""
+    ``packages.rag_machines.ingest.index.collection_name`` — jamais recalculé ici, pour éviter tout import
+    circulaire entre ``packages.rag_machines.ingest.index`` (qui écrit ce fichier) et ce module (qui le lit)."""
     return REPO_ROOT / "data" / "bm25" / f"{collection}.pkl"
 
 

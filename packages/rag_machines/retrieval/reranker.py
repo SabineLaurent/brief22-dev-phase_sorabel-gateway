@@ -20,7 +20,7 @@ from typing import Protocol, cast
 
 from config import Settings
 from config import settings as default_settings
-from retrieval.azure_client import build_azure_openai_client
+from packages.rag_machines.retrieval.azure_client import build_azure_openai_client
 
 #: Prompt du rerank LLM : un score par document, jamais du texte libre.
 _AZURE_RERANK_SYSTEM_PROMPT = (

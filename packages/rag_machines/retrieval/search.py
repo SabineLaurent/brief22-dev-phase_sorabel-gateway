@@ -25,11 +25,11 @@ from chromadb.api.models.Collection import Collection
 
 from config import Settings
 from config import settings as default_settings
-from ingest.index import collection_name, connect, get_collection
-from ingest.normalize import TextProfile
-from retrieval.embedder import Embedder, build_embedder
-from retrieval.lexical import bm25_path, load_lexical_index
-from retrieval.reranker import Reranker, build_reranker
+from packages.rag_machines.ingest.index import collection_name, connect, get_collection
+from packages.rag_machines.ingest.normalize import TextProfile
+from packages.rag_machines.retrieval.embedder import Embedder, build_embedder
+from packages.rag_machines.retrieval.lexical import bm25_path, load_lexical_index
+from packages.rag_machines.retrieval.reranker import Reranker, build_reranker
 
 #: Les trois étages de recherche comparés par le protocole (``Q5`` §2) : A — dense seul,
 #: B — lexical seul (le témoin), C — hybride BM25 + dense + RRF + rerank.

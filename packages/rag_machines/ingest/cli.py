@@ -1,4 +1,4 @@
-"""Ingestion du corpus : `python -m ingest.cli` (ou `make ingest`).
+"""Ingestion du corpus : `python -m packages.rag_machines.ingest.cli` (ou `make ingest`).
 
 Lit les 400 fichiers, les normalise, désigne les éditions courantes, puis écrit
 l'index. Rejouable : l'``upsert`` sur ``edition_id`` réécrit ce qui a changé, et
@@ -19,15 +19,15 @@ from pathlib import Path
 
 from config import Settings
 from config import settings as default_settings
-from ingest.index import IndexReport, collection_name, index_editions
-from ingest.normalize import (
+from packages.rag_machines.ingest.index import IndexReport, collection_name, index_editions
+from packages.rag_machines.ingest.normalize import (
     Edition,
     NormalizationError,
     TextProfile,
     corpus_files,
     normalize,
 )
-from ingest.registry import Registry, build_registry
+from packages.rag_machines.ingest.registry import Registry, build_registry
 
 
 def collect(root: Path) -> tuple[list[Edition], list[str]]:

@@ -1,13 +1,13 @@
 """Agent conversationnel LangChain, minimal, pour rejouer à la main les questions
 d'``eval/questions_rag.jsonl``.
 
-Un seul outil, ``search_docs``, qui appelle ``retrieval.search.search()``. Pas de
+Un seul outil, ``search_docs``, qui appelle ``packages.rag_machines.retrieval.search.search()``. Pas de
 mémoire : chaque question part d'un historique vide, l'agent n'a que la question
 posée et ce que l'outil lui rend.
 
 Usage :
-    uv run python -m chat_agent.cli
-    uv run python -m chat_agent.cli --strategy dense
+    uv run python -m packages.agent.cli
+    uv run python -m packages.agent.cli --strategy dense
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from langchain_core.tools import tool
 from pydantic import SecretStr
 
 from config import settings
-from retrieval.search import Strategy, citation, search
+from packages.rag_machines.retrieval.search import Strategy, citation, search
 
 _SYSTEM_PROMPT = (
     "Tu réponds aux questions sur le catalogue et les procédures Sorabel en "
@@ -31,7 +31,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _build_agent(strategy: Strategy):  # type: ignore[no-untyped-def]
+def build_agent(strategy: Strategy):  # type: ignore[no-untyped-def]
     @tool
     def search_docs(query: str) -> str:
         """Cherche dans le corpus documentaire Sorabel ; rend les résultats ou un refus motivé."""
@@ -69,7 +69,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    agent = _build_agent(args.strategy)
+    agent = build_agent(args.strategy)
     print(f"Agent RAG Sorabel — étage « {args.strategy} ». Ctrl+D pour quitter.")
     while True:
         try:

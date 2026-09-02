@@ -24,10 +24,10 @@ from chromadb.api.models.Collection import Collection
 
 from config import Settings
 from config import settings as default_settings
-from ingest.normalize import Edition, TextProfile
-from ingest.registry import Registry, build_metadata
-from retrieval.embedder import Embedder, build_embedder
-from retrieval.lexical import bm25_path, build_lexical_index, save_lexical_index
+from packages.rag_machines.ingest.normalize import Edition, TextProfile
+from packages.rag_machines.ingest.registry import Registry, build_metadata
+from packages.rag_machines.retrieval.embedder import Embedder, build_embedder
+from packages.rag_machines.retrieval.lexical import bm25_path, build_lexical_index, save_lexical_index
 
 #: Les vecteurs sont comparés en cosinus — la métrique des modèles e5.
 _DISTANCE_METADATA = {"hnsw:space": "cosine"}
