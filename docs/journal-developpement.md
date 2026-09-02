@@ -998,3 +998,46 @@ maximise un seul terme est trompeur.
 
 Piste refermée : aucun script ni cible Make ajoutés, aucun code applicatif modifié — la mesure
 est reproductible par quiconque relit les deux CSV et réapplique la règle ci-dessus.
+
+---
+
+## 2026-09-02 — Piste exécutée : le rang RRF avant rerank, contribution de chaque étage
+
+Question posée en marge du gain E6 : dans la configuration C (BM25 + dense + RRF + rerank),
+combien du gain vient de la **fusion RRF** seule, et combien vient du **rerank** ? Ni le
+protocole ni les quatre drapeaux mesurés ne l'isolent — `_hybrid_search`
+(`retrieval/search.py:289-294`) refuse même de tourner sans reranker. La question est jugée
+**non couverte** par le livrable E6 (qui ne demande que le gain du pipeline complet) mais
+**pertinente** comme diagnostic, motivée par le constat de l'axe 2 : « nettoyage et
+versionnement, effet nul sur l'hybride » suggérait déjà que le reranker absorbe le bruit en
+aval, donc fait le plus gros du travail. Vérifié ici.
+
+**Méthode.** Aucune modification du code : un script ad hoc rejoue exactement la séquence de
+`_hybrid_search` jusqu'à la fusion RRF (`search.py:295-304`, `depth=rerank_candidates=20`,
+`version_filter=True`, texte `clean`), **sans appeler le reranker** — arrêt juste avant
+`search.py:313`. Les 8 questions `reference_exacte` de `eval/questions_rag.jsonl`, tronquées à
+`top_k=5` pour comparer à la même profondeur que les métriques publiées, avec et sans la règle
+de départage (`apply_tiebreak`, réutilisée telle quelle — elle ne lit que les métadonnées, pas
+un score).
+
+**Résultat**, comparé au CSV déjà publié (`eval/resultats/mesure-hybride.csv`, RRF + rerank) :
+
+| | Hit@1 référence | Hit@1 fiche technique |
+|---|---:|---:|
+| RRF seul, sans départage | 4/8 | 2/8 |
+| RRF seul, avec départage | 4/8 | 4/8 |
+| RRF + rerank (publié, config C) | **8/8** | **8/8** |
+
+Sur les 16 lignes (8 questions × 2 critères), **le bon document est systématiquement présent
+dans les 5 premiers résultats de la fusion RRF** — jamais un cas où RRF l'aurait laissé au-delà
+du top-5. Le reranker ne repêche donc jamais un candidat absent, il ne fait que réordonner.
+
+**Lecture.** Les deux étages ont des rôles distincts, pas redondants : **RRF assure le rappel**
+— faire entrer le bon candidat dans les cinq (16/16, sans exception) — et **le rerank assure la
+précision** — le faire remonter au rang 1 (de 4/8 ou 4/8 à 8/8). La règle de départage récupère
+la moitié de l'écart sur le critère fiche (2/8 → 4/8, en échangeant une notice contre une fiche
+de même référence, exactement son rôle documenté), mais c'est le rerank qui referme tout le
+reste. Ça confirme, chiffré, l'intuition de l'axe 2 : le cross-encoder fait la majorité du
+travail de précision dans le pipeline hybride.
+
+Piste refermée : aucun script ni cible Make ajoutés, aucun code applicatif modifié.
