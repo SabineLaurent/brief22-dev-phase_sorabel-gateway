@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     #: Renseigné ⇒ le rerank part sur Azure AI Foundry (API v1), en LLM-juge.
     azure_rerank_deployment: str = ""
+    #: Déploiement de chat Azure AI Foundry (API v1), utilisé par l'agent conversationnel
+    #: de scripts/rag_chat.py — aucune fonction du RAG lui-même n'en dépend.
+    azure_chat_deployment: str = ""
     #: Score minimal du premier résultat, sur l'échelle du reranker — critère de
     #: refus de la configuration hybride (Q4 §3, Q5 §4). Calibré par
     #: `make calibrer-hybride`, jamais sur le jeu de mesure.
