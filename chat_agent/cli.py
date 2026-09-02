@@ -6,18 +6,17 @@ mémoire : chaque question part d'un historique vide, l'agent n'a que la questio
 posée et ce que l'outil lui rend.
 
 Usage :
-    uv run python scripts/rag_chat.py
-    uv run python scripts/rag_chat.py --strategy dense
+    uv run python -m chat_agent.cli
+    uv run python -m chat_agent.cli --strategy dense
 """
 
 from __future__ import annotations
 
 import argparse
 
-from langchain.agents import AgentExecutor, create_tool_calling_agent
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.agents import create_agent
+from langchain.chat_models import init_chat_model
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from config import settings
@@ -32,7 +31,7 @@ _SYSTEM_PROMPT = (
 )
 
 
-def _build_executor(strategy: Strategy) -> AgentExecutor:
+def _build_agent(strategy: Strategy):  # type: ignore[no-untyped-def]
     @tool
     def search_docs(query: str) -> str:
         """Cherche dans le corpus documentaire Sorabel ; rend les résultats ou un refus motivé."""
@@ -51,20 +50,13 @@ def _build_executor(strategy: Strategy) -> AgentExecutor:
             "de chat que cet agent appelle."
         )
 
-    llm = ChatOpenAI(
+    llm = init_chat_model(
+        settings.azure_chat_deployment,
+        model_provider="openai",
         base_url=f"{settings.azure_ai_endpoint.rstrip('/')}/openai/v1",
         api_key=SecretStr(settings.azure_ai_api_key),
-        model=settings.azure_chat_deployment,
     )
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", _SYSTEM_PROMPT),
-            ("human", "{input}"),
-            ("placeholder", "{agent_scratchpad}"),
-        ]
-    )
-    agent = create_tool_calling_agent(llm, [search_docs], prompt)
-    return AgentExecutor(agent=agent, tools=[search_docs])
+    return create_agent(llm, tools=[search_docs], system_prompt=_SYSTEM_PROMPT)
 
 
 def main() -> None:
@@ -77,7 +69,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    executor = _build_executor(args.strategy)
+    agent = _build_agent(args.strategy)
     print(f"Agent RAG Sorabel — étage « {args.strategy} ». Ctrl+D pour quitter.")
     while True:
         try:
@@ -89,8 +81,8 @@ def main() -> None:
             continue
         if question.lower() in {"exit", "quit"}:
             break
-        response = executor.invoke({"input": question})
-        print(response["output"])
+        response = agent.invoke({"messages": [{"role": "user", "content": question}]})
+        print(response["messages"][-1].content)
 
 
 if __name__ == "__main__":
