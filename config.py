@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     azure_ai_endpoint: str = ""
     azure_ai_api_key: str = ""
 
+    # --- Recherche --------------------------------------------------------------
+    #: Nombre de résultats rendus. Le dossier laisse `top_k` explicitement ouvert,
+    #: à arrêter sur les mesures ; 5 est la valeur qu'impose la métrique Recall@5.
+    search_top_k: int = 5
+    #: Score minimal du premier résultat sous lequel la recherche refuse (Q4 §3).
+    #: **Non calibré** : à régler sur eval/questions_calibration.jsonl, jamais sur le
+    #: jeu de mesure. `None` désactive la barrière.
+    refusal_threshold: float | None = None
+
     @property
     def uses_azure_embeddings(self) -> bool:
         return bool(self.azure_embedding_deployment and self.azure_ai_endpoint)
