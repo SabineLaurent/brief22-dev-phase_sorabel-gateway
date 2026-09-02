@@ -11,10 +11,14 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   registry, index, cli), `retrieval/embedder.py`, `scripts/check_index.py`. 400 éditions
   indexées dans Chroma, 18 contrôles au vert. Revue de code passée : neuf constats
   corrigés et vérifiés, consignés au journal.
-- **Chantier RAG, étape 2 — recherche dense, citations, refus hors corpus : à faire.**
-  C'est la prochaine étape.
-- Étape 3 (hybride BM25 + rerank, mesure du gain E6), puis chantier Text-to-SQL, puis
-  chantier serveur MCP, puis l'interface graphique.
+- **Chantier RAG, étape 2 — recherche dense, citations, refus : faite.**
+  `retrieval/search.py` (tout paramétré : collection, étage, filtre, départage, seuil),
+  `scripts/calibrate_threshold.py`, `eval/questions_calibration.jsonl`. Mesure « avant »
+  posée : Hit@1 2/8 en dense seul, refus 7/8 au seuil 0,831.
+- **Chantier RAG, étape 3 — hybride BM25 + RRF + rerank, mesure du gain E6 : à faire.**
+  C'est la prochaine étape. Le protocole est arrêté d'avance dans
+  `eval/protocole-mesure.md` — le lire avant de coder.
+- Puis chantier Text-to-SQL, puis chantier serveur MCP, puis l'interface graphique.
 
 Aucun test d'acceptance ne passe encore : ils exigent tous un serveur MCP, qui n'existe
 pas avant le troisième chantier.
@@ -55,6 +59,13 @@ raisons de style.
 La conversion attribut Python → clé de données se fait à un seul endroit par
 domaine. Pour le corpus : `build_metadata()` dans `ingest/registry.py`.
 
+## Mesure
+
+`eval/protocole-mesure.md` fixe **ce qui varie et ce qui ne varie pas** dans toute
+comparaison : quatre drapeaux orthogonaux, deux axes, une cible Make par mesure
+publiée. À lire avant d'écrire la moindre ligne d'évaluation — le protocole a été
+arrêté avant l'implémentation exprès pour ne pas se façonner sur elle.
+
 ## Arbitrage
 
 Quand le dossier de conception, `docs/cadrage_dsi.md` et `tests/` divergent,
@@ -73,6 +84,8 @@ fois**, vérifiée et journalisée avant de passer à la suivante.
 make up            # Chroma (docker compose, port 8002)
 make ingest        # ingestion du corpus dans Chroma (met l'index à jour)
 make reindex       # reconstruit la collection à neuf (modèle d'embeddings changé)
+make ingest-brut   # index témoin, texte non nettoyé (axe 2 du protocole de mesure)
+make calibrer      # règle le seuil de refus sur le jeu de calibration
 make check-index   # contrôles d'intégrité de l'index
 make seed          # génère data/sorabel.db
 make test          # suite d'acceptance
