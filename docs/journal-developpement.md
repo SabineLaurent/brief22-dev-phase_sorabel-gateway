@@ -948,3 +948,53 @@ balayage manuel sur 14 questions) :
   (fidélité, pertinence, precision/recall du contexte), via LLM-juge — pas un outil de choix
   de seuil. Son générateur de jeux de test synthétiques pourrait en revanche aider à étoffer
   le jeu de calibration au-delà des 14 questions écrites à la main.
+
+---
+
+## 2026-09-02 — Piste exécutée : impact de la calibration, seuil calibré vs seuil naïf
+
+Suite de la note ci-dessus. La piste « plus légère » qu'elle retenait — seuil calibré contre
+seuil par défaut, limitée au sous-ensemble `hors_corpus`, sans toucher aux cibles existantes
+ni au protocole — est exécutée ici.
+
+**Méthode.** Aucune ré-exécution de `search()` n'est nécessaire : `scripts/eval_rag.py` écrit
+déjà, pour les 30 questions, une colonne `score` calculée **indépendamment du seuil** dans
+`eval/resultats/mesure-dense.csv` (config A) et `eval/resultats/mesure-hybride.csv`
+(config C) — la décision de refus y est recalculée après coup. La comparaison relit ces deux
+CSV déjà publiés et réapplique la règle `refusé si score < seuil` pour deux seuils : le seuil
+calibré en dur dans `config.py` (`refusal_threshold=0,8308`, `rerank_threshold=0,0530`), et un
+seuil « naïf » choisi ici.
+
+**Seuil naïf retenu : 0,5.** Aucune valeur non calibrée n'existe dans le dépôt — 0,5 est le
+choix d'un score borné `[0, 1]` sans aucune mesure, exactement le sens que porte la sigmoïde
+du score du reranker (`retrieval/reranker.py`), pensée comme une probabilité. Pour le score
+dense (cosinus), 0,5 est un choix moins naturel mais porte la même absence de mesure — c'est
+précisément le point : montrer ce qui se passe si l'étape de calibration est sautée.
+
+**Résultat**, recalculé sur les CSV déjà publiés :
+
+| config | seuil | refus_corrects (/8 hors_corpus) | réponses_tenues (/14 couverte) |
+|---|---|---:|---:|
+| A — dense | calibré 0,8308 | 7/8 | 12/14 |
+| A — dense | naïf 0,5 | **0/8** | 14/14 |
+| C — hybride | calibré 0,0530 | 5/8 | 13/14 |
+| C — hybride | naïf 0,5 | 6/8 | **9/14** |
+
+**Lecture.** En config A, le seuil naïf rend la barrière **totalement inopérante** (0/8) : les
+scores cosinus vivent tous dans une bande étroite (0,7976 à 0,8962), hors_corpus et couverte
+confondus, bien au-dessus de 0,5 — sans calibration, rien n'est jamais refusé. En config C, le
+seuil naïf améliore même légèrement le taux de refus brut (6/8 contre 5/8) mais au prix d'un
+effondrement des réponses tenues (9/14 contre 13/14) : il refuse à tort des questions couvertes
+dont le score reranker, légitime, tombe entre 0,05 et 0,5 (`RAG-12`, `RAG-13`, `RAG-15`,
+`RAG-19`, `RAG-21`).
+
+**Conclusion.** La calibration n'a pas le même enjeu selon la stratégie : pour le dense, c'est
+la différence entre une barrière qui fonctionne et une qui ne fait rien ; pour l'hybride, c'est
+un arbitrage entre refus et réponses tenues, et un seuil choisi au jugé peut sembler « mieux »
+sur le seul taux de refus (6/8 > 5/8) tout en dégradant fortement l'autre versant. C'est
+exactement pourquoi `best_threshold()` (`scripts/calibrate_threshold.py`) optimise la somme des
+deux termes (refus corrects + réponses tenues) et non le taux de refus seul — un seuil qui
+maximise un seul terme est trompeur.
+
+Piste refermée : aucun script ni cible Make ajoutés, aucun code applicatif modifié — la mesure
+est reproductible par quiconque relit les deux CSV et réapplique la règle ci-dessus.
