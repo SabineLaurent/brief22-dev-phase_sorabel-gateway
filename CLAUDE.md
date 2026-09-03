@@ -21,7 +21,7 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `eval/rapport_gain.md` : Hit@1 référence 2/8 (A) → 3/8 (B) → **8/8 (C)**, MRR 1,000 en
   hybride. Chantier RAG terminé.
 - **Chantier Text-to-SQL : fait, en bibliothèque.** `packages/text_to_sql_factory/` :
-  `access` (matrice), `contract` (contrat de lecture filtré), `generator` (une passe LLM,
+  `access_sql` (les colonnes ; la matrice elle-même vit dans `packages/access.py`), `contract` (contrat de lecture filtré), `generator` (une passe LLM,
   trois branches, plus une reprise sur requête fausse), `validator` (cinq contrôles sqlglot
   — **tables en 5a avant colonnes en 5b** — puis LIMIT, puis le contrôle 6 `EXPLAIN`),
   `executor` (connexion `mode=ro` + `query_only`, bornes, trois contrôles du résultat, et
@@ -46,6 +46,19 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `api.py`), l'étage 2 est appliqué aux quatre, et `matrice.yaml` gagne un profil `admin`.
   **Le profil est déclaré par le client** : écart assumé et temporaire, il tombe avec le
   serveur MCP.
+- **Matrice appliquée au corpus : faite.** `packages/access.py` (module partagé : `Scope`,
+  chargement, `scope_for`, `authorize` — l'étage 2 des huit tools), avec un lecteur par
+  domaine : `text_to_sql_factory/access_sql.py` et `rag_machines/access_rag.py`. Le filtre
+  de périmètre documentaire (`retrieval/perimeter.py`) applique `collections` et
+  `themes_notes` **avant la troncature**, côté Chroma comme côté BM25 — les pickles portent
+  désormais `doc_type` et `theme`, et un garde-fou refuse un index antérieur.
+  **La forme du `where` est une disjonction, pas une conjonction** : la clé `theme` est
+  omise sur les 320 non-notes, et un `$and` naïf ne rendrait que des notes. C'est la forme
+  écrite dans `Q3.md` §8, qui y était « documentée, pas exécutée » — ce chantier l'exécute.
+  `make check-perimetre` : 31 contrôles, décomptes en or 270/318/350 vérifiés contre l'index.
+  `make mesure-perimetre` → `eval/rapport_perimetre.md` (axe 3 du protocole) : filtrer après
+  la troncature coûte 0,83 résultat par question à `dev` et décide cinq fois le seuil de
+  refus sur un document que l'utilisateur ne verrait pas.
 - **Chantier serveur MCP : à faire.** C'est la prochaine étape. Puis l'interface graphique.
 
 Aucun test d'acceptance ne passe encore : ils exigent tous un serveur MCP, qui n'existe
@@ -97,7 +110,7 @@ domaine. Pour le corpus : `build_metadata()` dans `ingest/registry.py`.
 ## Mesure
 
 `eval/protocole-mesure.md` fixe **ce qui varie et ce qui ne varie pas** dans toute
-comparaison : quatre drapeaux orthogonaux, deux axes, une cible Make par mesure
+comparaison : quatre drapeaux orthogonaux, trois axes, une cible Make par mesure
 publiée. À lire avant d'écrire la moindre ligne d'évaluation — le protocole a été
 arrêté avant l'implémentation exprès pour ne pas se façonner sur elle.
 
@@ -122,9 +135,10 @@ make reindex       # reconstruit la collection à neuf (modèle d'embeddings cha
 make ingest-brut   # index témoin, texte non nettoyé (axe 2 du protocole de mesure)
 make calibrer      # règle le seuil de refus sur le jeu de calibration
 make check-index   # contrôles d'intégrité de l'index
+make check-perimetre # contrôles du filtre de périmètre documentaire (matrice sur le corpus)
 make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
 make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM chacune)
 make test          # suite d'acceptance
-make lint          # ruff + mypy
+make lint          # ruff + mypy — rouge sur 3 erreurs préexistantes (Chainlit, IncludeEnum)
 ```

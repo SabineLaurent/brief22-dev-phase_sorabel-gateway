@@ -1460,3 +1460,144 @@ Le constat de revue sur `_filters_on_label` (le disjoncteur ignore la table du c
 sur `truncated` (jamais vrai pour le `LIMIT` injecté), sur `N7` (compare les dernières
 colonnes projetées, pas les clés de tri) et sur `MIN`/`MAX` en table vide **restent
 ouverts** : ils ne touchent pas au chemin de validation et n'ont pas été traités ici.
+
+---
+
+## 2026-09-03 — La matrice gouverne aussi le corpus : module d'accès partagé et filtre de périmètre
+
+### Ce qui l'a déclenché
+
+Une capture d'écran de l'accueil Chainlit. Le rôle `sans_role` y lisait : « profil `default`
+— aucun chiffre : les questions sur les données seront refusées. **La documentation reste
+interrogeable.** » Or `default` n'a aucun tool dans la matrice, `search_docs` compris, et
+aucune collection. La phrase était fausse au regard de `matrice.yaml`, et ne passait
+inaperçue que parce que le banc d'essai n'appliquait l'étage 2 qu'aux quatre tools SQL : la
+recherche documentaire répondait, effectivement, à un profil qui n'y avait pas droit.
+
+Deux corrections successives, dans cet ordre : le libellé a d'abord été branché sur
+`scope.tools` en disant l'écart ; puis l'écart lui-même a été supprimé.
+
+### Le module d'accès, remonté d'un cran
+
+`packages/text_to_sql_factory/access.py` → **`packages/access.py`**. Le `Scope` qu'il porte
+décrit les deux domaines — `columns` pour le SQL, `collections` et `themes_notes` pour le
+corpus — et laisser son unique lecteur dans le paquet SQL aurait fait dépendre le chantier
+RAG du chantier Text-to-SQL.
+
+**Le fichier n'a pas été dupliqué**, malgré la tentation d'un `access_sql.py` et d'un
+`access_rag.py` autonomes. Sur ses 143 lignes, une dizaine seulement sont spécifiques au
+SQL : tout le reste — le `Scope`, le chargement défensif, le cache sur le mtime, la
+retombée sur `default`, `authorize()` — est commun. Et `authorize()` ne se coupe pas en
+deux : c'est l'étage 2 des **huit** tools du catalogue, et `tools:` est une seule liste
+blanche par profil. Deux `authorize()` auraient répondu à la même question sur la même
+donnée. `matrice.yaml` le dit d'ailleurs en tête : « lue partout par une fonction unique ».
+
+Ce qui s'est séparé, ce sont les **lecteurs** : `text_to_sql_factory/access_sql.py` et
+`rag_machines/access_rag.py`, un par domaine, sur une matrice lue une seule fois.
+
+`forbidden_columns` a été renommée **`columns_outside_scope`** au passage. Le nom laissait
+croire à une liste noire alors que la fonction dérive de la liste blanche et n'énumère rien.
+Elle était surtout **morte** — zéro appelant — pendant que `tools.py:_forbidden()`
+réimplémentait son corps mot pour mot. Elle est maintenant branchée, et c'est son seul
+appelant. Le contrôle 5b du validator n'a **pas** été touché : sa condition supplémentaire
+`column[0] in schema` distingue « hors périmètre » de « hors schéma », ce n'est pas la même
+fonction malgré la ressemblance.
+
+### Le filtre de périmètre : une vérification que la conception avait différée
+
+La forme du `where` n'a pas été inventée. Elle est écrite en pseudo-code exact dans
+`3-exposition-mcp-et-matrice-d-acces/Q3.md` §8, sous une note explicite : « la forme
+ci-dessus est **documentée, pas exécutée** : `chromadb` n'est pas installé dans
+l'environnement du projet. Le premier jour du développement la vérifie sur les quatre
+profils, avec la version figée. » Ce chantier est ce premier jour.
+
+**Une disjonction, jamais une conjonction.** La clé `theme` est *omise* des métadonnées sur
+les 320 éditions qui ne sont pas des notes, et Chroma évalue à faux toute comparaison sur
+une clé absente. Un `$and` de `doc_type` et `theme` n'aurait donc remonté **que des notes** —
+48 éditions au lieu de 318 pour le support — sans qu'aucune erreur ne le signale. La forme
+retenue met les collections ordinaires dans une branche qui ne mentionne jamais `theme`.
+
+**`$nin` a été examiné et écarté.** Il exprimerait « clé absente » en une ligne — Chroma le
+compile en `NOT IN` que les éditions sans clé traversent — mais il demande d'énumérer ce qui
+est fermé là où la matrice n'énumère que ce qui est ouvert. Un thème ajouté demain y serait
+ouvert par défaut : l'inverse de la liste blanche tenue partout ailleurs. Le motif du rejet
+est écrit dans la docstring de `perimeter.py`, pour que personne ne « simplifie » dans six
+mois.
+
+**Un objet à deux rendus, pas deux ensembles nus.** `Perimeter` porte `where()` pour Chroma
+et `allows()` pour BM25. La règle s'applique deux fois, et la configuration hybride fusionne
+les deux listes par RRF : une note qui fuirait par le seul étage lexical entrerait dans la
+fusion et sortirait au résultat. Écrite à deux endroits, la divergence ne se serait vue que
+par une réponse fausse ; écrite une fois, elle se contrôle.
+
+**`search()` reçoit un périmètre, jamais un profil.** `retrieval/` n'importe pas
+`packages/access.py` et reste « paramétré, jamais câblé ». La conversion et le refus vivent
+dans `access_rag.py`, seul module à connaître les deux mondes.
+
+**Deux barrières contre le périmètre vide**, parce qu'un `where={}` ne filtre rien et
+ferait lire le corpus entier à `default` : le refus est prononcé dans `perimeter_for()`
+avant toute requête, et `Perimeter.where()` lève plutôt que de rendre un filtre vide.
+
+### Avant la troncature, et pourquoi ça se paie
+
+Le filtre part **dans la requête**, comme `is_current`. Côté BM25, cela imposait de porter
+`doc_type` et `theme` dans le pickle : `LexicalIndex` a gagné deux listes parallèles, et les
+deux index — `sorabel_corpus.pkl` et `sorabel_corpus_raw.pkl` — ont été régénérés. Un
+`_check_schema` au chargement refuse désormais un pickle antérieur en nommant `make ingest` :
+sans lui, un index périmé se dépicklait sans bruit et cassait au premier `search` filtré,
+loin de sa cause.
+
+Les scores BM25 ne bougent pas — on n'ôte rien du corpus, donc rien des fréquences
+documentaires ; on écarte des candidats après le calcul, exactement comme `is_current` le
+fait depuis l'étape 2. Vérifié : `mesure-lexical` et `mesure-hybride` rejouées après
+régénération, **`git diff` vide** sur les six CSV publiés, Hit@1 8/8 et MRR 1,000 inchangés.
+
+### La mesure, plutôt que l'argument — axe 3 du protocole
+
+Le choix « avant la troncature » a été chiffré au lieu d'être seulement défendu.
+`make mesure-perimetre` compare **P0** (filtrage après troncature, fabriqué dans le script à
+partir du classement de référence — aucune branche morte en production) et **P1** (avant),
+sur `dev`, `support`, et `commercial` en témoin.
+
+| Profil | Rendus P0 → P1 | Vidées P0 | Seuil décidé sur un interdit, P0 |
+|---|---|---|---|
+| `dev` | 4,17 → 5,00 | 3 | 5 |
+| `support` | 4,73 → 5,00 | 1 | 1 |
+| `commercial` *(témoin)* | 5,00 → 5,00 | 0 | 0 |
+
+Hit@1 et MRR sont identiques partout — attendu, et annoncé avant la mesure : **aucune des 30
+questions ne vise une note interne**, donc aucune cible n'est rendue inatteignable. Le filtre
+ne retire pas de réponses, il libère des places.
+
+**Ce que la mesure n'établit pas, et qui est publié comme tel** : les questions que P0 vide
+entièrement sont toutes des `hors_corpus` (RAG-27, 29, 30 pour `dev`). Les refuser est juste —
+P0 les refuse pour la mauvaise raison, avec le bon résultat. Le refus indu redouté ne se
+produit pas sur ce jeu, faute d'une question couverte dont tout le top-5 soit interdit.
+L'écart réel tient donc aux deux autres colonnes : **0,83 résultat perdu par question** chez
+`dev`, et **cinq questions où le seuil de refus a été décidé sur un document que
+l'utilisateur ne verrait jamais**.
+
+### Écarts et décisions à consigner
+
+1. **`eval/protocole-mesure.md` a gagné un axe 3.** Ce document avait été arrêté *avant*
+   l'implémentation exprès pour ne pas se façonner sur elle. Ajouter un axe n'est pas
+   ajuster une mesure existante — les sept mesures publiées sont inchangées et rejouées à
+   l'identique — mais la distinction est notée ici pour n'avoir pas à être reconstituée.
+2. **`make lint` reste rouge**, sur les **trois mêmes** erreurs mypy qu'avant ce chantier
+   (`rag_machines/check_index.py:45`, `web_client/app.py:51` et `:70` — décorateurs Chainlit
+   et `IncludeEnum`). Vérifié par `git stash` : 32 fichiers avant, 37 après, zéro erreur
+   introduite. Elles ne sont pas traitées ici, hors périmètre.
+3. **Le profil reste déclaré par le client** dans le banc d'essai. L'écart est inchangé et
+   tombe toujours avec le serveur MCP.
+
+### Points ouverts
+
+`get_document` et `list_sources` **ne passent pas par ce filtre** : le premier décide sur le
+seul `doc_key`, le second construit son inventaire depuis le périmètre (`Q3` §9). Tant qu'ils
+n'existent pas, la fermeture du corpus reste contournable par un chemin de fichier. Ils
+appartiennent au chantier 3, et `Perimeter.allows()` est déjà la brique qui leur servira.
+
+Le jeu `questions_rag.jsonl` n'a **aucune question dont la réponse soit une note interne**.
+Tant que c'est le cas, l'axe 3 ne peut pas montrer de refus indu sur une question couverte.
+Si on veut ce chiffre, il faudra des questions visant `politique-tarifaire` ou
+`reunion-achat` — dans un fichier **distinct**, les mesures publiées dépendant de celui-ci.

@@ -1,5 +1,5 @@
-.PHONY: install up down seed ingest ingest-brut reindex check-index calibrer calibrer-hybride \
-	mesure-dense mesure-lexical mesure-hybride mesure-sans-nettoyage mesure-sans-versions \
+.PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
+	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-sql eval-sql test fmt lint serve client journal api web
 
 install:
@@ -23,6 +23,9 @@ reindex:
 check-index:
 	uv run python -m packages.rag_machines.check_index
 
+check-perimetre:
+	uv run python -m packages.rag_machines.check_perimeter
+
 calibrer:
 	uv run python -m packages.rag_machines.calibrate_threshold --config A
 
@@ -37,6 +40,9 @@ mesure-lexical:
 
 mesure-hybride:
 	uv run python -m packages.rag_machines.eval_rag --config C --text clean --version-filter on --out mesure-hybride
+
+mesure-perimetre:
+	uv run python -m packages.rag_machines.eval_perimeter
 
 mesure-sans-nettoyage:
 	uv run python -m packages.rag_machines.eval_rag --config C --text raw --version-filter on --out mesure-sans-nettoyage

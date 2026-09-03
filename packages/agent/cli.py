@@ -39,7 +39,8 @@ from langchain_core.tools import tool
 from pydantic import SecretStr
 
 from config import llm_base_url, settings
-from packages.rag_machines.retrieval.search import Strategy, citation, search
+from packages.rag_machines.access_rag import search_for_profile
+from packages.rag_machines.retrieval.search import Strategy, citation
 from packages.access import authorize
 from packages.text_to_sql_factory.tools import ask_database, check_stock, get_schema, order_status
 
@@ -85,8 +86,7 @@ def _denied(profile: str, tool: str) -> str | None:
     if authorize(profile, tool):
         return None
     return (f"outil : {tool}\n\ncode : tool_interdit\n\nmessage : le profil "
-            f"« {profile} » n'a pas accès à {tool} ; la documentation reste accessible "
-            "par search_docs")
+            f"« {profile} » n'a pas accès à {tool}")
 
 
 def _format_database_answer(envelope: dict, tool: str) -> str:
@@ -131,8 +131,14 @@ def build_agent(strategy: Strategy, profile: str = "support"):  # type: ignore[n
         """Documentation produit et procédures Sorabel. Cherche des extraits dans le corpus
         (fiches techniques, notices, procédures SAV) ; rend les extraits ou un refus motivé.
         Pour un chiffre, un stock ou un montant, utiliser ask_to_db."""
-        result = search(query, strategy=strategy)
-        if result.is_out_of_corpus:
+        denied = _denied(profile, "search_docs")
+        if denied is not None:
+            return denied
+        # Étage 3 : le périmètre documentaire du profil part dans la requête, avant la
+        # troncature. Le refus d'un profil sans aucune collection tombe ici aussi, et il
+        # n'est pas un « hors corpus » — le corpus couvre peut-être la question.
+        result = search_for_profile(query, profile, strategy=strategy)
+        if result.status != "ok":
             return result.message
         return "\n\n".join(
             f"[{citation(hit)['reference']}] {citation(hit)['titre']} "

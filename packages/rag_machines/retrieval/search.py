@@ -26,6 +26,7 @@ from chromadb.api.models.Collection import Collection
 from config import Settings
 from config import settings as default_settings
 from packages.rag_machines.ingest.index import collection_name, connect, get_collection
+from packages.rag_machines.retrieval.perimeter import Perimeter
 from packages.rag_machines.ingest.normalize import TextProfile
 from packages.rag_machines.retrieval.embedder import Embedder, build_embedder
 from packages.rag_machines.retrieval.lexical import bm25_path, load_lexical_index
@@ -178,7 +179,8 @@ def _reciprocal_rank_fusion(id_lists: list[list[str]], k: int = _RRF_K) -> list[
 
 
 def _dense_query(
-    collection: Collection, embedder: Embedder, query: str, top_k: int, version_filter: bool
+    collection: Collection, embedder: Embedder, query: str, top_k: int, version_filter: bool,
+    perimeter: Perimeter | None = None,
 ) -> list[Hit]:
     """Le corps de la recherche dense, sur une collection déjà résolue.
 
@@ -189,12 +191,17 @@ def _dense_query(
     Le filtre de version part **dans la requête** : Chroma l'applique avant de tronquer à
     ``top_k``, ce qui est exactement ce que demande ``Q1`` §5. Filtrer après coup rendrait
     le rang ininterprétable, et c'est le rang que consomme la fusion RRF de la
-    configuration hybride.
+    configuration hybride. Le filtre de périmètre part au même endroit, pour la même raison.
+
+    Sans périmètre, la clause reste **littéralement** celle d'avant : c'est ce qui rend les
+    mesures publiées rejouables à l'identique sans avoir à en discuter.
     """
+    where = (perimeter.where(version_filter) if perimeter is not None
+             else ({"is_current": True} if version_filter else None))
     response = collection.query(
         query_embeddings=[embedder.embed_query(query)],  # type: ignore[arg-type]
         n_results=top_k,
-        where={"is_current": True} if version_filter else None,
+        where=where,  # type: ignore[arg-type]
         include=["metadatas", "documents", "distances"],  # type: ignore[list-item]
     )
 
@@ -228,6 +235,7 @@ def _dense_search(
     embedder: Embedder,
     reranker: Reranker | None,
     text: TextProfile,
+    perimeter: Perimeter | None,
 ) -> list[Hit]:
     """Recherche dense seule — la configuration A, l'« avant » que nomme le brief.
 
@@ -236,7 +244,7 @@ def _dense_search(
     ``_STRATEGIES``.
     """
     collection = get_collection(connect(settings), embedder, settings, text)
-    return _dense_query(collection, embedder, query, top_k, version_filter)
+    return _dense_query(collection, embedder, query, top_k, version_filter, perimeter)
 
 
 def _lexical_search(
@@ -247,6 +255,7 @@ def _lexical_search(
     embedder: Embedder,
     reranker: Reranker | None,
     text: TextProfile,
+    perimeter: Perimeter | None,
 ) -> list[Hit]:
     """Recherche lexicale seule — la configuration B, le témoin (``Q3`` §2, ``Q5`` §2).
 
@@ -257,7 +266,7 @@ def _lexical_search(
     « aucun seuil de refus possible » — un résultat, pas un trou.
     """
     index = load_lexical_index(bm25_path(collection_name(settings, text)))
-    ranked = index.search(query, top_k, version_filter)
+    ranked = index.search(query, top_k, version_filter, perimeter)
     if not ranked:
         return []
     found = _fetch(get_collection(connect(settings), embedder, settings, text), [i for i, _ in ranked])
@@ -276,6 +285,7 @@ def _hybrid_search(
     embedder: Embedder,
     reranker: Reranker | None,
     text: TextProfile,
+    perimeter: Perimeter | None,
 ) -> list[Hit]:
     """BM25 + dense + RRF + rerank — la configuration C, l'« après » (``Q3`` §4-5).
 
@@ -297,9 +307,10 @@ def _hybrid_search(
     # Une seule collection, réutilisée pour l'étage dense et le _fetch final : deux
     # allers-retours Chroma évitables pour la même collection dans le même appel.
     collection = get_collection(connect(settings), embedder, settings, text)
-    dense_ids = [hit.doc_id for hit in _dense_query(collection, embedder, query, depth, version_filter)]
+    dense_ids = [hit.doc_id
+                 for hit in _dense_query(collection, embedder, query, depth, version_filter, perimeter)]
     lexical_index = load_lexical_index(bm25_path(collection_name(settings, text)))
-    lexical_ids = [i for i, _ in lexical_index.search(query, depth, version_filter)]
+    lexical_ids = [i for i, _ in lexical_index.search(query, depth, version_filter, perimeter)]
 
     fused_ids = _reciprocal_rank_fusion([dense_ids, lexical_ids])[:depth]
     if not fused_ids:
@@ -334,6 +345,7 @@ def search(
     settings: Settings | None = None,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
+    perimeter: Perimeter | None = None,
 ) -> SearchResult:
     """Cherche dans le corpus. Rend des résultats, ou un refus ``hors_corpus``.
 
@@ -352,6 +364,12 @@ def search(
     ``reranker`` n'est construit — via ``build_reranker`` — que si ``strategy="hybrid"`` :
     inutile de charger le cross-encoder, ou d'appeler Azure, pour une mesure dense ou
     lexicale seule.
+
+    ``perimeter`` est un périmètre **déjà résolu**, jamais un profil : cette fonction ne lit
+    pas la matrice d'accès et ne sait pas ce qu'est un profil. La conversion vit dans
+    ``packages/rag_machines/access_rag.py``, qui est aussi le seul endroit où un périmètre
+    vide se change en refus. ``None`` — la valeur par défaut — ne filtre rien : c'est ce qui
+    laisse les mesures publiées rejouables sans drapeau supplémentaire.
     """
     settings = settings or default_settings
     embedder = embedder or build_embedder(settings)
@@ -370,7 +388,7 @@ def search(
     if reranker is None and strategy == "hybrid":
         reranker = build_reranker(settings)
 
-    hits = run(query, top_k, version_filter, settings, embedder, reranker, text)
+    hits = run(query, top_k, version_filter, settings, embedder, reranker, text, perimeter)
     if tiebreak:
         hits = apply_tiebreak(hits)
 

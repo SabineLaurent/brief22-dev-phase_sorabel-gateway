@@ -23,6 +23,7 @@ from rank_bm25 import BM25Okapi
 from config import REPO_ROOT
 from packages.rag_machines.ingest.normalize import Edition, TextProfile
 from packages.rag_machines.ingest.registry import Registry
+from packages.rag_machines.retrieval.perimeter import Perimeter
 
 #: Reprend au caractère près la regex de ``Q3.md`` §8 : c'est elle qui reproduit les
 #: scores mesurés dans le dossier (« REF-8842 » notice 6,1, note 5,5, fiche 4,5).
@@ -39,20 +40,37 @@ class LexicalIndex:
 
     edition_ids: list[str]
     is_current: list[bool]
+    #: Les deux listes du périmètre documentaire, parallèles aux deux précédentes.
+    #: ``themes`` porte ``None`` sur les 320 éditions qui ne sont pas des notes — symétrique
+    #: de la clé ``theme`` omise dans les métadonnées Chroma.
+    doc_types: list[str]
+    themes: list[str | None]
     bm25: BM25Okapi
 
-    def search(self, query: str, top_k: int, version_filter: bool) -> list[tuple[str, float]]:
+    def search(self, query: str, top_k: int, version_filter: bool,
+               perimeter: Perimeter | None = None) -> list[tuple[str, float]]:
         """Rend jusqu'à ``top_k`` couples ``(edition_id, score)``, triés par score.
 
         Le filtre de version s'applique **avant** la troncature — même sémantique que le
         ``where`` de Chroma côté dense (``Q1`` §5) : filtrer après aurait tronqué sur un
         classement qui inclut des éditions qu'on écarte de toute façon.
+
+        Le filtre de périmètre s'applique au même endroit, et pour la même raison : c'est le
+        rang de cette liste que consomme la fusion RRF de la configuration hybride. Écarter
+        après coup rendrait ce rang ininterprétable, et rendrait moins de ``top_k``
+        résultats sans repêchage.
+
+        Les scores BM25 eux-mêmes ne changent pas : on n'ôte rien du corpus indexé, donc
+        rien des fréquences documentaires. On écarte des candidats après le calcul.
         """
         scores = self.bm25.get_scores(tokenize(query))
         candidates = [
             (edition_id, float(score))
-            for edition_id, score, current in zip(self.edition_ids, scores, self.is_current)
-            if not version_filter or current
+            for edition_id, score, current, doc_type, theme in zip(
+                self.edition_ids, scores, self.is_current, self.doc_types, self.themes
+            )
+            if (not version_filter or current)
+            and (perimeter is None or perimeter.allows(doc_type, theme))
         ]
         candidates.sort(key=lambda pair: pair[1], reverse=True)
         return candidates[:top_k]
@@ -80,8 +98,11 @@ def build_lexical_index(editions: list[Edition], registry: Registry, text: TextP
         )
     edition_ids = [edition.edition_id for edition in editions]
     is_current = [registry.is_current(edition) for edition in editions]
+    doc_types = [edition.doc_type for edition in editions]
+    themes = [edition.theme for edition in editions]
     corpus = [tokenize(edition.text_for(text)) for edition in editions]
-    return LexicalIndex(edition_ids=edition_ids, is_current=is_current, bm25=BM25Okapi(corpus))
+    return LexicalIndex(edition_ids=edition_ids, is_current=is_current, doc_types=doc_types,
+                        themes=themes, bm25=BM25Okapi(corpus))
 
 
 def save_lexical_index(index: LexicalIndex, path: Path) -> None:
@@ -107,7 +128,32 @@ def load_lexical_index(path: Path) -> LexicalIndex:
             "(`make ingest`, `make reindex` ou `make ingest-brut` selon le texte visé) "
             "avant une recherche lexicale ou hybride."
         )
-    return _load_lexical_index_cached(path, path.stat().st_mtime_ns)
+    index = _load_lexical_index_cached(path, path.stat().st_mtime_ns)
+    _check_schema(index, path)
+    return index
+
+
+def _check_schema(index: LexicalIndex, path: Path) -> None:
+    """Cet index porte-t-il le périmètre documentaire ? Sinon, il précède le filtre.
+
+    ``LexicalIndex`` est une dataclass ordinaire : le dépicklage restaure ``__dict__`` sans
+    passer par ``__init__``, donc un index construit avant l'ajout de ``doc_types`` et
+    ``themes`` se charge sans erreur et ne casse qu'au premier ``search`` filtré, loin de sa
+    cause. On préfère dire tout de suite ce qui manque, et comment le refaire.
+
+    Le contrôle vit ici, pas dans la fonction mise en cache : deux ``hasattr`` ne coûtent
+    rien, et une exception levée sous ``lru_cache`` n'est pas mémorisée de toute façon.
+    """
+    expected = len(index.edition_ids)
+    if (getattr(index, "doc_types", None) is None or getattr(index, "themes", None) is None
+            or len(index.doc_types) != expected or len(index.themes) != expected):
+        raise RuntimeError(
+            f"Index BM25 antérieur au filtre de périmètre : {path}. Il ne porte pas "
+            "`doc_type` et `theme`, sans lesquels l'étage lexical ne sait pas appliquer la "
+            "matrice d'accès. Le reconstruire (`make ingest`, `make reindex` ou "
+            "`make ingest-brut` selon le texte visé) — l'index dense, lui, n'a pas besoin "
+            "d'être refait."
+        )
 
 
 @lru_cache(maxsize=8)

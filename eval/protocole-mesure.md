@@ -87,7 +87,7 @@ indexées dans les deux collections, `is_current` étant une métadonnée
 ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5). Le désactiver ne demande donc pas un
 second index — c'est ce qui rend l'axe 2 bon marché.
 
-## 3. Les deux axes de mesure
+## 3. Les trois axes de mesure
 
 ### Axe 1 — la recherche, à ingestion constante
 
@@ -153,6 +153,41 @@ occupent deux places du même top-5 pour un contenu unique.
 > Le seul risque de doublon d'index reste la ré-ingestion, déjà couverte par l'`upsert`
 > déterministe.
 
+### Axe 3 — le moment du filtrage de périmètre, à recherche constante
+
+**Ajouté le 2026-09-03**, au chantier du filtre de périmètre documentaire. Ce document a été
+arrêté avant l'implémentation exprès pour ne pas se façonner sur elle : *ajouter* un axe
+n'est pas *ajuster* une mesure existante, et la distinction est consignée au journal. Les
+sept mesures publiées précédemment sont inchangées, et rejouées à l'identique — `git diff`
+vide sur `eval/resultats/` — après la régénération des index BM25 qu'a demandée ce chantier.
+
+Il répond à : **que coûte un périmètre appliqué après la troncature plutôt qu'avant ?**
+
+| | Constant | Varie |
+|---|---|---|
+| | `--config C` · `--text clean` · `--version-filter on` · profil fixé | **P0** (après) → **P1** (avant) |
+
+La matrice d'accès ferme le corpus par collection et par thème de note. Comme `is_current`,
+ce filtre doit s'appliquer **avant** la troncature à `top_k` ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5) :
+c'est la propriété que ce chantier a retenue, et cet axe la chiffre au lieu de l'argumenter.
+
+**P0 n'existe pas dans le code de production.** Elle se fabrique dans le script de mesure, à
+partir du classement de référence : `search(perimeter=None)` puis retrait des résultats
+interdits. Les deux configurations partent donc littéralement du même classement, et aucune
+branche morte n'est entretenue pour les besoins d'une mesure.
+
+Trois profils, dont un **témoin** : `dev` et `support` perdent des éditions, `commercial`
+couvre tout le corpus courant — le filtre y est un no-op, et P0 doit y égaler P1 à la ligne
+près. Un écart chez lui signalerait un défaut du protocole, pas du filtre.
+
+Métriques : **résultats rendus**, **questions vidées** (en distinguant les couvertes des
+hors-corpus) et **seuil évalué sur un résultat interdit**. Pas Hit@1, et l'attendu est nommé
+avant la mesure : aucune des 30 questions ne vise une note interne, donc **aucune cible n'est
+rendue inatteignable** et Hit@1 ne doit pas bouger. S'il bougeait, ce serait le signe que le
+filtre écarte autre chose que ce qu'il doit écarter.
+
+Publié dans [`rapport_perimetre.md`](rapport_perimetre.md), cible `make mesure-perimetre`.
+
 ## 4. Le « RAG simple » est un coin de l'espace, pas un second projet
 
 Il ne se construit pas, il se **désactive**.
@@ -163,7 +198,7 @@ Il ne se construit pas, il se **désactive**.
 | **RAG avancé** | `clean` | `C` | `on` | `on` |
 
 Cette ligne-là **peut** être publiée — elle parle, et c'est celle qu'un lecteur non
-technique comprend. Mais elle est publiée **en plus** des deux axes, jamais à leur place,
+technique comprend. Mais elle est publiée **en plus** des axes 1 et 2, jamais à leur place,
 et toujours accompagnée de leur décomposition. Un écart global sans ventilation n'est pas
 une mesure, c'est une affiche.
 

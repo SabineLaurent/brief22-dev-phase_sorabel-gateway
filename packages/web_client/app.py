@@ -1,9 +1,9 @@
 """Interface Chainlit pour tester l'agent Sorabel par rôle, et rejouer les questions des
 jeux d'évaluation (eval/questions_*.jsonl).
 
-Le rôle sélectionné **agit réellement sur les questions chiffrées** : l'API le convertit en
-profil de la matrice d'accès, qui décide du droit d'interroger la base et des colonnes
-atteignables. Il reste sans effet sur la recherche documentaire.
+Le rôle sélectionné **agit réellement**, sur les deux domaines : l'API le convertit en profil
+de la matrice d'accès, qui décide du droit d'interroger la base et des colonnes atteignables,
+et du droit d'interroger le corpus — collections ouvertes et thèmes de notes.
 
 Écart assumé, le temps du banc d'essai : ici c'est le client qui déclare son rôle, alors que
 la conception veut le profil lu côté serveur. Il disparaît avec le serveur MCP.
@@ -50,12 +50,20 @@ _EVAL_QUESTIONS = _load_eval_questions()
 
 @cl.set_chat_profiles
 async def chat_profiles() -> list[cl.ChatProfile]:
+    # `name` est l'identifiant du rôle : c'est lui qui part vers l'API et que
+    # `profile_for_role()` convertit. `display_name` est ce que le sélecteur montre — la
+    # langue du dépôt veut du français en surface, et l'identifiant brut n'en est pas.
     return [
-        cl.ChatProfile(name="support", markdown_description="Rôle **support** (défaut)."),
-        cl.ChatProfile(name="dev", markdown_description="Rôle **dev**."),
-        cl.ChatProfile(name="commerciale", markdown_description="Rôle **commerciale**."),
-        cl.ChatProfile(name="sans_role", markdown_description="**Sans rôle**."),
-        cl.ChatProfile(name="admin", markdown_description="Rôle **admin**."),
+        cl.ChatProfile(name="support", display_name="Support",
+                       markdown_description="Rôle **support** (défaut)."),
+        cl.ChatProfile(name="dev", display_name="Dev",
+                       markdown_description="Rôle **dev**."),
+        cl.ChatProfile(name="commerciale", display_name="Commerciale",
+                       markdown_description="Rôle **commerciale**."),
+        cl.ChatProfile(name="sans_role", display_name="Sans rôle",
+                       markdown_description="**Sans rôle**."),
+        cl.ChatProfile(name="admin", display_name="Admin",
+                       markdown_description="Rôle **admin**."),
     ]
 
 
@@ -75,6 +83,12 @@ def _rights_summary(role: str) -> str:
     """
     profile = profile_for_role(role)
     scope = scope_for(profile)
+    # La documentation se lit dans la matrice, elle ne se promet pas en dur : `default` n'a
+    # aucun tool, `search_docs` compris. L'étage 2 lui est désormais appliqué comme aux
+    # quatre tools SQL, et le périmètre documentaire du profil part dans la requête — la
+    # phrase dit donc ce qui se passe, plus seulement ce qui devrait se passer.
+    docs = (" La documentation reste interrogeable." if "search_docs" in scope.tools
+            else " La documentation ne lui est pas ouverte non plus.")
     if "ask_database" not in scope.tools:
         # Le cas de `dev` : il a `get_schema` et aucun tool de lecture de données. La forme
         # de la base, jamais son contenu — le dire évite de faire passer pour une panne un
@@ -82,7 +96,7 @@ def _rights_summary(role: str) -> str:
         forme = (" Le **schéma** reste consultable : la forme de la base, pas son contenu."
                  if "get_schema" in scope.tools else "")
         return (f"profil `{profile}` — **aucun chiffre** : les questions sur les données "
-                f"seront refusées. La documentation reste interrogeable.{forme}")
+                f"seront refusées.{docs}{forme}")
     sensitive = {("produits", "prix_achat_ht"), ("produits", "marge_pct"),
                  ("ventes", "marge_ht")}
     marges = ("marges et prix d'achat compris" if sensitive <= scope.columns
