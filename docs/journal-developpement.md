@@ -1557,13 +1557,21 @@ régénération, **`git diff` vide** sur les six CSV publiés, Hit@1 8/8 et MRR 
 Le choix « avant la troncature » a été chiffré au lieu d'être seulement défendu.
 `make mesure-perimetre` compare **P0** (filtrage après troncature, fabriqué dans le script à
 partir du classement de référence — aucune branche morte en production) et **P1** (avant),
-sur `dev`, `support`, et `commercial` en témoin.
+sur les quatre profils que la matrice dote d'un périmètre. `default` en est exclu : il n'a
+rien à filtrer, son refus tombe avant toute requête, et `check_perimeter.py` le couvre.
 
 | Profil | Rendus P0 → P1 | Vidées P0 | Seuil décidé sur un interdit, P0 |
 |---|---|---|---|
 | `dev` | 4,17 → 5,00 | 3 | 5 |
 | `support` | 4,73 → 5,00 | 1 | 1 |
 | `commercial` *(témoin)* | 5,00 → 5,00 | 0 | 0 |
+| `admin` *(témoin)* | 5,00 → 5,00 | 0 | 0 |
+
+**Deux témoins plutôt qu'un.** `admin` a exactement le périmètre documentaire de
+`commercial` — même quatre collections, mêmes cinq thèmes ; `matrice.yaml` le dit
+délibérément (« il n'a PAS plus »). Les jouer tous les deux ne mesure donc rien de neuf sur
+le filtre, mais atteste que cette propriété de la matrice est bien lue : leurs 60 lignes de
+CSV coïncident une à une, `stage` par `stage`. Un seul des deux n'aurait rien dit de l'autre.
 
 Hit@1 et MRR sont identiques partout — attendu, et annoncé avant la mesure : **aucune des 30
 questions ne vise une note interne**, donc aucune cible n'est rendue inatteignable. Le filtre

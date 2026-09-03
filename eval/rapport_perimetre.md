@@ -26,6 +26,7 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 | `dev` | 10 / 30 |
 | `support` | 4 / 30 |
 | `commercial` | 0 / 30 |
+| `admin` | 0 / 30 |
 
 ## Résultats
 
@@ -68,6 +69,19 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 | Hit@1 | 20 / 21 | 20 / 21 |
 | MRR | 0.952 | 0.952 |
 
+### Profil `admin` *(témoin — périmètre couvrant tout le corpus courant)*
+
+| Mesure | P0 — après troncature | P1 — avant troncature |
+|---|---|---|
+| Résultats rendus, moyenne | 5.00 | 5.00 |
+| Résultats rendus, minimum | 5 | 5 |
+| Questions sans aucun résultat | **0** | 0 |
+| … dont questions couvertes | 0 | 0 |
+| Questions couvertes refusées | 1 | 1 |
+| Seuil évalué sur un résultat interdit | **0** | 0 |
+| Hit@1 | 20 / 21 | 20 / 21 |
+| MRR | 0.952 | 0.952 |
+
 ## Lecture
 
 Hit@1 et MRR ne séparent rien, ce qui est attendu : le filtre ne retire aucune cible,
@@ -88,8 +102,10 @@ pour la mauvaise raison, mais avec le bon résultat. Le refus indu redouté ne s
 pas ici : il faudrait pour cela une question couverte dont tout le top-5 soit interdit,
 et le jeu n'en contient aucune — aucune de ses cibles n'est une note interne.
 
-Le témoin `commercial` doit être identique dans les deux colonnes : son périmètre
-couvre les 350 éditions courantes, le filtre y est un no-op. Un écart chez lui
-signalerait un défaut du protocole, pas du filtre.
+**Les deux témoins.** `commercial` et `admin` doivent être identiques dans les
+deux colonnes *et* identiques l'un à l'autre : leurs périmètres couvrent les mêmes
+350 éditions courantes, le filtre y est un no-op. Un écart entre les deux colonnes
+signalerait un défaut du protocole ; un écart entre les deux profils, une matrice
+lue de travers.
 
 *Rejouer : `make mesure-perimetre`.*

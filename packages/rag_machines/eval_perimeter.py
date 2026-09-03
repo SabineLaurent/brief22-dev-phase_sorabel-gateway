@@ -12,10 +12,15 @@ Deux configurations, un seul drapeau qui varie — le moment du filtrage :
 * **P1, avant troncature** — ``search(perimeter=…)`` : le périmètre part dans la requête.
 
 Tout le reste est constant : ``--text clean``, étage hybride (config C), filtre de version
-actif, même jeu, même seuil, même profil. Trois profils sont joués : ``dev`` et ``support``,
-qui perdent des éditions, et ``commercial`` en **témoin** — son périmètre couvre le corpus
-courant entier, donc P0 et P1 doivent y être identiques à la référence. Un écart chez lui
-signalerait un défaut du protocole, pas du filtre.
+actif, même jeu, même seuil, même profil. Les quatre profils que la matrice dote d'un
+périmètre sont joués — ``default`` en est exclu, n'ayant rien à filtrer : il est refusé avant
+toute requête, et son cas est contrôlé par ``check_perimeter.py``.
+
+``dev`` et ``support`` perdent des éditions. ``commercial`` et ``admin`` sont les **témoins** :
+leur périmètre couvre le corpus courant entier, donc P0 et P1 doivent y être identiques à la
+référence. Un écart chez eux signalerait un défaut du protocole, pas du filtre. Leurs deux
+périmètres sont identiques thème pour thème — c'est une propriété de la matrice, pas une
+redondance de ce script, et les voir coïncider ligne à ligne l'atteste.
 
 La métrique n'est pas Hit@1 : aucune question du jeu ne vise une note interne, donc aucune
 cible n'est rendue inatteignable et Hit@1 ne bouge pas — c'est précisément le point. Ce qui
@@ -44,8 +49,15 @@ QUESTIONS_SET = REPO_ROOT / "eval" / "questions_rag.jsonl"
 RESULTS_PATH = REPO_ROOT / "eval" / "resultats" / "mesure-perimetre.csv"
 REPORT_PATH = REPO_ROOT / "eval" / "rapport_perimetre.md"
 
-#: `commercial` est le témoin : son périmètre couvre tout le corpus courant.
-PROFILES = ("dev", "support", "commercial")
+#: Les quatre profils dotés d'un périmètre. `default` n'en a aucun : il est refusé avant
+#: toute requête, et il n'y a pas deux moments de filtrage à comparer là où rien n'est filtré.
+PROFILES = ("dev", "support", "commercial", "admin")
+
+#: Les profils dont le périmètre couvre tout le corpus courant : le filtre y est un no-op,
+#: donc P0 et P1 doivent y coïncider. `admin` a exactement le périmètre de `commercial`
+#: (matrice.yaml : « il n'a PAS plus, et c'est délibéré ») — les deux sont joués quand même,
+#: un seul ne dirait rien de la lecture de la matrice pour l'autre.
+WITNESSES = ("commercial", "admin")
 
 _CSV_FIELDS = ("profile", "stage", "id", "type", "criterion", "rank", "returned",
                "score", "refused")
@@ -220,7 +232,8 @@ def write_report(rows: list[dict]) -> None:
     lines += ["## Résultats", ""]
     for profile in PROFILES:
         p0, p1 = _metrics(rows, profile, "P0"), _metrics(rows, profile, "P1")
-        witness = " *(témoin — périmètre couvrant tout le corpus courant)*" if profile == "commercial" else ""
+        witness = (" *(témoin — périmètre couvrant tout le corpus courant)*"
+                   if profile in WITNESSES else "")
         lines += [
             f"### Profil `{profile}`{witness}",
             "",
@@ -258,9 +271,11 @@ def write_report(rows: list[dict]) -> None:
         "pas ici : il faudrait pour cela une question couverte dont tout le top-5 soit interdit,",
         "et le jeu n'en contient aucune — aucune de ses cibles n'est une note interne.",
         "",
-        "Le témoin `commercial` doit être identique dans les deux colonnes : son périmètre",
-        "couvre les 350 éditions courantes, le filtre y est un no-op. Un écart chez lui",
-        "signalerait un défaut du protocole, pas du filtre.",
+"**Les deux témoins.** `commercial` et `admin` doivent être identiques dans les",
+        "deux colonnes *et* identiques l'un à l'autre : leurs périmètres couvrent les mêmes",
+        "350 éditions courantes, le filtre y est un no-op. Un écart entre les deux colonnes",
+        "signalerait un défaut du protocole ; un écart entre les deux profils, une matrice",
+        "lue de travers.",
         "",
         "*Rejouer : `make mesure-perimetre`.*",
         "",
