@@ -1041,3 +1041,422 @@ reste. Ça confirme, chiffré, l'intuition de l'axe 2 : le cross-encoder fait la
 travail de précision dans le pipeline hybride.
 
 Piste refermée : aucun script ni cible Make ajoutés, aucun code applicatif modifié.
+
+## 2026-09-03 — Chantier Text-to-SQL : le moteur en bibliothèque
+
+**Périmètre arbitré avec l'utilisateur avant d'écrire une ligne.** Les quatre tests
+d'acceptance SQL passent tous par `mcp_server.server`, qui relève du chantier 3. Deux
+lectures étaient possibles : livrer un serveur MCP minimal pour verdir T1→T4 tout de suite,
+ou livrer le moteur en bibliothèque et laisser les tests rouges. **La bibliothèque a été
+retenue**, conformément au rythme du dépôt — une étape à la fois — et parce qu'un serveur
+écrit ici pour quatre tools devrait être rouvert au chantier 3 pour les huit.
+
+Trois conséquences assumées : ni serveur MCP, ni étage 2 (`tool_interdit`), **ni journal
+JSONL**. Le journal est une couche transverse aux huit tools ; l'écrire pour quatre
+reviendrait à le réécrire. En contrepartie, les fonctions de `tools.py` rendent tout ce
+qu'il faut pour journaliser — `code`, `sql`, `n_rows`, `latency_ms` — de sorte que le
+chantier 3 branche au lieu de recalculer.
+
+**Emplacement** : `packages/text_to_sql_factory/`, choisi par l'utilisateur. Les squelettes
+`sql/` et `mcp_server/` restent au chantier 3 ; `mcp_server/matrice.yaml` y a été posée dès
+maintenant, à sa destination normative, parce que c'est une donnée de configuration et non
+du code.
+
+### Les huit modules, et l'ordre du flux
+
+`access` (N1, la matrice) · `contract` (N2, le contrat de lecture) · `generator` (N3, une
+passe LLM) · `validator` (N4 · N5, cinq contrôles puis la borne) · `executor` (N6 · N7,
+connexion en lecture seule puis contrôles du résultat) · `tools` (les quatre tools) ·
+`check_sql` (contrôles déterministes) · `eval_sql` (les 24 questions).
+
+### Décisions prises, là où la conception laissait ouvert
+
+| Point ouvert | Décision | Motif |
+|---|---|---|
+| `LIMIT` par défaut, plafond, timeout — jamais chiffrés (Q2 §3 C4) | 200 · 1000 · 5,0 s, dans `Settings` | révisables sans toucher au code ; le plafond est la vraie garde (337 620 lignes en 0,4 s) |
+| mécanisme de timeout — les deux vérifiés, aucun choisi | `set_progress_handler` | pas de thread minuteur : moins de surface pour un gain nul ici |
+| convention « annulées exclues » vs T1 | **consigne de prompt, jamais une réécriture de requête** | elle porte sur les chiffres de vente, marge et quantité, pas sur un comptage de commandes — c'est ce qui préserve T1, dont l'attendu (27) ignore le statut |
+| enveloppe : 12 codes vs `{status, payload, message}` | `status` en surface, les douze codes dans `payload["code"]` | arbitrage déjà posé à l'étape 1 : le test fait foi |
+| matrice : `cadrage_dsi.md` ferme `ventes` au support, `matrice.yaml` l'ouvre sauf `marge_ht` | `matrice.yaml` fait foi | aucun test ne tranche, et l'écart ne change aucun verdict : SQL-17→20 tombent tous sur les trois colonnes sensibles. Arbitrage de fond toujours au chantier 3 |
+| profils | les quatre de `matrice.yaml` | `default` = zéro droit, atteint par tout profil inconnu — vérifié |
+
+### Trois écarts constatés en écrivant, et ce qui a été fait
+
+**1. `docs/schema.sql` commente `ventes.prix_unitaire_ht` « remise déduite » ; la mesure dit
+l'inverse.** `SUM(quantite × prix_unitaire_ht)` reconstitue `montant_ht` sur 340 commandes
+sur 340 (`description-base.md` §5.1). Le document livré n'a pas été modifié : c'est le
+contrat donné au modèle qui porte le fait mesuré, via `_COLUMN_NOTES` dans `contract.py`.
+Transmettre au modèle un commentaire faux produirait du SQL faux, pas une erreur.
+
+**2. Le catalogue liste `produits.nom` parmi les colonnes de `check_stock` ; le contrat de
+sortie de `Q4` §3 ne le montre pas.** Le contrat de sortie explicite a été suivi : trois
+lignes `entrepot · quantite · seuil_reappro · sous_seuil`, plus le `total`. Écart signalé,
+non refermé.
+
+**3. Le paramètre malformé n'a pas de code dans le catalogue.** `check_stock("disjoncteur")`
+n'est ni un refus de droit ni une absence de donnée. Retenu : `erreur_execution`, donc
+`status: error`, avec le format attendu dans le message — et de toute façon l'`inputSchema`
+MCP l'écartera avant l'envoi au chantier 3.
+
+### Deux bugs trouvés par les contrôles, pas par la lecture
+
+**`Expression.limit()` élargit une requête déjà bornée.** Appelée avec 200 sur `… LIMIT 5`,
+elle rend `LIMIT 200` — exactement ce que Q2 §3 C4 interdit (« jamais en remplacement d'un
+`LIMIT` plus petit »). `_apply_limit()` lit donc la borne existante avant de poser la sienne.
+
+**Un alias de projection était pris pour une colonne inventée.** `SELECT SUM(v.quantite) AS
+quantite_vendue … ORDER BY quantite_vendue` faisait échouer SQL-04 en `erreur_execution` :
+`quantite_vendue` n'est dans aucune table. Les alias de sortie du scope sont désormais
+écartés — sans rouvrir quoi que ce soit, puisque la colonne réellement lue derrière l'alias
+reste vue avec sa table (vérifié : `marge_pct AS x` est toujours refusé au support, tandis
+que `nom AS marge_pct` passe, et ne fait fuir que `nom`).
+
+### Le premier appel LLM réellement exercé du projet
+
+Le rerank Azure n'avait jamais tourné contre un déploiement réel. Deux enseignements :
+
+- **le déploiement refuse `temperature`** (« Unsupported value: 'temperature' does not
+  support 0 »), comportement des modèles de raisonnement. Le paramètre a été retiré ; la
+  sortie est tenue par le format JSON imposé, pas par un réglage d'échantillonnage ;
+- **le motif de refus doit être un champ racine.** Imbriqué dans un objet `refus`, le modèle
+  le rendait en chaîne nue, et les quatre demandes d'écriture sortaient en `hors_schema`
+  avec « ecriture » pour message. À plat, avec la consigne que `refus` est une phrase et
+  `motif` un code, les quatre sortent en `ecriture_refusee`.
+
+Un troisième ajustement a été nécessaire : le modèle demandait une clarification là où une
+convention tranche déjà (SQL-06, SQL-12). Le prompt dit maintenant que les conventions
+s'appliquent d'office et qu'on ne demande jamais s'il faut exclure les annulées.
+
+**`hors_schema` requalifié en `perimetre_interdit`.** Le modèle ne voit jamais une colonne
+fermée : sur SQL-17→20, il refuse donc « la base ne porte pas cette donnée », ce qui est un
+refus exact mais un message faux — la donnée existe, elle est fermée. Le code requalifie
+après coup, en nommant la colonne. Ce n'est **pas** une liste de mots interdits : elle ne
+protège rien, elle qualifie un refus déjà prononcé, et sans elle l'utilisateur ne saurait
+pas qu'il peut demander l'accès.
+
+### Vérification
+
+`make check-sql` — **tous les contrôles passent** : décompte 28/25/25/0 sur les 31 colonnes,
+`clients.email` fermée aux quatre profils, les trois colonnes sensibles absentes du contrat
+du support (pas même leur nom), les 21 cas de validation de Q2 §6 et Q3 §8 au verdict
+attendu (`VACUUM INTO`, `ATTACH`, `PRAGMA`, deux instructions, l'alias, la CTE, l'étoile
+développée, la dichotomie booléenne, la jointure licite non bloquée), la lecture seule tenue
+par la connexion seule, T1 = 27, stock = 774, `CMD-2026-0042` en `aucune_ligne`, l'égalité
+374 = 374 détectée à la frontière du classement mais pas au top 5 — conforme à Q5 §4.
+
+`make eval-sql` — **24/24 conformes** au premier run après correction, publié dans
+`eval/rapport_sql.md`. Chiffres recoupés avec `description-base.md` §8 : SQL-01 = 27,
+SQL-03 = 11 lignes, SQL-06 = 432 245,90 €, SQL-07 = 3, SQL-09 = 41. SQL-02 rend les trois
+lignes par entrepôt qui somment à 774, et non le scalaire — c'est le comportement voulu.
+
+**Nommage séparé, exprès** : `eval-sql` et `rapport_sql.md`, jamais le préfixe `mesure-` ni
+`rapport_gain.md`. `eval/protocole-mesure.md` §10 range `questions_sql.jsonl` « hors de ce
+protocole » : un chiffre SQL ne doit pas pouvoir se lire comme un chiffre E6.
+
+### Points ouverts, laissés au chantier 3
+
+- **les quatre tests d'acceptance SQL restent rouges** — `mcp_server.server` n'existe pas ;
+- **`pytest` n'arrive même pas à collecter — et la cause n'est pas dans `tests/`.**
+  `literalai` 0.1.201, dépendance de `chainlit` arrivée avec le client web, publie son
+  propre dossier `tests/` **à la racine de `site-packages`**, avec un `__init__.py`. Un
+  paquet régulier l'emporte toujours sur un dossier qui n'en a pas, quel que soit l'ordre
+  de `sys.path` : le `tests/` du dépôt est masqué, et `from tests.conftest import …`
+  échoue. Vérifié en écartant temporairement le dossier parasite, puis en le restaurant :
+  la collecte repart, **11 échecs et 1 succès** — le succès étant
+  `test_gain_hybride_mesure_et_documente`, les 11 échecs tous « module
+  `mcp_server.server` introuvable ». C'est-à-dire **exactement l'état annoncé à la clôture
+  du chantier RAG** : la suite de tests est saine, c'est l'empaquetage de `literalai` qui
+  est fautif. Rien n'a été touché dans `tests/` — décision de l'utilisateur, la suite est
+  arrivée avec le dépôt et posée par le formateur. Contournement possible sans y toucher :
+  retirer `site-packages/tests/` après chaque `uv sync`, ce dossier ne servant qu'aux tests
+  internes de `literalai` et n'étant jamais importé à l'exécution ;
+- **trois erreurs `mypy` préexistantes** dans `packages/web_client/app.py` et
+  `packages/rag_machines/check_index.py`, hors du périmètre de ce chantier ;
+- le journal JSONL, l'étage 2, et l'arbitrage de fond sur le contenu de la matrice.
+
+## 2026-09-03 — Banc d'essai : le Text-to-SQL branché sur l'agent conversationnel
+
+Le chantier 2 avait livré le moteur SQL en bibliothèque, sans appelant. L'agent LangChain
+de `packages/agent/` n'avait qu'un tool, `search_docs` : le SQL n'était observable qu'en
+Python, donc invisible depuis l'interface Chainlit. Ce palier le rend testable au clic,
+**pour le développement et la visualisation uniquement**.
+
+### L'écart assumé, et sa date de péremption
+
+Le profil est ici **déclaré par le client** : `chat_profile` Chainlit → `role` de l'API →
+profil de matrice. La conception veut l'inverse — `SORABEL_PROFILE` lu au lancement du
+serveur MCP, jamais reçu du client, précisément pour que le LLM du client ne puisse pas
+l'écrire. Décision prise avec l'utilisateur : le raccourci est accepté pour le banc d'essai,
+et il disparaît au chantier 3.
+
+**Ce qui n'est pas court-circuité** : la matrice et la validation d'AST s'appliquent à
+l'identique. Le raccourci porte sur *qui déclare le profil*, pas sur *ce que le profil
+autorise*.
+
+### Décisions
+
+| Point | Décision | Motif |
+|---|---|---|
+| nom du tool exposé à l'agent | **`ask_to_db`** | le tool LangChain n'est pas le `ask_database` du catalogue MCP : il l'appelle. Deux noms identiques laisseraient croire que le catalogue est implémenté, alors qu'il ne le sera qu'au chantier 3 |
+| clé lue dans la matrice | reste **`ask_database`** | c'est le nom du tool *au catalogue*, celui que la gouvernance nomme. Le nom local du banc d'essai n'a pas à contaminer la matrice |
+| tools exposés | **les quatre du chantier 2** : `ask_to_db`, `check_stock_by_ref`, `order_status_by_id`, `get_db_schema` | voir « le détour par le point d'entrée unique » ci-dessous |
+| portée de la matrice | **étage 2 sur les quatre tools SQL** | le SQL est gouverné de bout en bout ; `search_docs` reste ouvert à tous les rôles, donc aucune régression sur la démo RAG — vérifié, un profil `default` obtient toujours sa réponse documentaire sourcée |
+| rôle UI `admin` | **nouveau profil `admin` dans `matrice.yaml`** | sans lui, il retombait sur `default` et ne pouvait rien faire : juste au sens de la matrice, illisible dans une UI qui affiche « admin » |
+| périmètre d'`admin` | 8 tools, **28 colonnes** — celles de `commercial` | `clients.email` reste fermée aux **cinq** profils : son motif est le RGPD, pas E5, et l'agent qui appelle ces tools *est* un LLM. Un rôle d'administration ne lève pas cette raison-là |
+
+`authorize()`, écrite au chantier 2 sans appelant, trouve ici son premier usage. C'est ce
+qui rend `dev` conforme à la matrice — elle lui donne `get_schema` mais **aucun tool de
+lecture de données** — et `default` sans aucun droit SQL.
+
+### Deux détails d'implémentation qui auraient mordu
+
+**`_agent_for` était un `lru_cache` sur la seule stratégie.** Le profil étant capturé à la
+construction du tool, le premier rôle utilisé aurait été servi à tous les suivants : un
+`sans_role` aurait hérité des droits d'un `commerciale` passé avant lui. La clé de cache est
+désormais le couple `(stratégie, profil)`.
+
+**Les rôles de l'UI ne portent pas les noms des profils** : `commerciale` vaut `commercial`,
+`sans_role` vaut `default`. La conversion vit à un seul endroit, `profile_for_role()` dans
+`api.py`, et rend `default` sur un rôle inconnu — la conversion est totale comme la matrice.
+
+L'accueil Chainlit annonce désormais les droits effectifs du rôle actif (profil, colonnes
+atteignables, marges ou non, accès à la base ou non). Un `sans_role` apprend à l'accueil
+qu'il n'obtiendra aucun chiffre, au lieu de le découvrir par un refus qui ressemblerait à
+une panne.
+
+### Vérification
+
+`make check-sql` reste intégralement vert — il relit la matrice, c'est lui qui aurait
+attrapé une erreur dans l'ajout du profil `admin`. Décompte : `commercial 28 · admin 28 ·
+support 25 · dev 25 · default 0`.
+
+Le scénario complet rejoué sur l'agent :
+
+| Profil | Question | Obtenu |
+|---|---|---|
+| `commercial` | combien de commandes en avril ? | **27**, avec la requête et la convention |
+| `support` | quelle est la marge sur la REF-8842 ? | refus `perimetre_interdit` nommant `produits.marge_pct` et `ventes.marge_ht` |
+| `commercial` | marge totale des ventes de mai 2026 | **113 604,48 €** — la valeur *hors annulées* de Q1 §5, donc la convention est bien appliquée |
+| `dev` | « que contient la base ? » | le contrat de lecture — `get_schema` lui est accordé |
+| `dev` · `default` | question chiffrée | `tool_interdit`, avec le renvoi vers `search_docs` |
+| `admin` | marge totale de mai 2026 | le chiffre — le profil ne retombe plus sur `default` |
+| `default` | délai d'un échange standard ? | réponse documentaire sourcée : le RAG est intact |
+
+### Le détour par le point d'entrée unique, et pourquoi il a été rebroussé
+
+Une première décision avait retenu **un seul tool `ask_to_db`** aiguillant en interne vers
+les quatre fonctions, selon la forme de la question. L'implémentation a été commencée puis
+abandonnée en cours de route, sur ce qu'elle produisait :
+
+```python
+_STOCK_WORDS  = ("stock", "entrepôt", "réappro", "disponib")
+_STATUS_WORDS = ("statut", "état", "où en est", "avancement", "livrée")
+```
+
+**Une liste de mots pour décider d'une opération** — le raisonnement que Q2 §2 écarte
+« définitivement », ici pour l'aiguillage et non pour la sécurité, mais avec le même défaut :
+elle ne peut pas être complète, il faudrait avoir prévu chaque formulation. « Quelles lignes
+de vente dans CMD-2025-0042 ? » porte un identifiant de commande et ne doit justement *pas*
+aller vers `order_status`, qui ne rend que l'en-tête.
+
+Trois raisons ont fait basculer sur quatre tools distincts :
+
+1. **c'est le LLM qui aiguille, et le catalogue l'a déjà outillé pour ça** — sa section 3
+   traite les six collisions de descriptions, « le domaine en premiers mots, jamais le
+   verbe ». Un aiguilleur maison jette ce travail pour des regex ;
+2. **la matrice redevient observable** — le rôle `dev` obtient `get_db_schema` et **rien
+   d'autre**, exactement ce que dit la matrice, visible au clic. Avec un point d'entrée
+   unique, il aurait vu un tool qui marche parfois ;
+3. **c'était du code jetable** — le serveur MCP exposera quatre tools distincts ; quatre
+   tools LangChain le préfigurent, l'aiguilleur aurait été supprimé.
+
+Vérifié après bascule, sans aucune heuristique dans le code : « quel est le stock de la
+REF-8842 ? » → `check_stock_by_ref` (774, trois entrepôts) · « statut de la commande
+CMD-2025-0042 » → `order_status_by_id` · « que contient la base ? » → `get_db_schema` ·
+« combien de commandes en avril ? » → `ask_to_db` (27). Le modèle choisit juste à chaque
+fois, sur les seules descriptions.
+
+### Points ouverts
+
+Inchangés : le serveur MCP, et le retrait de ce raccourci de profil quand `SORABEL_PROFILE`
+sera lu côté serveur.
+
+**E5 reste à moitié ouverte, et c'est un écart au brief, décidé.** Confrontation faite le
+2026-09-03 : le brief nomme « E3, E5 » dans l'**étape 1 du chantier Text-to-SQL**, et le
+test T2 exige une demande d'écriture « refusée **et journalisée** ». La seconde moitié
+d'E5 — « les colonnes sensibles ne sortent jamais pour le profil support » — est tenue et
+vérifiée sur 21 cas par `make check-sql`. La première — « tout appel, autorisé ou refusé,
+est journalisé » — **n'est pas implémentée**.
+
+Décision de l'utilisateur : la garder pour le chantier 3. Le motif tient : le journal est
+transverse aux **huit** tools, et l'écrire pour quatre obligerait à le réécrire. Ce n'est
+donc pas un oubli mais un report, et il est consigné ici pour qu'on ne le relise pas comme
+tel.
+
+Ce qui reste à faire, quand le moment viendra : une écriture JSONL vers `GATEWAY_JOURNAL`
+au format du cadrage (`timestamp`, `profile`, `tool`, `arguments`, `status`, `message`),
+enrichie de `code`, `sql`, `n_rows`, `latency_ms` et du champ `etage`. **Les quatre tools
+rendent déjà tout cela** — c'est la raison pour laquelle leurs enveloppes portent
+`latency_ms` et `n_rows` alors que rien ne les lit encore. Le chantier 3 branche, il ne
+recalcule pas.
+
+## 2026-09-03 — Contrôle 6 : confronter la requête au moteur avant de l'exécuter
+
+Le validateur jugeait la requête sur son seul arbre sqlglot, puis on l'exécutait pour de
+vrai. Entre les deux, rien ne vérifiait qu'elle *tourne*. Demande de l'utilisateur : un
+essai « en vrai mais pour de faux » par `EXPLAIN`, entre la validation de forme et
+l'exécution.
+
+### La séquence, et pourquoi cet ordre
+
+L'utilisateur a proposé la séquence — table autorisée pour le rôle, puis forme sqlglot,
+puis `EXPLAIN`. Un ajustement : sqlglot doit parser d'abord, sinon on ne sait pas quelles
+tables la requête cite. L'ordre retenu :
+
+```
+1. sqlglot    forme : une instruction, pas d'écriture, racine = lecture
+2. tables     ∈ scope.tables du rôle          (5a, nouveau)
+3. colonnes   ∈ scope.columns du rôle          (5b, existant)
+4. LIMIT
+5. EXPLAIN    essai à blanc                    (contrôle 6, nouveau)
+```
+
+Deux propriétés que l'ordre inverse ne donnerait pas :
+
+- **5a avant 5b.** `qualify` ne sait pas résoudre les colonnes d'une table qu'il ignore :
+  il les laisse sans préfixe, et la règle d'alias de `referenced_columns` les écarte alors
+  du contrôle. Sans le contrôle des tables, celui des colonnes est **aveugle sur elles** —
+  une table hors matrice emportait toutes ses colonnes avec elle.
+- **6 en dernier.** C'est le seul pas qui touche la base : rien ne l'atteint avant que la
+  matrice ait tranché. Et le motif du refus reste juste — `SELECT sql FROM sqlite_master`
+  est un `perimetre_interdit` (la table existe, elle n'est pas à ce profil), pas un
+  `erreur_execution` (« ta requête est fausse »). C'est ce que le journal doit enregistrer.
+
+### Ce que l'essai à blanc rattrape, et ce qu'il ne rattrape pas
+
+sqlglot **transpile déjà** `ILIKE` → `LOWER(…) LIKE LOWER(…)`, `::` → `CAST`, `STRING_AGG`
+→ `GROUP_CONCAT`. Le trou n'était pas là. Il est dans ce que sqlglot ne sait pas transposer
+et recopie tel quel, et que le validateur déclarait `ok` :
+
+| requête, après `validate` | avant | après |
+|---|---|---|
+| `DATE_TRUNC('month', date_commande)` | `ok`, échec à l'exécution | `erreur_execution`, avant exécution |
+| `WHERE date_commande > NOW()` | `ok` | `erreur_execution` |
+| `EXTRACT(EPOCH FROM date_commande)` | `ok` | `erreur_execution` |
+| `SELECT id FROM commandes c JOIN clients cl …` | `ok` | `erreur_execution` (ambiguë) |
+
+`EXPLAIN` répond « cette requête se prépare », jamais « cette requête est permise » :
+`SELECT * FROM commandes, commandes b, commandes c` le passe sans broncher. Il **complète**
+la liste blanche, il ne la remplace pas. C'est le contrôle 5a, pas lui, qui ferme
+`sqlite_master`.
+
+### Le trou trouvé en instruisant la demande — le plus grave des trois
+
+`qualify()` met tous les identifiants entre guillemets doubles, et SQLite applique la
+misfeature *double-quoted string literal* : **un identifiant entre guillemets qui ne résout
+pas devient une chaîne de caractères**. Avant correction, sans rien de spécial :
+
+```
+validate("SELECT zzz FROM commandes", "support")
+  → ok, sql = 'SELECT "zzz" AS "zzz" FROM "commandes" AS "commandes" LIMIT 200'
+execute(…)
+  → code=ok, columns=('zzz',), 200 lignes de ['zzz']
+```
+
+Une colonne hallucinée par le modèle rendait **200 lignes d'une valeur inventée, servies
+comme un résultat**, avec le SQL à l'appui — le mode d'échec que tout ce chantier existe
+pour empêcher. Le bloc `unknown` ne le voyait pas : `qualify` avait produit
+`SELECT "zzz" AS "zzz"`, et la règle d'alias de `referenced_columns` écarte précisément
+cette colonne — l'ensemble rendu était **vide**. Le cas `WHERE inexistante = 1` de
+`check_sql` ne passait que parce qu'en `WHERE`, aucun alias n'est créé.
+
+Correctif : `quote_identifiers=False` dans `qualify()`. Vérifié sans régression sur les 31
+colonnes des 5 tables, plus jointures, CTE et sous-requête — 0 échec ; les identifiants
+Sorabel sont tous en snake_case simple. Les deux moitiés du trou sont fermées ensemble : le
+guillemet ne déguise plus l'identifiant, et le contrôle 6 refuse ce qui reste.
+
+### Le bloc `unknown` retiré
+
+`validator.py` réimplémentait à la main la résolution d'alias, de CTE et de sous-requêtes
+pour décider si une colonne existe. C'est là qu'il se trompait : `WITH t AS (SELECT ref,
+quantite FROM stocks) SELECT ref, SUM(quantite) FROM t GROUP BY ref` était refusée en
+`erreur_execution` — « référence ce qui n'existe pas : t.quantite, t.ref » — alors que la
+CTE est légitime et que le contrôle 2 l'autorise explicitement. Idem pour
+`SELECT x.ref FROM (SELECT ref FROM produits) x`.
+
+Le validateur ne garde donc que la moitié **autorisation** (cette colonne est-elle dans
+`scope.columns` ?) et délègue l'**existence** au moteur, qui résout correctement. Sept
+lignes en moins, deux faux refus en moins.
+
+### La passe de réparation
+
+Sur échec du contrôle 6, l'erreur du moteur est rendue au modèle pour **une** reprise,
+jamais deux. Décision de l'utilisateur : refuser sec faisait porter à l'utilisateur une
+fonction Postgres échappée du modèle, qui n'est pas une question mal posée.
+
+L'invariant tient dans un champ : `Verdict.repairable`, posé **par le seul contrôle 6**.
+Un `perimetre_interdit` ou un `ecriture_refusee` ne le porte jamais — un refus de droits ne
+se renégocie pas avec le modèle. Et la reprise repasse **tous** les contrôles, périmètre
+compris : elle ne peut pas sortir de la matrice. Le champ ne quitte pas le paquet :
+l'enveloppe de la DSI est inchangée, aucun code nouveau.
+
+### Le dialecte
+
+Le littéral `"sqlite"` était répété cinq fois dans deux fichiers. Il devient
+`SQL_DIALECT` dans `__init__.py`. **Aucun chemin PostgreSQL n'est construit** — la gateway
+ne connaît qu'une base ; le littéral répété cachait ce fait au lieu de l'énoncer.
+`EXPLAIN <requête>` est en revanche la graphie portable : SQLite, PostgreSQL (sans
+`ANALYZE`), MySQL et DuckDB l'acceptent. Seule la connexion dépend du moteur.
+
+### Vérification
+
+`make check-sql` : **81 contrôles, tous au vert**, contre 46 avant. Les nouveaux — trois
+sur le contrôle 5a (`sqlite_master` projetée, `sqlite_master` en étoile, source sans nom de
+table), trois sur le contrôle 6 (colonne inventée, `DATE_TRUNC`, ambiguïté de jointure),
+deux sur ce que le bloc `unknown` refusait à tort (CTE, sous-requête), trois sur la faille
+DQS, huit sur la passe de réparation.
+
+Un de ces contrôles **épingle la misfeature elle-même** :
+`explain('SELECT "zzz" FROM commandes')` rend une chaîne vide, `explain("SELECT zzz FROM
+commandes")` refuse. Si ce cas bascule un jour, on saura pourquoi `quote_identifiers=False`
+est là.
+
+**La passe de réparation est exercée sans appel de modèle**, par un `_ScriptedGenerator`
+qui rend des requêtes écrites d'avance. Ce n'est pas de la commodité : le modèle réel écrit
+du SQLite correct — le contrat le lui impose — et **aucune des 24 questions du jeu ne
+déclenche de reprise**. Trois questions temporelles écrites exprès pour l'y pousser
+(« chiffre d'affaires par mois », « par trimestre ») ont produit `STRFTIME` et
+`SUBSTRING`, jamais `DATE_TRUNC`. Sans générateur scripté, le chemin ne serait jamais
+exercé, et l'invariant de sécurité — pas de reprise sur un refus de droits — ne serait
+vérifié nulle part.
+
+`make eval-sql` : **24/24 conformes**, zéro reprise. Le rapport porte désormais la section
+« Reprises après l'essai à blanc » et une colonne `reprise` par question, pour que ce zéro
+soit lu comme une mesure et non comme une absence de mesure.
+
+`make lint` : ruff au vert, mypy sans erreur sur `text_to_sql_factory` (trois erreurs
+préexistantes subsistent dans `rag_machines/check_index.py` et `web_client/app.py`,
+hors périmètre).
+
+Coût mesuré de l'`EXPLAIN` : **~1 ms, zéro ligne lue**, sur une connexion neuve `mode=ro` +
+`query_only` — la même que l'exécution, doctrine C2 inchangée. Pas de garde-temps : la
+préparation est bornée par nature.
+
+### Écarts à consigner
+
+1. **`EXPLAIN` avait été retiré de la conception V3.**
+   `docs/conception/LIVRABLES_CONCEPTION/README.md:46` : « cité dans le nœud N4 de la V2,
+   sans trace dans aucune note de conception (`grep` négatif sur tous les `.md`) → retiré de
+   la V3 ». On y revient délibérément. Le motif qui manquait à l'époque est la faille DQS
+   documentée ci-dessus : elle n'était pas connue quand la décision a été prise.
+2. **La passe de réparation ajoute un second appel LLM** sur une branche. `make eval-sql`
+   peut donc varier d'une exécution à l'autre sur les questions concernées — le rapport
+   compte désormais les reprises. `make check-sql` reste entièrement déterministe : il
+   appelle `validate` sans passer par `tools`.
+
+### Points ouverts
+
+Le constat de revue sur `_filters_on_label` (le disjoncteur ignore la table du couple),
+sur `truncated` (jamais vrai pour le `LIMIT` injecté), sur `N7` (compare les dernières
+colonnes projetées, pas les clés de tri) et sur `MIN`/`MAX` en table vide **restent
+ouverts** : ils ne touchent pas au chemin de validation et n'ont pas été traités ici.

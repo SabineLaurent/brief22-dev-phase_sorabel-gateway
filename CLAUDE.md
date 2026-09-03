@@ -20,11 +20,43 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   commutables), `scripts/eval_rag.py`, sept cibles `mesure-*`. E6 mesuré et publié dans
   `eval/rapport_gain.md` : Hit@1 référence 2/8 (A) → 3/8 (B) → **8/8 (C)**, MRR 1,000 en
   hybride. Chantier RAG terminé.
-- **Chantier Text-to-SQL : à faire.** C'est la prochaine étape.
-- Puis chantier serveur MCP, puis l'interface graphique.
+- **Chantier Text-to-SQL : fait, en bibliothèque.** `packages/text_to_sql_factory/` :
+  `access` (matrice), `contract` (contrat de lecture filtré), `generator` (une passe LLM,
+  trois branches, plus une reprise sur requête fausse), `validator` (cinq contrôles sqlglot
+  — **tables en 5a avant colonnes en 5b** — puis LIMIT, puis le contrôle 6 `EXPLAIN`),
+  `executor` (connexion `mode=ro` + `query_only`, bornes, trois contrôles du résultat, et
+  `explain()`), `tools` (les quatre tools SQL). `make check-sql` : 81 contrôles
+  déterministes, tous au vert. `make eval-sql` : 24/24 conformes, publié dans
+  `eval/rapport_sql.md`.
+  **Le contrôle 6 confronte la requête au moteur avant de l'exécuter** : `EXPLAIN` la
+  prépare sans lire une ligne et refuse ce que l'arbre ne peut pas voir (`DATE_TRUNC`,
+  colonne inventée, ambiguïté de jointure). Il vient **en dernier**, après que la matrice a
+  tranché : il dit « ça se prépare », jamais « c'est permis ». Sur échec, l'erreur du moteur
+  est rendue au modèle pour **une** reprise — jamais sur un refus de droits
+  (`Verdict.repairable`, posé par le seul contrôle 6).
+  **Écart au brief, décidé et consigné** : le brief nomme E5 dans l'étape 1 de ce chantier,
+  et le test T2 exige un refus « journalisé ». La moitié « colonnes sensibles » est tenue ;
+  **la journalisation est reportée au chantier 3**, où elle sera écrite une fois pour les
+  huit tools. Les enveloppes portent déjà `code`, `sql`, `n_rows`, `latency_ms` pour ça.
+- **Banc d'essai GUI : fait.** L'agent de `packages/agent/` expose les quatre tools du
+  chantier 2 — `ask_to_db`, `check_stock_by_ref`, `order_status_by_id`, `get_db_schema` —
+  nommés autrement exprès : ils *appellent* les tools du catalogue, ils ne les sont pas.
+  **Aucun aiguillage codé** : c'est le LLM qui choisit sur les descriptions, comme le fera
+  le serveur MCP. Le rôle Chainlit devient un profil de matrice (`profile_for_role()` dans
+  `api.py`), l'étage 2 est appliqué aux quatre, et `matrice.yaml` gagne un profil `admin`.
+  **Le profil est déclaré par le client** : écart assumé et temporaire, il tombe avec le
+  serveur MCP.
+- **Chantier serveur MCP : à faire.** C'est la prochaine étape. Puis l'interface graphique.
 
 Aucun test d'acceptance ne passe encore : ils exigent tous un serveur MCP, qui n'existe
 pas avant le troisième chantier.
+
+`pytest` échoue même à la **collecte**, et **ce n'est pas un défaut de la suite** :
+`literalai` (dépendance de `chainlit`) installe un paquet `tests` dans `site-packages`, qui
+masque le `tests/` du dépôt. Écarter ce dossier parasite fait repartir la collecte : 1
+succès (`test_gain_hybride_mesure_et_documente`) et 11 échecs, tous « `mcp_server.server`
+introuvable ». **Ne rien modifier dans `tests/`** : la suite est arrivée avec le dépôt et
+fait foi.
 
 **Lire `docs/journal-developpement.md` avant de reprendre** — il tient les décisions, les
 arbitrages, les écarts constatés et les points ouverts de chaque étape livrée. Y ajouter
@@ -91,6 +123,8 @@ make ingest-brut   # index témoin, texte non nettoyé (axe 2 du protocole de me
 make calibrer      # règle le seuil de refus sur le jeu de calibration
 make check-index   # contrôles d'intégrité de l'index
 make seed          # génère data/sorabel.db
+make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
+make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM chacune)
 make test          # suite d'acceptance
 make lint          # ruff + mypy
 ```

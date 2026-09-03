@@ -33,3 +33,5 @@ data/bm25/
 .idea/
 .vscode/
 .DS_Store
+
+.claude/worktrees
