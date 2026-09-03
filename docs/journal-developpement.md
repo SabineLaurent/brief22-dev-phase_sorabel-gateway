@@ -1609,3 +1609,97 @@ Le jeu `questions_rag.jsonl` n'a **aucune question dont la réponse soit une not
 Tant que c'est le cas, l'axe 3 ne peut pas montrer de refus indu sur une question couverte.
 Si on veut ce chiffre, il faudra des questions visant `politique-tarifaire` ou
 `reunion-achat` — dans un fichier **distinct**, les mesures publiées dépendant de celui-ci.
+
+## 2026-09-04 — Revue de code du chantier « matrice sur le corpus » : le seuil de P0 portait sur la mauvaise pièce
+
+### Ce qui l'a déclenché
+
+Revue de code sur `04e9bdf..HEAD` — les trois commits du chantier, 21 fichiers. **Rien dans
+le chemin de production.** Vérifié en exécution et non par lecture seule : la disjonction de
+`Perimeter.where()` sur les cinq profils, les décomptes en or contre les vrais pickles, le
+garde-fou d'index périmé, l'absence de tout appelant résiduel de l'ancien
+`text_to_sql_factory/access.py`, et l'absence de chemin de recherche contournant le
+périmètre hors `eval_*` / `calibrate_*`. Les neuf constats sont tous dans la couche
+mesure et documentation. Un seul est de fond.
+
+### Le défaut : les deux configurations jugées par la même formule
+
+`_outcome` calculait `refused` sur `ordered[0]` — le premier de la liste qu'on lui passe.
+Pour P1 c'est juste. Pour **P0 c'est faux** : la liste qu'on lui passe est
+`_allowed(reference, perimeter)`, déjà nettoyée, donc le seuil était comparé au premier
+résultat **autorisé**. Or P0 est défini partout ailleurs — docstring du script,
+`rapport_perimetre.md`, `protocole-mesure.md` §3 — comme un filtrage *après* la décision du
+moteur : le seuil y porte sur le premier du classement complet, interdit ou non.
+
+Le cas concret, avec τ = 0,053 : une note interdite en tête à 0,4, le meilleur résultat
+autorisé à 0,01. Le vrai P0 accepte (0,4 ≥ τ) puis retire la note ; le script enregistrait
+`refused=oui`. Comme le score autorisé est toujours ≤ le score de référence, l'erreur ne va
+que dans un sens — et surtout, elle faisait juger P0 et P1 par la **même** formule sur des
+listes presque identiques. La ligne « Questions couvertes refusées » ne pouvait donc
+pratiquement pas montrer d'écart : le `1 / 1` publié était vrai par construction, pas par
+mesure. La colonne `threshold_on_forbidden` (5 questions à `dev`) attestait pourtant que les
+deux tops diffèrent.
+
+### Le correctif
+
+`_outcome` reçoit un `decision_top` explicite — le résultat sur lequel le seuil a
+réellement porté : `reference_top` en P0, le premier de la liste filtrée en P1. Les deux
+colonnes du CSV se dissocient volontairement : `score` reste celui du premier résultat
+**rendu** (ce que l'utilisateur reçoit), `refused` celui de la pièce qui a **décidé**. Qu'ils
+divergent est précisément le fait que l'axe 3 mesure.
+
+### Ce que ça change, et ce que ça révèle
+
+**Une ligne sur 240** : `dev,P0,RAG-29` passe de `refused=oui` à `refused=non`. Les tableaux
+publiés ne bougent pas, `refused_answerable` ne comptant que les questions couvertes et
+RAG-29 étant `hors_corpus`. Le `1 / 1` était donc juste, pour une raison qui ne tenait pas.
+
+Mais le P0 corrigé fait apparaître un cas qui était invisible : **il accepte RAG-29 pour
+`dev`, puis rend zéro résultat.** Le seuil a été franchi par un document interdit, le filtre
+a vidé la liste ensuite — le profil reçoit une acceptation sans une seule source. C'est le
+défaut du seuil décidé en amont du filtre dans sa forme la plus nette, et c'est pire que le
+refus qu'il aurait dû recevoir. P1 refuse cette même question.
+
+**Cela corrige une phrase de l'entrée du 2026-09-03**, qui n'est pas réécrite : « P0 les
+refuse pour la mauvaise raison, avec le bon résultat » vaut pour **3 des 4** questions que P0
+vide, pas pour les quatre. RAG-29 à `dev` en est l'exception, et c'est le seul endroit de ce
+jeu où P0 fait réellement pire que P1 sur une décision de refus.
+
+### La prose du rapport, dérivée des données plutôt que recopiée
+
+Le constat 4 de la revue visait les conclusions codées en dur dans `write_report` — des
+chaînes figées dans un fichier régénéré à chaque exécution. C'est exactement ce qui venait
+de se produire : le paragraphe citant « RAG-27, RAG-29 et RAG-30 » avait été écrit quand il
+était vrai, et le run suivant l'aurait laissé contredire les chiffres au-dessus de lui.
+
+Réglé **sur ce paragraphe seulement** : `_cite()` dérive les identifiants des lignes
+mesurées, le décompte « P0 en refuse 3 sur 4 » est calculé, et le nouveau paragraphe
+« P0 accepte, et ne rend rien » est **conditionnel** — il ne s'imprime que si le cas existe
+dans les données. Le reste de la prose figée est inchangé, et listé en points ouverts.
+
+### Écarts et constats à consigner
+
+1. **L'entrée du 2026-09-03 du banc d'essai ne décrit plus le code** sur un point :
+   « `search_docs` reste ouvert à tous les rôles » était vrai à `cf62d39`, plus à `49e216c`,
+   qui a ajouté `_denied(profile, "search_docs")` dans `cli.py`. **`default` reçoit désormais
+   `tool_interdit`** et n'obtient plus de réponse documentaire. Ce n'est pas une régression —
+   `default` a zéro droit par construction, la matrice ne lui donne aucun tool — mais la
+   phrase du journal affirmait le contraire et est corrigée ici.
+2. **Le correctif déborde légèrement du strict `_outcome`** : la prose du rapport a été
+   touchée parce que le laisser contredire son propre CSV n'était pas tenable. Décidé et
+   assumé, mentionné pour n'avoir pas à être reconstitué.
+3. `ruff` et `mypy` verts sur `eval_perimeter.py`. `make lint` reste rouge sur les **trois
+   mêmes** erreurs préexistantes.
+
+### Points ouverts — les constats de revue non traités
+
+| # | Où | Quoi |
+|---|---|---|
+| 3 | `eval_perimeter.py:62` | `threshold_on_forbidden` absent de `_CSV_FIELDS`, jeté en silence par `extrasaction="ignore"` : la métrique en gras de chaque tableau n'est pas auditable depuis le CSV publié |
+| 2 | `eval_perimeter.py:249` | `r["returned"] < 5` en littéral au lieu de `settings.search_top_k` ; avec `SEARCH_TOP_K=10` tous les profils publieraient `0 / 30` sous un en-tête « top-5 ». Idem pour les `30` codés en dur (`:226`, `:255`) |
+| 4 | `eval_perimeter.py:242` | Prose figée restante : la ventilation « 6 `procedure_sav`, 3 `notice` et 4 `fiche_technique` ». Vraie aujourd'hui, du même bois que celle qui vient de casser |
+| 5 | `eval/protocole-mesure.md:179` | L'axe 3 y décrit **trois** profils dont un témoin ; le code en joue **quatre** avec deux témoins depuis `cc40220`. Le document normatif n'a pas suivi le code qu'il gouverne |
+| 6 | `packages/agent/api.py:5` | Docstring « sans effet sur la recherche documentaire, inchangée » — faux depuis `49e216c`. Le jumeau de `web_client/app.py` a été corrigé, pas celui-ci |
+| 7 | `packages/agent/cli.py:143` | `status == "ok"` avec `hits == []` rend `""` au modèle, sans message ni refus. Nouvellement atteignable : un `doc_type` de `matrice.yaml` absent du corpus passe le test de vacuité de `perimeter_for`, construit un `where` valide, et ne remonte rien |
+| 8 | `check_perimeter.py:153` | `edition_ids` passé deux fois dans le `zip`, le second lié à `_`. Sans effet, mais imite la forme de `LexicalIndex.search` où le second opérande est `scores` |
+| 9 | `Makefile:56` | La cible `mesure` n'agrège pas `mesure-perimetre` : le point d'entrée « rejouer toutes les mesures publiées » saute l'axe 3, le seul dont le rapport est régénéré de zéro et donc le plus exposé à la dérive |

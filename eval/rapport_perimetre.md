@@ -96,11 +96,18 @@ résultat. Quand ce premier est un document interdit que P0 retire ensuite, la d
 d'accepter ou de refuser a porté sur une pièce que l'utilisateur ne verra jamais.
 
 **Ce que la mesure n'établit pas, et qu'il faut dire.** Les questions que P0 vide
-entièrement sont, sur ce jeu, **toutes des questions hors corpus** — RAG-27, RAG-29 et
-RAG-30 pour `dev`, RAG-30 pour `support`. Les refuser est juste ; P0 les refuse donc
-pour la mauvaise raison, mais avec le bon résultat. Le refus indu redouté ne se produit
-pas ici : il faudrait pour cela une question couverte dont tout le top-5 soit interdit,
-et le jeu n'en contient aucune — aucune de ses cibles n'est une note interne.
+entièrement sont, sur ce jeu, **toutes des questions hors corpus** :
+RAG-27, RAG-29 et RAG-30 pour `dev`, RAG-30 pour `support`. Les refuser est juste, et P0 en refuse 3 sur 4 —
+pour la mauvaise raison, mais avec le bon résultat.
+Le refus indu redouté ne se produit pas ici : il faudrait
+pour cela une question couverte dont tout le top-5 soit interdit, et le jeu n'en
+contient aucune — aucune de ses cibles n'est une note interne.
+
+**P0 accepte, et ne rend rien.** RAG-29 pour `dev` : le seuil a été
+franchi par un document interdit, donc P0 n'a pas refusé la question — puis le
+filtre a vidé la liste. Le profil reçoit une acceptation sans une seule source,
+ce qui est pire que le refus qu'il aurait dû recevoir. C'est le seuil décidé en
+amont du filtre dans sa forme la plus nette ; P1 refuse ces mêmes questions.
 
 **Les deux témoins.** `commercial` et `admin` doivent être identiques dans les
 deux colonnes *et* identiques l'un à l'autre : leurs périmètres couvrent les mêmes

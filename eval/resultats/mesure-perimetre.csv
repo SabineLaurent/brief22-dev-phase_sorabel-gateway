@@ -223,7 +223,7 @@ commercial,P0,RAG-28,hors_corpus,refus,,5,0.0015,oui
 commercial,P1,RAG-28,hors_corpus,refus,,5,0.0015,oui
 admin,P0,RAG-28,hors_corpus,refus,,5,0.0015,oui
 admin,P1,RAG-28,hors_corpus,refus,,5,0.0015,oui
-dev,P0,RAG-29,hors_corpus,refus,,0,,oui
+dev,P0,RAG-29,hors_corpus,refus,,0,,non
 dev,P1,RAG-29,hors_corpus,refus,,5,0.0110,oui
 support,P0,RAG-29,hors_corpus,refus,,5,0.5175,non
 support,P1,RAG-29,hors_corpus,refus,,5,0.5175,non

@@ -112,7 +112,10 @@ def _allowed(hits: list[Hit], perimeter: Perimeter) -> list[Hit]:
 
 
 def _outcome(question: dict, hits: list[Hit], reference_top: Hit | None,
-             perimeter: Perimeter, threshold: float) -> Outcome:
+             decision_top: Hit | None, perimeter: Perimeter, threshold: float) -> Outcome:
+    """`decision_top` est le résultat sur lequel le seuil de refus a porté, qui n'est pas
+    forcément le premier de `hits` : en P0 le moteur tranche avant que le filtre passe,
+    donc sur le premier du classement de référence, interdit ou non. En P1 ils coïncident."""
     ordered = apply_tiebreak(list(hits))
     top = ordered[0] if ordered else None
     criterion, expected = _criterion(question)
@@ -122,7 +125,7 @@ def _outcome(question: dict, hits: list[Hit], reference_top: Hit | None,
         rank=_rank_of(ordered, criterion, expected),
         criterion=criterion,
         score=top.score if top else None,
-        refused=top is None or top.score < threshold,
+        refused=decision_top is None or decision_top.score < threshold,
         threshold_on_forbidden=forbidden_top,
     )
 
@@ -157,8 +160,16 @@ def run() -> list[dict]:
             filtered = search(question["question"], strategy="hybrid", tiebreak=False,
                               threshold=None, settings=settings, embedder=embedder,
                               reranker=reranker, perimeter=perimeter).hits
-            for stage, hits in (("P0", _allowed(reference, perimeter)), ("P1", filtered)):
-                outcome = _outcome(question, hits, reference_top, perimeter, threshold)
+            ordered_filtered = apply_tiebreak(list(filtered))
+            filtered_top = ordered_filtered[0] if ordered_filtered else None
+            # Le seuil ne porte pas sur le même résultat dans les deux configurations : en
+            # P0 le moteur a tranché avant que le filtre passe, en P1 sur ce qui reste.
+            # Les confondre effacerait justement l'écart que l'axe 3 cherche à établir.
+            for stage, hits, decision_top in (
+                    ("P0", _allowed(reference, perimeter), reference_top),
+                    ("P1", filtered, filtered_top)):
+                outcome = _outcome(question, hits, reference_top, decision_top,
+                                   perimeter, threshold)
                 rows.append({
                     "profile": profile, "stage": stage, "id": question["id"],
                     "type": question["type"], "criterion": outcome.criterion,
@@ -190,6 +201,20 @@ def _metrics(rows: list[dict], profile: str, stage: str) -> dict:
         "mrr": mrr,
         "threshold_on_forbidden": sum(1 for r in subset if r.get("threshold_on_forbidden")),
     }
+
+
+def _cite(rows: list[dict]) -> str:
+    """« RAG-27 et RAG-30 pour `dev`, RAG-30 pour `support` ». Les identifiants cités dans
+    la lecture du rapport sont dérivés des lignes, jamais recopiés à la main : le rapport
+    est régénéré à chaque exécution, une liste figée y survivrait à ce qu'elle décrit."""
+    by_profile: dict[str, list[str]] = {}
+    for row in rows:
+        by_profile.setdefault(row["profile"], []).append(row["id"])
+    parts = []
+    for profile, ids in by_profile.items():
+        listed = ids[0] if len(ids) == 1 else ", ".join(ids[:-1]) + f" et {ids[-1]}"
+        parts.append(f"{listed} pour `{profile}`")
+    return ", ".join(parts)
 
 
 def write_report(rows: list[dict]) -> None:
@@ -250,6 +275,12 @@ def write_report(rows: list[dict]) -> None:
             "",
         ]
 
+    # Les questions que P0 rend vides se lisent en deux tas : celles qu'il refuse malgré
+    # tout, et celles qu'il **accepte** parce que le seuil a été franchi par un document
+    # que le filtre retire ensuite. Le second tas est le défaut de P0 dans sa forme nette.
+    emptied = [r for r in rows if r["stage"] == "P0" and r["returned"] == 0]
+    accepted_empty = [r for r in emptied if r["refused"] == "non"]
+
     lines += [
         "## Lecture",
         "",
@@ -265,13 +296,28 @@ def write_report(rows: list[dict]) -> None:
         "d'accepter ou de refuser a porté sur une pièce que l'utilisateur ne verra jamais.",
         "",
         "**Ce que la mesure n'établit pas, et qu'il faut dire.** Les questions que P0 vide",
-        "entièrement sont, sur ce jeu, **toutes des questions hors corpus** — RAG-27, RAG-29 et",
-        "RAG-30 pour `dev`, RAG-30 pour `support`. Les refuser est juste ; P0 les refuse donc",
-        "pour la mauvaise raison, mais avec le bon résultat. Le refus indu redouté ne se produit",
-        "pas ici : il faudrait pour cela une question couverte dont tout le top-5 soit interdit,",
-        "et le jeu n'en contient aucune — aucune de ses cibles n'est une note interne.",
+        "entièrement sont, sur ce jeu, **toutes des questions hors corpus** :",
+        f"{_cite(emptied)}. Les refuser est juste, et P0 en refuse "
+        f"{len(emptied) - len(accepted_empty)} sur {len(emptied)} —",
+        "pour la mauvaise raison, mais avec le bon résultat.",
+        "Le refus indu redouté ne se produit pas ici : il faudrait",
+        "pour cela une question couverte dont tout le top-5 soit interdit, et le jeu n'en",
+        "contient aucune — aucune de ses cibles n'est une note interne.",
         "",
-"**Les deux témoins.** `commercial` et `admin` doivent être identiques dans les",
+    ]
+
+    if accepted_empty:
+        lines += [
+            f"**P0 accepte, et ne rend rien.** {_cite(accepted_empty)} : le seuil a été",
+            "franchi par un document interdit, donc P0 n'a pas refusé la question — puis le",
+            "filtre a vidé la liste. Le profil reçoit une acceptation sans une seule source,",
+            "ce qui est pire que le refus qu'il aurait dû recevoir. C'est le seuil décidé en",
+            "amont du filtre dans sa forme la plus nette ; P1 refuse ces mêmes questions.",
+            "",
+        ]
+
+    lines += [
+        "**Les deux témoins.** `commercial` et `admin` doivent être identiques dans les",
         "deux colonnes *et* identiques l'un à l'autre : leurs périmètres couvrent les mêmes",
         "350 éditions courantes, le filtre y est un no-op. Un écart entre les deux colonnes",
         "signalerait un défaut du protocole ; un écart entre les deux profils, une matrice",
