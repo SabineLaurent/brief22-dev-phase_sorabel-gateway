@@ -23,7 +23,7 @@ import chainlit as cl
 import httpx
 
 from packages.agent.api import profile_for_role
-from packages.text_to_sql_factory.access import scope_for
+from packages.access import scope_for
 
 API_URL = "http://127.0.0.1:8000/chat"
 

@@ -22,7 +22,8 @@ from typing import Any
 
 from config import Settings
 from config import settings as default_settings
-from packages.text_to_sql_factory.access import scope_for
+from packages.access import scope_for
+from packages.text_to_sql_factory.access_sql import columns_outside_scope
 from packages.text_to_sql_factory.contract import CONVENTIONS, build_read_contract
 from packages.text_to_sql_factory.executor import Execution, execute, execute_with_parameters
 from packages.text_to_sql_factory.generator import SqlGenerator, build_generator, clarification_axes
@@ -305,8 +306,7 @@ def _forbidden(profile: str, columns: tuple[tuple[str, str], ...],
                settings: Settings) -> dict[str, Any] | None:
     """Le figement ne dispense pas de la matrice : les colonnes de sortie d'un tool figé
     sont des lignes de la matrice comme les autres."""
-    allowed = scope_for(profile, settings).columns
-    missing = sorted(column for column in columns if column not in allowed)
+    missing = columns_outside_scope(profile, set(columns), settings)
     if not missing:
         return None
     named = ", ".join(f"{table}.{column}" for table, column in missing)

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from config import Settings
 from config import settings as default_settings
 from packages.rag_machines.retrieval.azure_client import build_azure_openai_client
-from packages.text_to_sql_factory.access import scope_for
+from packages.access import scope_for
 from packages.text_to_sql_factory.contract import ReadContract
 
 #: Les axes de « meilleur client », avec les colonnes que chacun exige. Proposer un axe qui

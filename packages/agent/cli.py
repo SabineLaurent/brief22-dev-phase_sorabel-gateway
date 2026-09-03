@@ -40,7 +40,7 @@ from pydantic import SecretStr
 
 from config import llm_base_url, settings
 from packages.rag_machines.retrieval.search import Strategy, citation, search
-from packages.text_to_sql_factory.access import authorize
+from packages.access import authorize
 from packages.text_to_sql_factory.tools import ask_database, check_stock, get_schema, order_status
 
 _SYSTEM_PROMPT = (

@@ -133,11 +133,3 @@ def authorize(profile: str, tool: str, settings: Settings | None = None) -> bool
     règle appartient à la matrice, pas au serveur : elle est écrite là où elle se lit.
     """
     return tool in scope_for(profile, settings).tools
-
-
-def forbidden_columns(profile: str, columns: set[tuple[str, str]],
-                      settings: Settings | None = None) -> list[tuple[str, str]]:
-    """Parmi des couples ``(table, colonne)``, ceux que ce profil n'a pas le droit de
-    mentionner. Rendus triés : un refus nomme la colonne, et il la nomme toujours pareil."""
-    allowed = scope_for(profile, settings).columns
-    return sorted(column for column in columns if column not in allowed)

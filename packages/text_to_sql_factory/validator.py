@@ -48,7 +48,7 @@ from sqlglot.optimizer.scope import build_scope
 from config import Settings
 from config import settings as default_settings
 from packages.text_to_sql_factory import SQL_DIALECT
-from packages.text_to_sql_factory.access import scope_for
+from packages.access import scope_for
 from packages.text_to_sql_factory.contract import TABLES
 from packages.text_to_sql_factory.executor import explain
 

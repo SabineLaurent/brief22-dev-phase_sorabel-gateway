@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 from config import settings
-from packages.text_to_sql_factory.access import scope_for
+from packages.access import scope_for
 from packages.text_to_sql_factory.contract import ReadContract, build_read_contract
 from packages.text_to_sql_factory.executor import execute, explain
 from packages.text_to_sql_factory.generator import Generation, SqlGenerator, clarification_axes

@@ -30,7 +30,7 @@ from pathlib import Path
 
 from config import Settings
 from config import settings as default_settings
-from packages.text_to_sql_factory.access import Scope, scope_for
+from packages.access import Scope, scope_for
 
 #: Les cinq tables de la base. Ordre de lecture, pas ordre alphabétique : on décrit le
 #: catalogue avant ce qu'on en vend.
