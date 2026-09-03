@@ -1,9 +1,15 @@
 """Interface Chainlit pour tester l'agent Sorabel par rôle, et rejouer les questions des
 jeux d'évaluation (eval/questions_*.jsonl).
 
-Le rôle sélectionné est une étiquette envoyée à l'API (aucun filtrage réel tant que le
-serveur MCP n'existe pas). Pour rejouer une question d'un jeu d'évaluation, taper son
-identifiant (ex. « RAG-03 », « SQL-01 », « CAL-02 ») dans le chat.
+Le rôle sélectionné **agit réellement sur les questions chiffrées** : l'API le convertit en
+profil de la matrice d'accès, qui décide du droit d'interroger la base et des colonnes
+atteignables. Il reste sans effet sur la recherche documentaire.
+
+Écart assumé, le temps du banc d'essai : ici c'est le client qui déclare son rôle, alors que
+la conception veut le profil lu côté serveur. Il disparaît avec le serveur MCP.
+
+Pour rejouer une question d'un jeu d'évaluation, taper son identifiant (ex. « RAG-03 »,
+« SQL-01 », « CAL-02 ») dans le chat.
 
 Lancement : uv run chainlit run packages/web_client/app.py
 """
@@ -15,6 +21,9 @@ from pathlib import Path
 
 import chainlit as cl
 import httpx
+
+from packages.agent.api import profile_for_role
+from packages.text_to_sql_factory.access import scope_for
 
 API_URL = "http://127.0.0.1:8000/chat"
 
@@ -58,14 +67,39 @@ async def starters() -> list[cl.Starter]:
     ]
 
 
+def _rights_summary(role: str) -> str:
+    """Ce que ce rôle peut faire, dit d'avance plutôt que découvert par un refus.
+
+    Un `sans_role` doit apprendre à l'accueil qu'il n'obtiendra aucun chiffre : le lui
+    laisser découvrir par un refus donnerait l'impression d'une panne.
+    """
+    profile = profile_for_role(role)
+    scope = scope_for(profile)
+    if "ask_database" not in scope.tools:
+        # Le cas de `dev` : il a `get_schema` et aucun tool de lecture de données. La forme
+        # de la base, jamais son contenu — le dire évite de faire passer pour une panne un
+        # schéma qui répond pendant qu'un chiffre est refusé.
+        forme = (" Le **schéma** reste consultable : la forme de la base, pas son contenu."
+                 if "get_schema" in scope.tools else "")
+        return (f"profil `{profile}` — **aucun chiffre** : les questions sur les données "
+                f"seront refusées. La documentation reste interrogeable.{forme}")
+    sensitive = {("produits", "prix_achat_ht"), ("produits", "marge_pct"),
+                 ("ventes", "marge_ht")}
+    marges = ("marges et prix d'achat compris" if sensitive <= scope.columns
+              else "**sans** les marges ni le prix d'achat")
+    return (f"profil `{profile}` — base interrogeable sur {len(scope.columns)} colonnes, "
+            f"{marges}.")
+
+
 @cl.on_chat_start
 async def on_chat_start() -> None:
     role = cl.user_session.get("chat_profile") or "support"
     cl.user_session.set("role", role)
     await cl.Message(
         content=(
-            f"Rôle actif : **{role}**. Posez une question, ou tapez un identifiant "
-            "d'eval (ex. `RAG-03`, `SQL-01`, `CAL-02`) pour la rejouer."
+            f"Rôle actif : **{role}** — {_rights_summary(role)}\n\n"
+            "Posez une question, ou tapez un identifiant d'eval "
+            "(ex. `RAG-03`, `SQL-01`, `CAL-02`) pour la rejouer."
         )
     ).send()
 
