@@ -78,6 +78,22 @@ class Settings(BaseSettings):
     #: `make calibrer-hybride`, jamais sur le jeu de mesure.
     rerank_threshold: float | None = 0.0530
 
+    # --- Base métier (chantier Text-to-SQL) ----------------------------------
+    sorabel_db: Path = REPO_ROOT / "data" / "sorabel.db"
+    #: Schéma commenté de référence : la matière première du contrat de lecture.
+    schema_doc: Path = REPO_ROOT / "docs" / "schema.sql"
+    #: Matrice d'accès, donnée de configuration versionnée — jamais du code.
+    matrix_path: Path = REPO_ROOT / "mcp_server" / "matrice.yaml"
+    #: `LIMIT` injecté quand la requête générée n'en porte pas (Q2 §3 C4). Jamais en
+    #: remplacement d'un `LIMIT` plus petit déjà présent.
+    sql_default_limit: int = 200
+    #: Plafond de lignes ramenées, indépendant du `LIMIT` : sur cette base, un produit
+    #: cartésien rend 337 620 lignes en 0,4 s — le volume compte plus que le temps.
+    sql_max_rows: int = 1000
+    #: Délai au-delà duquel l'exécution est interrompue. SQLite n'a pas de
+    #: `statement_timeout` : la garde passe par `set_progress_handler`.
+    sql_timeout_s: float = 5.0
+
     @property
     def uses_azure_embeddings(self) -> bool:
         return bool(self.azure_embedding_deployment and self.azure_ai_endpoint)

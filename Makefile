@@ -1,6 +1,6 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-sans-nettoyage mesure-sans-versions \
-	mesure-rag-simple mesure test fmt lint serve client journal api web
+	mesure-rag-simple mesure check-sql eval-sql test fmt lint serve client journal api web
 
 install:
 	uv sync
@@ -49,6 +49,12 @@ mesure-rag-simple:
 
 mesure: mesure-dense mesure-lexical mesure-hybride mesure-sans-nettoyage mesure-sans-versions mesure-rag-simple
 	uv run python -m packages.rag_machines.eval_rag --report
+
+check-sql:
+	uv run python -m packages.text_to_sql_factory.check_sql
+
+eval-sql:
+	uv run python -m packages.text_to_sql_factory.eval_sql
 
 down:
 	docker compose down
