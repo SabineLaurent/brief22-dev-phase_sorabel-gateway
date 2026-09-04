@@ -81,14 +81,14 @@ def run(questions: list[dict]) -> list[Row]:
     rows: list[Row] = []
     for question in questions:
         before = generator.repairs
-        envelope = ask_database(question["question"], question["profil"], settings, generator)
-        payload = envelope["payload"]
+        answer = ask_database(question["question"], question["profil"], settings, generator)
+        payload = answer.payload
         code = str(payload.get("code", ""))
         row = Row(
             id=str(question["id"]),
             type=str(question["type"]),
             profil=str(question["profil"]),
-            status=str(envelope["status"]),
+            status=answer.status,
             code=code,
             conforme=code in EXPECTED_CODES.get(str(question["type"]), frozenset()),
             repare=generator.repairs > before,
