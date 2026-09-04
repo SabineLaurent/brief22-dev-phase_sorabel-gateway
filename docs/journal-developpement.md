@@ -1703,3 +1703,356 @@ dans les données. Le reste de la prose figée est inchangé, et listé en point
 | 7 | `packages/agent/cli.py:143` | `status == "ok"` avec `hits == []` rend `""` au modèle, sans message ni refus. Nouvellement atteignable : un `doc_type` de `matrice.yaml` absent du corpus passe le test de vacuité de `perimeter_for`, construit un `where` valide, et ne remonte rien |
 | 8 | `check_perimeter.py:153` | `edition_ids` passé deux fois dans le `zip`, le second lié à `_`. Sans effet, mais imite la forme de `LexicalIndex.search` où le second opérande est `scores` |
 | 9 | `Makefile:56` | La cible `mesure` n'agrège pas `mesure-perimetre` : le point d'entrée « rejouer toutes les mesures publiées » saute l'axe 3, le seul dont le rapport est régénéré de zéro et donc le plus exposé à la dérive |
+
+---
+
+## 2026-09-04 — Chantier 3, étape 1 : la réponse devient déterministe, et le journal existe
+
+**Le jet précédent est mis de côté**, commit `78933ed` sur la branche `mcp`. Il attaquait le
+serveur MCP, l'enveloppe partagée, le journal, le RAG et le SQL d'un seul mouvement et n'a
+pas satisfait la revue. On repart de `dev` sur `mcp-second-try`, **côté Text-to-SQL
+seulement** : deux couches posées et vérifiées avant de les étendre au RAG, puis au serveur.
+
+### Le défaut réel : la forme était déterministe, l'énoncé ne l'était pas
+
+Le point de départ était une question de l'utilisatrice — *« c'est le LLM du Text-to-SQL qui
+construit la réponse ? »* — et la réponse était non, à la lettre : `envelope()`
+(`tools.py:85`) était dix lignes de Python et `_STATUS_BY_CODE` un dictionnaire figé. Mais
+l'intuition portait, et la lecture du code l'a chiffrée. Le champ `message`, lui, était
+**écrit par le modèle** en quatre endroits :
+
+| Site | Ce qui devenait le `message` |
+|---|---|
+| `tools.py:185`, `:188` | `generation.reason` sur `ecriture_refusee` et `hors_schema` — le texte rédigé par le modèle (`generator.py:137`, champ `explication` de son JSON) |
+| `tools.py:191` | `generation.question` sur `clarification`, et `generation.axes`, ses chaînes libres |
+| `tools.py:179`, `:173` | le message brut d'une exception du SDK Azure, puis d'un `RuntimeError` |
+| `executor.py:141,143`, `validator.py:317` | le texte natif de `sqlite3`, concaténé |
+
+Conséquence : **la même demande d'écriture refusée deux fois produisait deux phrases
+différentes**, et le LLM de chat de `packages/agent` en produisait une troisième en
+reformulant. La décision ne variait pas ; son énoncé, si. Le remède n'est pas de mieux
+instruire le modèle, c'est de **ne plus lui donner la parole sur ce point** : une phrase
+figée ne se reformule pas.
+
+S'y ajoutaient deux fuites vraies, l'une potentielle et l'autre déjà en service :
+
+- `RuntimeError("base absente : …")` levée par `executor._connect()` n'était attrapée
+  **nulle part** le long de `validate() → explain()/execute() → ask_database()` ;
+- `packages/agent/api.py:81` renvoyait `str(exc)` au front, que `web_client/app.py:130`
+  affichait tel quel — un message d'exception de SDK sous les yeux d'un agent du support.
+
+### Un objet, deux vues
+
+Le nom `envelope` ne survit pas, sur demande : la fonction devient
+`build_db_structured_answer()` et l'objet un `db_structured_answer`. Les **trois clés du
+contrat DSI ne changent pas** — `status`, `payload`, `message` conviennent, et la suite
+d'acceptance les lit.
+
+`packages/text_to_sql_factory/structured_answer.py` porte la dataclass figée
+`DbStructuredAnswer`. Trois de ses champs ne sortent **jamais** vers un client :
+
+| Champ | Contenu | Lecteur |
+|---|---|---|
+| `cause` | texte du modèle, message SQLite, `str(exc)` | journal |
+| `stack` | `traceback.format_exc()` | journal |
+| `forbidden` | les colonnes fermées, en `table.colonne` | journal |
+| `etage` | 3 matrice/AST · 2 droit au tool · `None` hors décision d'accès | journal |
+
+**La garantie est structurelle, pas conventionnelle.** Ce sont des attributs de dataclass,
+jamais des clés de dictionnaire : un `json.dumps` distrait sur l'objet échoue, il ne fuit
+pas. Le seul sérialiseur est `client_view()`, et il filtre le payload sur **liste blanche** —
+ce qui n'est pas explicitement conservé ne part pas, y compris une clé ajoutée demain sans y
+penser. Sur les quatre refus et sur `erreur_execution`, le payload est réduit à `{"code"}`.
+
+`CLIENT_MESSAGES` tient une phrase par code, et aucune ne nomme une table, une colonne, un
+tool ni un code. Trois familles, parce que le recours de l'utilisateur diffère : *je n'ai pas
+le droit* → demander une habilitation ; *il n'y en a pas* → reformuler ; *ça n'a pas marché*
+→ corriger, ou réessayer. Les confondre supprimerait le recours avec la distinction.
+
+### Deux décisions à l'intérieur, qui méritent d'être retrouvées
+
+**1. `erreur_execution` a deux phrases, et ce n'est pas une entorse.** Le code recouvre deux
+situations que l'utilisateur ne vit pas pareil : l'appel était mal formé (il peut corriger)
+ou le service a échoué (il ne peut qu'attendre). Le catalogue n'a pas de code pour la
+première — arbitrage déjà consigné plus haut — mais leur donner le même message ferait
+réessayer indéfiniment la même référence invalide. D'où `MALFORMED_ARGUMENT`, une clé de
+message qui n'est pas un code, dans un ensemble **fermé** : la variation reste choisie par
+le code, jamais rédigée par le modèle.
+
+**2. Les `axes` de `clarification` sont désormais ceux du code.** `clarification_axes()`
+(`generator.py:104`) les calcule depuis la matrice et les filtre par profil ; le modèle en
+rendait sa propre version en chaînes libres. C'était le seul code où le payload accompagne
+encore la phrase, donc le seul endroit où le déterminisme pouvait se perdre par le payload.
+
+### Le point de passage unique
+
+`packages/text_to_sql_factory/handler.py` fait trois choses, **et l'ordre est la
+garantie** : appeler le tool sous `except Exception`, journaliser l'objet **entier**, rendre
+la vue client. Journaliser après la purge effacerait la cause pour tout le monde, débug
+compris.
+
+**L'étage 2 est exercé ici, pour la première fois.** `authorize()` avait été écrit au
+chantier précédent et n'était appelé par personne — le Text-to-SQL n'avait pas de client à
+qui refuser. Le handler en a un : un tool hors matrice produit un `tool_interdit` avant tout
+travail, sans aller-retour au modèle. Les fonctions de `tools.py` restent inchangées :
+appelées en direct — par `check_sql` — elles ne connaissent toujours que l'étage 3.
+
+### Le journal
+
+`packages/journal.py`, à la racine comme `packages/access.py` : **transverse aux huit
+tools**, et c'était la raison même de son report du chantier 2. Une ligne JSONL par appel,
+servi comme refusé, en ajout, vers `settings.gateway_journal` — `GATEWAY_JOURNAL`, défaut
+`logs/journal.jsonl`, tel que le contrat d'intégration le fixait depuis le début et que le
+code ne l'implémentait pas encore.
+
+L'entrée porte les six champs du cadrage (`timestamp`, `profile`, `tool`, `arguments`,
+`status`, `message`) puis ceux de la conception : `code`, `decision`, `etage`, `sql`,
+`n_rows`, `latency_ms`, `forbidden`, `cause`, `client_message`, `stack`.
+
+Deux choix à retrouver :
+
+- **`message` porte la cause**, pas la phrase figée : ce lecteur-ci veut le pourquoi. Ce que
+  l'utilisateur a réellement lu est conservé à côté sous `client_message` — sans quoi un
+  signalement (« on m'a affiché ceci ») serait impossible à raccorder à son appel ;
+- **`Journalable` est un `Protocol`**, pas un import du paquet SQL. Importer
+  `DbStructuredAnswer` ici inverserait la dépendance et obligerait le RAG à passer par le
+  SQL pour journaliser. Tous ses membres sont des propriétés en lecture seule : ce module
+  lit une réponse, il n'en construit ni n'en modifie aucune.
+
+`n_rows` et `latency_ms` **quittent la vue client** : c'est du diagnostic, le cadrage ne
+prévoit que `sql`, `columns`, `rows`, et `eval_sql` les lit sur le retour du **tool**, pas
+sur la vue purgée. La séparation des deux vues paie ici sans rien coûter.
+
+### La lecture du journal, et son garde-fou
+
+`read_feedback()` est l'autre moitié : sans lecture, le journal ne se consulte qu'en se
+connectant à la machine, et les équipes métier n'en tirent rien. Il est **réservé au profil
+`admin`**, et le garde-fou passe par `authorize()` — pas par un `if profile == "admin"` : la
+règle appartient à la matrice, où elle se lit en face du profil qui la porte. `matrice.yaml`
+gagne donc une neuvième ligne à `admin` seul, `read_journal`, nommée dans
+`settings.journal_reader_tool`.
+
+Les entrées sont rendues **entières**, trace comprise. C'est assumé : ce n'est pas une
+commodité d'affichage mais la surface de débug, et l'expurger la rendrait inutile à ce pour
+quoi elle existe. **Sa protection est son droit d'accès, pas son contenu.** Et la tentative
+de lecture est elle-même journalisée, refusée comme accordée : qui a cherché à lire le
+journal est précisément ce qu'une revue de conformité veut voir.
+
+### Le dernier mètre : le LLM n'a pas le mot final sur un refus
+
+C'est là que le déterminisme se perdait encore. Les quatre tools de `packages/agent/cli.py`
+rendent une chaîne au LLM, qui la reformule avant l'écran. Chaque appel dépose maintenant sa
+vue client dans le **carnet de l'appel en cours** (`call_record()`, une `ContextVar` — l'agent
+est mis en cache et partagé entre requêtes, le carnet appartient à *un* appel) ; `api.py` y
+relit `frozen_text()` et rend la phrase **telle quelle**, sans repasser par le modèle. Le
+premier verdict non-`ok` gagne, et il gagne sur une réponse par ailleurs réussie : afficher
+le texte rédigé masquerait un refus survenu en chemin. La boucle CLI applique la même règle,
+sinon les deux interfaces n'afficheraient pas la même chose pour la même décision.
+
+`api.py` perd son `str(exc)` : la trace part au journal sous le tool `chat`, l'écran reçoit
+une phrase figée. Un rôle inconnu n'est plus renvoyé en écho. `web_client/app.py` gagne la
+commande `journal`, qui affiche les vingt dernières entrées — ou le refus que la matrice
+oppose au rôle, sous la même forme que n'importe quelle autre réponse. **Aucun contrôle de
+droits n'est doublé côté interface** : deux barrières à maintenir dont une seule journalisée
+serait pire qu'une.
+
+### Écart corrigé au passage, parce qu'il devenait bloquant
+
+`get_schema` était accordé à `support` dans `matrice.yaml` alors que T9, T10 et T12 attendent
+un `refused` — divergence déjà consignée dans le tableau d'arbitrages de ce journal, avec sa
+résolution (« à retirer à `support` »). Elle était sans effet tant que rien n'exerçait
+l'étage 2 ; le handler l'exerce, donc la matrice devait dire la même chose que les tests.
+Retiré, avec le motif écrit en face : le support lit des **données**, il n'a pas à lire la
+**forme** de la base — décrire une colonne à qui ne doit pas la lire, c'est déjà en publier
+l'existence, le même motif que pour `dev`.
+
+### Vérification
+
+`make check-feedback` → `packages/text_to_sql_factory/check_feedback.py`, **102 contrôles
+déterministes, aucun appel de modèle**, journal écrit dans un répertoire temporaire. Ce
+qu'ils établissent, et pourquoi chacun compte :
+
+1. **Forme** — pour chacun des neuf codes, la vue client rend exactement les trois clés du
+   DSI, sur un payload volontairement trop riche : on vérifie que la liste blanche *coupe*,
+   pas que le tool a bien fait de ne rien mettre ;
+2. **Étanchéité** — la recherche porte sur la **sous-chaîne** dans le JSON servi, pas sur
+   l'absence de clé : une fuite par concaténation serait invisible à un contrôle de clés ;
+3. **Déterminisme** — quatre appels identiques, une seule réponse, sur le refus rédigé par
+   le modèle comme sur trois chemins sans modèle ;
+4. **Complétude** — tout code a sa phrase, et tout statut autre que `ok` a un message. Sans
+   ce contrôle, un code ajouté demain tomberait en silence sur le repli ;
+5. **Filet** — un tool remplacé par un tool qui explose : `status: error`, rien de la pile au
+   client, `Traceback` entier au journal ;
+6. **Journal** — une ligne par appel, dans l'ordre, `etage` posé sur la seule décision
+   d'accès (`[None, 2, None, None]` sur quatre appels choisis), et la cause du modèle
+   présente au journal **et** absente de la vue client — les deux moitiés du même appel,
+   vérifiées ensemble ;
+7. **Garde-fou** — `support` refusé, `admin` servi entier, et les deux tentatives au journal.
+
+Non-régression : `make check-sql` **81/81** au vert, `make eval-sql` **24/24 conformes**.
+`ruff` vert ; `make lint` reste rouge sur les **trois mêmes** erreurs préexistantes.
+`make test` ne passe toujours pas — `mcp_server.server` n'existe pas — mais **T2 devient
+satisfaisable** : le journal qu'il relit existe désormais, il ne manque plus que le serveur
+pour l'appeler.
+
+### Écarts et points ouverts
+
+1. **Le format attendu d'un argument malformé n'est plus dit au client.** « référence
+   attendue au format REF-NNNN, reçu « … » » devient « La demande n'est pas au format
+   attendu. » La distinction *corriger / attendre* est préservée par
+   `MALFORMED_ARGUMENT`, mais le format lui-même part au journal. Assumé : l'`inputSchema`
+   MCP écartera l'appel en amont au chantier suivant.
+2. **Le RAG n'est pas couvert**, et c'était le périmètre décidé. `search_docs` garde son
+   étage 2 local dans `cli.py` (`_denied_docs`, texte brut) et ses messages de refus écrits
+   par `access_rag` ; le point ouvert n°7 de la revue précédente (`status == "ok"` avec
+   `hits == []`) n'est pas traité. La couche leur sera étendue à l'étape suivante.
+3. **`etage` reste `None` sur un refus décidé par le modèle** (`hors_schema`,
+   `ecriture_refusee` avant l'AST). C'est délibéré : le modèle n'est pas une barrière, et lui
+   attribuer un étage rendrait la défense en profondeur fausse à la lecture du journal.
+   **En revanche le `None` sur un succès est un autre sujet, et c'en est un défaut** : il
+   confond « toutes les couches franchies » et « aucune décision d'accès en jeu ». Traité par
+   l'entrée « Piste à instruire : quelle couche a bloqué la chaîne de réponse », plus bas.
+4. **Aucune politique de rétention**, aucun `trace_id`. Vide documentaire réel — ni le
+   cadrage ni la conception n'en parlent — et non un oubli d'implémentation. Le journal est
+   append-only, sans rotation : à trancher avant toute mise en service.
+5. **`packages/agent/api.py:5`** (point ouvert n°6 de la revue précédente) reste faux et
+   n'est pas corrigé ici ; la docstring a été augmentée sans que cette phrase soit reprise.
+
+---
+
+## 2026-09-04 — Piste à instruire : quelle couche a bloqué la chaîne de réponse
+
+**Idée de l'utilisatrice, formulée en testant la GUI, et à instruire à la fin du chantier 3**
+— quand les huit tools passeront par la couche posée le même jour. Consignée ici parce qu'elle
+touche un champ déjà écrit en seize endroits : la rétro-ajouter coûtera cher si le motif est
+perdu.
+
+### L'idée
+
+Journaliser **quel point de contrôle a bloqué la chaîne de réponse**, `0` valant « réponse
+servie, toutes les couches franchies ». Le succès devient une valeur **mesurée**, pas une
+absence.
+
+### Ce que ça corrige, et qui est un défaut réel d'aujourd'hui
+
+`etage` vaut `None` **à la fois** quand tout est passé et quand aucune décision d'accès n'était
+en jeu — le refus `hors_schema` décidé par le modèle. Deux faits très différents, une seule
+valeur. Le point ouvert n°3 de l'entrée précédente reste vrai sur les refus du modèle, mais il
+ne dit rien du succès : c'est cette moitié-là que la piste traite.
+
+### Oignon ou pipeline — la précision qui rend la mesure honnête
+
+Le mot « oignon » est plus généreux que ce qu'on a. Un oignon au sens strict suppose des
+couches **concentriques et indépendantes gardant la même chose**. Ce qu'on a est surtout un
+**pipeline** : chaque étage vérifie *autre chose* — droit au tool, périmètre, syntaxe,
+ressources, divulgation — et franchir l'un ne dit rien de l'autre.
+
+Mais **deux endroits sont de vrais oignons**, et ce sont eux qui portent la valeur du champ :
+
+| Propriété | Gardée | Où |
+|---|---|---|
+| l'écriture | **trois fois** | le contrat l'interdit au modèle · contrôles 1 à 4 de l'AST · connexion `mode=ro` + `query_only` |
+| les colonnes fermées | **deux fois** | la matrice filtre le contrat *avant* que le modèle le voie · contrôle 5b revérifie l'AST |
+
+Un numéro de couche mesure la **progression** sur un pipeline et la **redondance** sur un
+oignon. Ce ne sont pas les mêmes chiffres, et la mesure devra dire lequel elle publie.
+
+### Que ça se fait, et sous quels noms
+
+| Domaine | Ce qui est journalisé |
+|---|---|
+| WAF / IDS | l'**ID de règle** qui a bloqué, pas seulement « bloqué » |
+| Envoy / Istio | `response_flags` + le filtre qui a refusé |
+| IAM AWS | la **policy** qui a tranché, sur un refus comme sur un accord |
+| Kubernetes | le nom du **webhook d'admission** qui a rejeté |
+| OPA | le **chemin de politique** évalué |
+| Aviation, médecine | modèle du **fromage suisse** (Reason, 1990) : des couches trouées, et l'intérêt est de savoir *laquelle* a rattrapé |
+| Sûreté industrielle | **LOPA** — on compte les couches de protection indépendantes et leur probabilité de défaillance |
+
+Usage opérationnel constant, et c'est là que le champ sert : **une couche qui ne se déclenche
+jamais est soit redondante, soit non testée ; une couche qui se déclenche en dernier signifie
+que tout l'amont a fui.**
+
+### Deux réserves de conception, à ne pas perdre
+
+1. **Nommer, pas numéroter.** Le refus du modèle (`hors_schema`, `ecriture_refusee` avant
+   l'AST) n'est **pas** une barrière : il peut se tromper dans les deux sens. Lui donner un
+   rang ferait mentir la profondeur. Donc un `blocked_at` sur un **ensemble fermé de points
+   nommés**, le rang se dérivant de la position — on peut alors y ranger un point qui n'est
+   pas une barrière sans corrompre le chiffre.
+2. **Capter tôt, publier tard.** Le champ doit être posé **au moment où la couche est étendue
+   au RAG**, pas après : les sites de construction de réponse sont déjà seize, et il y en aura
+   le double avec les huit tools.
+
+### La mesure à publier, et la question qu'elle répond
+
+Sur les 24 questions de `make eval-sql` et les 81 contrôles de `make check-sql` : **quel point
+de contrôle a décidé chaque refus.** Elle répond à une question que le dépôt ne sait pas
+trancher aujourd'hui — **le contrôle 5b se déclenche-t-il une seule fois sur le chemin
+nominal ?**
+
+Il ne devrait pas : la matrice a filtré le contrat en amont, le modèle ne voit jamais la
+colonne fermée. S'il ne se déclenche jamais, le constat se publie tel quel — *la profondeur
+est réelle, mais le chemin normal ne la teste pas* — et c'est précisément pourquoi `check_sql`
+lui consacre 21 cas écrits à la main.
+
+### Où ça atterrira dans le code
+
+- **le champ** : `etage` de `DbStructuredAnswer`
+  (`packages/text_to_sql_factory/structured_answer.py`), à élargir ou à doubler d'un
+  `blocked_at` ;
+- **l'entrée de journal** : `entry_for()` dans `packages/journal.py` ;
+- **les sites qui le posent** : les seize appels à `build_db_structured_answer()` de
+  `packages/text_to_sql_factory/tools.py` et de `handler.py` ;
+- **la mesure** : une cible Make dédiée, comme l'exige `eval/protocole-mesure.md` — une cible
+  par mesure publiée, à lire **avant** d'écrire la moindre ligne d'évaluation.
+
+---
+
+## 2026-09-04 — Chantier MCP, incrément SQL : frontière typée et serveur stdio
+
+### Décision
+
+Le premier incrément MCP expose les quatre tools SQL, sans API HTTP intermédiaire et sans
+routage sémantique dans la gateway. Le choix du tool reste celui du LLM client à partir du
+catalogue MCP ; la gateway effectue le dispatch technique et le contrôle du profil.
+
+La frontière interne est désormais une commande Python typée : `SqlToolRequest`. Elle est
+transmise à `SqlToolLauncher`, qui vérifie de nouveau le couple profil/tool et les arguments
+avant d'appeler la fonction SQL concernée. Le client ne peut pas fournir le profil ni une liste
+de colonnes autorisées.
+
+### Réalisation
+
+- `packages/text_to_sql_factory/models.py` : commande `SqlToolRequest` ;
+- `packages/text_to_sql_factory/sql_tool_launcher.py` : façade d'exécution gouvernée des
+  tools SQL ;
+- `mcp_server/server.py` : serveur FastMCP en stdio, catalogue filtré par profil, enveloppe
+  DSI conservée en JSON texte ;
+- `packages/journal.py` et `structured_answer.py` : champ `blocked_at`, dérivé de l'étage
+  de blocage, avec `0` quand la chaîne est franchie ;
+- `Makefile` : cibles SQL et feedback alignées sur `evals_and_controls/`.
+
+### Vérification
+
+`make check-feedback`, `make check-sql`, Ruff et la compilation Python passent. Un appel direct
+à `get_schema` au profil `support` est refusé et journalisé, même si le tool n'apparaît pas
+dans `tools/list`. Le profil `commercial` voit les quatre tools SQL.
+
+Les quatre tools RAG et la suite d'acceptance MCP complète restent hors de cet incrément ; ils
+seront branchés après création de leur handler transverse.
+
+### Correctif de revue — 2026-09-04
+
+La revue a relevé quatre points, corrigés sans changer le périmètre :
+
+- `blocked_at` est désormais porté explicitement par `DbStructuredAnswer` : `0` pour une
+  réponse servie, l'étage pour une décision de sécurité, `None` pour une panne ou un refus
+  décidé par le modèle ;
+- les schemas MCP portent les motifs `REF-NNNN` et `CMD-AAAA-NNNN`, en complément de la
+  validation serveur qui reste obligatoire ;
+- `SqlToolLauncher.launch()` utilise réellement les méthodes nommées des quatre tools ;
+- le serveur conserve une instance configurée du launcher, tandis que `handle()` reste une
+  compatibilité pour les appels internes et les tests à réglages personnalisés.
+
+`make check-feedback`, `make check-sql`, Ruff et mypy restent au vert après ce correctif.

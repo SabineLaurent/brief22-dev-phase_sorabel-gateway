@@ -16,13 +16,23 @@ catalogue n'existera qu'au chantier 3. La matrice, elle, est interrogée sous le
 catalogue : c'est elle qui nomme la gouvernance. Pas de mémoire : chaque question part d'un historique
 vide, l'agent n'a que la question posée et ce que l'outil lui rend.
 
+**Les quatre tools de base passent par ``handler.handle()``**, le point de passage unique
+du chantier 3 : c'est lui qui applique l'étage 2, journalise l'appel entier et ne rend que
+la vue client purgée. Ces tools ne voient donc **jamais** la cause technique d'un refus —
+ni la colonne fermée, ni le message du moteur, ni la trace d'exception. Ce n'est pas une
+précaution de politesse : ce qui arrive ici est recopié dans le contexte d'un LLM, qui le
+reformule ensuite librement.
+
+**Et sur un refus, le LLM n'a pas le dernier mot.** Chaque appel dépose sa vue client dans
+le carnet de l'appel en cours (:func:`call_record`) ; ``api.py`` y lit la phrase figée et la
+rend **telle quelle**, sans repasser par le modèle. Sinon le déterminisme se perdrait au
+dernier mètre : le refus ne varie pas, mais sa reformulation, si.
+
 **Banc d'essai, pas la cible.** Le profil est ici un argument, donc *déclaré par
 l'appelant* — la conception veut l'inverse : ``SORABEL_PROFILE`` lu au lancement du serveur
 MCP, jamais reçu du client, précisément pour que le LLM du client ne puisse pas l'écrire.
 Ce raccourci n'existe que pour rendre la matrice observable depuis l'interface de test ; il
-disparaît avec le serveur MCP (chantier 3). La barrière, elle, n'est pas court-circuitée :
-chaque tool vérifie le droit au tool dans la matrice (étage 2), puis délègue à la fonction
-du catalogue, qui applique le même périmètre de colonnes et la même validation qu'ailleurs.
+disparaît avec le serveur MCP (chantier 3).
 
 Usage :
     uv run python -m packages.agent.cli
@@ -32,6 +42,10 @@ Usage :
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any
 
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
@@ -39,10 +53,10 @@ from langchain_core.tools import tool
 from pydantic import SecretStr
 
 from config import llm_base_url, settings
+from packages.access import authorize
 from packages.rag_machines.access_rag import search_for_profile
 from packages.rag_machines.retrieval.search import Strategy, citation
-from packages.access import authorize
-from packages.text_to_sql_factory.tools import ask_database, check_stock, get_schema, order_status
+from packages.text_to_sql_factory.handler import handle
 
 _SYSTEM_PROMPT = (
     "Tu réponds aux questions sur Sorabel en t'appuyant uniquement sur tes outils — jamais "
@@ -67,8 +81,9 @@ _SYSTEM_PROMPT = (
     "Avec les outils de base : montre TOUJOURS la requête SQL renvoyée avec le résultat, "
     "ainsi que les conventions métier appliquées — c'est ce qui rend le chiffre vérifiable. "
     "N'invente jamais de requête toi-même et ne modifie jamais celle qui t'est rendue. "
-    "Quand un outil refuse, rapporte le refus tel quel, avec son motif : un refus n'est pas "
-    "une absence de données, et une absence de données n'est pas un refus. Ne réessaie pas "
+    "Quand un outil refuse, rapporte son message TEL QUEL, sans le reformuler et sans "
+    "chercher à en expliquer la cause — tu ne la connais pas. Un refus n'est pas une "
+    "absence de données, et une absence de données n'est pas un refus. Ne réessaie pas "
     "la même question avec un autre outil pour contourner un refus."
 )
 
@@ -77,32 +92,88 @@ _SYSTEM_PROMPT = (
 _MAX_DISPLAYED_ROWS = 30
 
 
-def _denied(profile: str, tool: str) -> str | None:
-    """Étage 2 : ce profil a-t-il droit à ce tool ? Rend le refus, ou ``None``.
+#: Le carnet de l'appel en cours. Chaque tool de base y dépose la vue client de sa réponse ;
+#: ``api.py`` y relit la phrase figée avant de rendre quoi que ce soit à l'écran.
+#:
+#: Une ``ContextVar`` et non un attribut de l'agent : l'agent est mis en cache et partagé
+#: entre les requêtes, alors que le carnet appartient à **un** appel. Le contexte est recopié
+#: dans le fil d'exécution où FastAPI joue une route synchrone, donc le carnet suit l'appel
+#: sans suivre l'agent.
+_CURRENT_CALL: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+    "sorabel_current_call", default=None
+)
 
-    La clé lue dans la matrice est le nom du tool **au catalogue** — c'est lui que la
-    gouvernance nomme. Seul `ask_database` est exposé à l'agent sous un autre nom.
+
+@contextmanager
+def call_record() -> Iterator[list[dict[str, Any]]]:
+    """Ouvre un carnet pour la durée d'un appel, et le referme quoi qu'il arrive."""
+    book: list[dict[str, Any]] = []
+    token = _CURRENT_CALL.set(book)
+    try:
+        yield book
+    finally:
+        _CURRENT_CALL.reset(token)
+
+
+def frozen_text(book: list[dict[str, Any]]) -> str | None:
+    """La phrase à afficher **telle quelle**, ou ``None`` s'il faut laisser le LLM rédiger.
+
+    C'est le point de décision unique : *le modèle n'entre en jeu que quand il y a un
+    résultat à exprimer.* Partout ailleurs — refus, panne, clarification — la phrase est
+    déjà écrite et part à l'écran sans passer par lui. Elle ne peut donc pas varier d'un
+    appel à l'autre.
+
+    Le **premier** verdict non-``ok`` gagne, et il gagne sur une réponse par ailleurs
+    réussie : afficher le texte rédigé masquerait un refus survenu en chemin.
     """
-    if authorize(profile, tool):
+    for view in book:
+        if view["status"] == "ok":
+            continue
+        text = view["message"]
+        axes = view["payload"].get("axes")
+        if axes:
+            text += "\n" + "\n".join(f"  - {axis}" for axis in axes)
+        return text
+    return None
+
+
+def _denied_docs(profile: str) -> str | None:
+    """Étage 2 du **seul** tool documentaire de ce banc d'essai, ou ``None``.
+
+    Le SQL n'en a plus besoin — ``handle()`` l'applique. Le RAG, lui, n'a pas encore son
+    point de passage : il garde donc ce raccourci, texte brut compris, jusqu'à ce que la
+    couche du chantier 3 lui soit étendue. C'est un reste assumé, pas un choix.
+    """
+    if authorize(profile, "search_docs"):
         return None
-    return (f"outil : {tool}\n\ncode : tool_interdit\n\nmessage : le profil "
-            f"« {profile} » n'a pas accès à {tool}")
+    return "Cette information n'est pas accessible avec votre profil."
 
 
-def _format_database_answer(envelope: dict, tool: str) -> str:
-    """Met le résultat d'un tool SQL sous une forme que le modèle peut restituer.
+def _serve(tool: str, arguments: dict[str, Any], profile: str) -> str:
+    """Appelle un tool du catalogue par le point de passage unique, et note son verdict."""
+    view = handle(tool, arguments, profile)
+    book = _CURRENT_CALL.get()
+    if book is not None:
+        book.append(view)
+    return _format_database_answer(view, tool)
+
+
+def _format_database_answer(view: dict[str, Any], tool: str) -> str:
+    """Met la vue client d'un tool SQL sous une forme que le modèle peut restituer.
 
     La requête et les conventions sont rendues au même titre que les lignes : sans elles,
     le chiffre n'est pas vérifiable, et c'est ce que la transparence E3 demande. Le nom du
     tool est rendu aussi : l'aiguillage étant interne, sans lui l'utilisateur ne saurait pas
     si son chiffre vient d'une requête figée ou d'une requête générée.
+
+    Sur un refus, il n'y a **rien** à mettre en forme que la phrase figée : le payload est
+    réduit à son code en amont, et c'est ce qui empêche le modèle de reformuler une cause
+    qu'il n'a pas.
     """
-    payload = envelope["payload"]
+    payload = view["payload"]
     lines = [f"outil : {tool}", f"code : {payload['code']}"]
-    if envelope["message"]:
-        lines.append(f"message : {envelope['message']}")
-    if payload.get("forbidden"):
-        lines.append("colonnes refusées : " + ", ".join(payload["forbidden"]))
+    if view["message"]:
+        lines.append(f"message : {view['message']}")
     if payload.get("axes"):
         lines.append("axes proposés :\n" + "\n".join(f"  - {axis}" for axis in payload["axes"]))
     if payload.get("sql"):
@@ -131,7 +202,7 @@ def build_agent(strategy: Strategy, profile: str = "support"):  # type: ignore[n
         """Documentation produit et procédures Sorabel. Cherche des extraits dans le corpus
         (fiches techniques, notices, procédures SAV) ; rend les extraits ou un refus motivé.
         Pour un chiffre, un stock ou un montant, utiliser ask_to_db."""
-        denied = _denied(profile, "search_docs")
+        denied = _denied_docs(profile)
         if denied is not None:
             return denied
         # Étage 3 : le périmètre documentaire du profil part dans la requête, avant la
@@ -156,8 +227,7 @@ def build_agent(strategy: Strategy, profile: str = "support"):  # type: ignore[n
         # La clé lue dans la matrice reste `ask_database` : c'est le nom du tool AU
         # CATALOGUE, celui que la gouvernance nomme. `ask_to_db` n'est que le nom local de
         # ce banc d'essai — les confondre laisserait croire que le catalogue est implémenté.
-        return (_denied(profile, "ask_database")
-                or _format_database_answer(ask_database(question, profile), "ask_database"))
+        return _serve("ask_database", {"question": question}, profile)
 
     @tool
     def check_stock_by_ref(reference: str) -> str:
@@ -165,16 +235,14 @@ def build_agent(strategy: Strategy, profile: str = "support"):  # type: ignore[n
         seuil de réapprovisionnement propre à chaque entrepôt. La référence doit être au
         format REF-NNNN : un libellé de produit ne l'identifie pas. Pour une question de
         stock plus large (plusieurs produits, un classement), c'est ask_to_db."""
-        return (_denied(profile, "check_stock")
-                or _format_database_answer(check_stock(reference, profile), "check_stock"))
+        return _serve("check_stock", {"reference": reference}, profile)
 
     @tool
     def order_status_by_id(order_id: str) -> str:
         """En-tête d'UNE commande Sorabel identifiée : statut, date, montant HT, client.
         L'identifiant doit être au format CMD-AAAA-NNNN. Ne rend pas le détail des lignes de
         vente — pour cela, ou pour plusieurs commandes, c'est ask_to_db."""
-        return (_denied(profile, "order_status")
-                or _format_database_answer(order_status(order_id, profile), "order_status"))
+        return _serve("order_status", {"order_id": order_id}, profile)
 
     @tool
     def get_db_schema() -> str:
@@ -182,8 +250,7 @@ def build_agent(strategy: Strategy, profile: str = "support"):  # type: ignore[n
         droit d'interroger, leurs valeurs possibles, la période couverte et les conventions
         métier. Ne rend aucune donnée — c'est la FORME de la base, pas son contenu. Utile
         pour savoir ce qui est interrogeable avant de poser une question chiffrée."""
-        return (_denied(profile, "get_schema")
-                or _format_database_answer(get_schema(profile), "get_schema"))
+        return _serve("get_schema", {}, profile)
 
     if not settings.llm_chat_model:
         raise RuntimeError(
@@ -234,8 +301,12 @@ def main() -> None:
             continue
         if question.lower() in {"exit", "quit"}:
             break
-        response = agent.invoke({"messages": [{"role": "user", "content": question}]})
-        print(response["messages"][-1].content)
+        with call_record() as book:
+            response = agent.invoke({"messages": [{"role": "user", "content": question}]})
+            # Même règle qu'à l'écran : une phrase figée part telle quelle, le modèle ne
+            # la réécrit pas. Sans quoi la CLI et la GUI n'afficheraient pas la même chose
+            # pour la même décision.
+            print(frozen_text(book) or response["messages"][-1].content)
 
 
 if __name__ == "__main__":

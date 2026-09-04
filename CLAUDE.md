@@ -59,10 +59,42 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `make mesure-perimetre` → `eval/rapport_perimetre.md` (axe 3 du protocole) : filtrer après
   la troncature coûte 0,83 résultat par question à `dev` et décide cinq fois le seuil de
   refus sur un document que l'utilisateur ne verrait pas.
-- **Chantier serveur MCP : à faire.** C'est la prochaine étape. Puis l'interface graphique.
+- **Chantier 3, étape 1 — réponse déterministe et journalisation, côté SQL : faite.**
+  `text_to_sql_factory/structured_answer.py` (`DbStructuredAnswer`,
+  `build_db_structured_answer()`, `client_view()` — **le seul sérialiseur**),
+  `text_to_sql_factory/handler.py` (`handle()` : le point de passage unique, qui applique
+  l'étage 2, journalise, puis purge — **dans cet ordre**), `packages/journal.py` (JSONL
+  transverse aux huit tools, `record()` / `tail()`, protocole `Journalable`), et le câblage du
+  banc d'essai (`agent/api.py`, `agent/cli.py`, `web_client/app.py`).
+  **`envelope()` n'existe plus** : renommée sur demande. Les trois clés du DSI — `status`,
+  `payload`, `message` — sont inchangées.
+  **Le défaut corrigé n'était pas la forme, c'était l'énoncé** : le `message` était écrit par
+  le modèle sur `ecriture_refusee`, `hors_schema` et `clarification`, puis reformulé par le
+  LLM de chat. Il est désormais une **phrase figée choisie sur le code** ; le texte du modèle,
+  le message SQLite et la trace d'exception partent au journal sous `cause` / `stack`.
+  `cause`, `stack`, `forbidden` et `etage` sont des **attributs de dataclass, jamais des clés
+  de dict** — la garantie est structurelle, pas conventionnelle.
+  Le journal est lisible par le seul profil `admin` (`read_feedback()`, garde-fou par
+  `authorize()` + `read_journal` dans `matrice.yaml`), entrées **entières** : sa protection
+  est son droit d'accès, pas son contenu. `make check-feedback` : 102 contrôles
+  déterministes, tous au vert ; `make check-sql` 81/81 et `make eval-sql` 24/24 inchangés.
+  Schéma des deux voies : `docs/schema-feedback.html` (à ouvrir dans un navigateur).
+  **Écart corrigé** : `get_schema` retiré à `support` dans `matrice.yaml` — arbitrage déjà
+  consigné au journal, devenu bloquant dès que l'étage 2 s'exerce.
+- **Reste du chantier 3 : à faire.** Étendre la couche au RAG, puis le serveur MCP
+  lui-même. Puis l'interface graphique.
+  **À instruire à la fin du chantier, et à ne pas oublier** : un champ `blocked_at` au
+  journal disant **quelle couche a bloqué la chaîne de réponse** (`0` = servi, toutes les
+  couches franchies), puis la mesure de quel point de contrôle décide chaque refus. Le champ
+  doit être **posé en même temps que l'extension au RAG**, pas après. Motif, réserves de
+  conception et mesure visée : `docs/journal-developpement.md`, entrée « Piste à instruire :
+  quelle couche a bloqué la chaîne de réponse ».
 
 Aucun test d'acceptance ne passe encore : ils exigent tous un serveur MCP, qui n'existe
 pas avant le troisième chantier.
+
+T2 (« une demande d'écriture est refusée **et journalisée** ») est désormais *satisfaisable* :
+le journal qu'il relit existe, il ne manque plus que le serveur pour l'appeler.
 
 `pytest` échoue même à la **collecte**, et **ce n'est pas un défaut de la suite** :
 `literalai` (dépendance de `chainlit`) installe un paquet `tests` dans `site-packages`, qui
@@ -138,6 +170,8 @@ make check-index   # contrôles d'intégrité de l'index
 make check-perimetre # contrôles du filtre de périmètre documentaire (matrice sur le corpus)
 make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
+make check-feedback # contrôles de la réponse structurée et du journal (sans appel de modèle)
+make journal       # les 20 dernières entrées de logs/journal.jsonl
 make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM chacune)
 make test          # suite d'acceptance
 make lint          # ruff + mypy — rouge sur 3 erreurs préexistantes (Chainlit, IncludeEnum)

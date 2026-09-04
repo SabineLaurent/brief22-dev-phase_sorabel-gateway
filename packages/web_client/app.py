@@ -26,6 +26,19 @@ from packages.agent.api import profile_for_role
 from packages.access import scope_for
 
 API_URL = "http://127.0.0.1:8000/chat"
+JOURNAL_URL = "http://127.0.0.1:8000/journal"
+ALLOWED_URL = "http://127.0.0.1:8000/journal/allowed"
+
+#: Le mot tapé au chat pour relire le journal. Un mot plutôt qu'un bouton : l'interface est
+#: un banc d'essai, et un bouton laisserait croire que la lecture est acquise — alors que
+#: c'est la matrice qui tranche, appel par appel, et que le refus est lui-même journalisé.
+JOURNAL_COMMAND = "journal"
+
+#: Les champs d'une entrée affichés en clair, dans cet ordre. La trace d'exception n'y est
+#: pas : elle est rendue par l'API, mais un `stack` de quarante lignes dans une bulle de chat
+#: noie les dix-neuf autres entrées. Elle est affichée à part, et seulement si elle existe.
+_JOURNAL_FIELDS = ("timestamp", "profile", "tool", "status", "code", "decision", "etage",
+                   "cause", "sql", "n_rows", "latency_ms", "forbidden")
 
 _EVAL_FILES = [
     Path("eval/questions_rag.jsonl"),
@@ -113,20 +126,66 @@ async def on_chat_start() -> None:
         content=(
             f"Rôle actif : **{role}** — {_rights_summary(role)}\n\n"
             "Posez une question, ou tapez un identifiant d'eval "
-            "(ex. `RAG-03`, `SQL-01`, `CAL-02`) pour la rejouer."
+            "(ex. `RAG-03`, `SQL-01`, `CAL-02`) pour la rejouer.\n\n"
+            f"Tapez `{JOURNAL_COMMAND}` pour relire le journal des appels — la matrice dit "
+            "qui en a le droit, et la tentative est journalisée dans les deux cas."
         )
+    ).send()
+
+
+def _format_entry(entry: dict) -> str:
+    """Une entrée de journal, mise à plat. Rendue **entière** côté API ; ici seulement mise
+    en forme, jamais expurgée — l'affichage n'est pas la barrière."""
+    lines = [f"- **{field}** : `{entry[field]}`"
+             for field in _JOURNAL_FIELDS
+             if entry.get(field) not in (None, "", [], 0, 0.0)]
+    stack = entry.get("stack")
+    if stack:
+        lines.append(f"```\n{stack.strip()}\n```")
+    return "\n".join(lines)
+
+
+async def _show_journal(role: str) -> None:
+    """Affiche le journal, ou le refus que la matrice oppose à ce rôle.
+
+    Aucun contrôle de droits n'est fait ici : l'API refuse, et son refus arrive sous la même
+    forme que n'importe quelle autre réponse — un `status` et une phrase figée. Le doubler
+    d'un contrôle côté interface donnerait deux barrières à maintenir, dont une seule
+    journalisée.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(JOURNAL_URL, params={"role": role, "limit": 20})
+        data = response.json()
+
+    if data["status"] != "ok":
+        await cl.Message(content=data["message"]).send()
+        return
+
+    entries = data.get("entries") or []
+    body = "\n\n---\n\n".join(_format_entry(entry) for entry in reversed(entries))
+    await cl.Message(
+        content=f"**Journal — {len(entries)} dernière(s) entrée(s), la plus récente "
+                f"d'abord**\n\n{body}"
     ).send()
 
 
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     role = cl.user_session.get("role", "support")
-    question = _EVAL_QUESTIONS.get(message.content.strip().upper(), message.content)
+    typed = message.content.strip()
+
+    if typed.lower() == JOURNAL_COMMAND:
+        await _show_journal(role)
+        return
+
+    question = _EVAL_QUESTIONS.get(typed.upper(), message.content)
 
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(API_URL, json={"role": role, "question": question})
         data = response.json()
 
+    # `error` ne porte plus qu'une phrase figée : l'API ne laisse plus sortir de message
+    # d'exception. Le préfixe reste, il dit à l'utilisateur que rien n'a abouti.
     if data.get("error"):
         await cl.Message(content=f"Erreur : {data['error']}").send()
     else:

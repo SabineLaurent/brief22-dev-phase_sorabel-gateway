@@ -94,6 +94,18 @@ class Settings(BaseSettings):
     #: `statement_timeout` : la garde passe par `set_progress_handler`.
     sql_timeout_s: float = 5.0
 
+    # --- Journalisation (chantier 3) -----------------------------------------
+    #: Fichier JSONL du journal, une entrée par appel — servi comme refusé. Le nom de la
+    #: variable d'environnement (`GATEWAY_JOURNAL`) et le défaut sont ceux du contrat
+    #: d'intégration de docs/cadrage_dsi.md : la suite d'acceptance le fixe par
+    #: l'environnement au lancement du serveur, pour lire le journal d'un test dans son
+    #: propre répertoire temporaire.
+    gateway_journal: Path = REPO_ROOT / "logs" / "journal.jsonl"
+    #: Le tool qui donne droit de lire le journal. Nommé ici plutôt qu'en dur dans le code
+    #: qui refuse : le garde-fou se lit alors dans la matrice, en face du profil qui le
+    #: porte, et non dans une condition enfouie.
+    journal_reader_tool: str = "read_journal"
+
     @property
     def uses_azure_embeddings(self) -> bool:
         return bool(self.azure_embedding_deployment and self.azure_ai_endpoint)

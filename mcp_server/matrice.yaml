@@ -62,17 +62,23 @@ profils:
       ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct]
 
   # ------------------------------------------------------------------ support
-  # Le bot Slack du support. Il a les huit tools : ask_database lui est bien
-  # accordé (Q3 §9) — les questions SQL-17 → SQL-20 sont refusées SUR LE
-  # PÉRIMÈTRE, pas sur le tool. Retirer le tool ferait passer les tests pour
-  # la mauvaise raison.
+  # Le bot Slack du support. `ask_database` lui est bien accordé (Q3 §9) — les
+  # questions SQL-17 → SQL-20 sont refusées SUR LE PÉRIMÈTRE, pas sur le tool.
+  # Retirer le tool ferait passer les tests pour la mauvaise raison.
+  #
+  # `get_schema` en revanche lui est RETIRÉ, et c'est l'arbitrage déjà consigné au
+  # journal de développement (tableau conception ↔ tests, ligne `get_schema` pour
+  # `support`) : T9, T10 et T12 attendent un `refused`. Il n'avait aucun effet tant
+  # que rien n'exerçait l'étage 2 ; le handler du chantier 3 l'exerce, donc la
+  # matrice doit dire la même chose que les tests. Le support lit des DONNÉES, il
+  # n'a pas à lire la FORME de la base : décrire une colonne à qui ne doit pas la
+  # lire, c'est déjà en publier l'existence (même motif que pour `dev`).
   support:
     tools:
       - answer_question
       - search_docs
       - get_document
       - list_sources
-      - get_schema
       - ask_database
       - check_stock
       - order_status
@@ -143,6 +149,12 @@ profils:
       - ask_database
       - check_stock
       - order_status
+      # Neuvième ligne, et le seul profil qui la porte : la lecture du journal. Ce n'est
+      # pas un tool du catalogue DSI — c'est la surface de débug des équipes métier, et
+      # elle rend les entrées entières, trace d'exception comprise. Elle est donc plus
+      # sensible que les huit autres réunis : le journal contient les colonnes refusées de
+      # tous les profils, donc la matrice elle-même en creux. D'où un seul lecteur.
+      - read_journal
     collections:  [fiche_technique, notice, procedure_sav, note_interne]
     themes_notes:
       - alerte-qualite

@@ -1,14 +1,14 @@
 """Les quatre tools SQL, en fonctions Python.
 
-Elles rendent l'**enveloppe du contrat d'intégration** — ``{"status", "payload",
-"message"}`` de ``docs/cadrage_dsi.md`` — et non l'``outputSchema`` d'union de la
-conception. C'est l'arbitrage déjà consigné au journal : là où le dossier de conception et
-les tests divergent, le test fait foi. Les douze codes ne sont pas perdus pour autant :
-ils vivent dans ``payload["code"]``, où le chantier 3 les reprendra pour le journal.
+Elles rendent un :class:`DbStructuredAnswer` : la décision, la charge utile, et la cause
+technique **à part**. La conversion vers les trois champs du contrat d'intégration —
+``{"status", "payload", "message"}`` de ``docs/cadrage_dsi.md`` — est le travail de
+``client_view()``, et la cause n'y passe pas : elle va au journal. Les douze codes ne sont
+pas perdus pour autant, ils vivent dans ``payload["code"]``.
 
 Aucune de ces fonctions n'écrit au journal et aucune ne connaît de client : ce sont des
 fonctions de bibliothèque. Elles rendent en revanche tout ce qu'il faut pour journaliser —
-le code, la requête exécutée, le nombre de lignes, la latence.
+le code, la requête exécutée, le nombre de lignes, la latence, et l'étage qui a tranché.
 
 Le paramètre ``profile`` est un argument **interne**. Il ne figure dans aucune signature
 exposée : le serveur MCP le lira dans son environnement, jamais dans ce que le client
@@ -27,26 +27,13 @@ from packages.text_to_sql_factory.access_sql import columns_outside_scope
 from packages.text_to_sql_factory.contract import CONVENTIONS, build_read_contract
 from packages.text_to_sql_factory.executor import Execution, execute, execute_with_parameters
 from packages.text_to_sql_factory.generator import SqlGenerator, build_generator, clarification_axes
+from packages.text_to_sql_factory.structured_answer import (
+    MALFORMED_ARGUMENT,
+    REFUSAL_CODES,
+    DbStructuredAnswer,
+    build_db_structured_answer,
+)
 from packages.text_to_sql_factory.validator import validate
-
-#: Des douze codes vers les cinq statuts du contrat DSI. C'est le seul endroit de la
-#: conversion : un statut calculé ailleurs finirait par diverger.
-#:
-#: `aucune_ligne` et `ambiguite_donnees` sont des `ok` : le serveur a fait ce qu'on lui
-#: demandait, et le résultat n'a rien donné ou plusieurs choses. Les marquer en refus ferait
-#: compter au journal des refus qui n'ont jamais eu lieu, et la lecture d'E5 surestimerait
-#: la sévérité du système.
-_STATUS_BY_CODE = {
-    "ok": "ok",
-    "aucune_ligne": "ok",
-    "ambiguite_donnees": "ok",
-    "clarification": "clarification",
-    "tool_interdit": "refused",
-    "perimetre_interdit": "refused",
-    "ecriture_refusee": "refused",
-    "hors_schema": "refused",
-    "erreur_execution": "error",
-}
 
 #: Ce à quoi une question fait allusion quand elle nomme une colonne sans la nommer.
 #: Sert **après** un refus, jamais comme barrière : ce n'est pas une liste de mots interdits
@@ -82,44 +69,34 @@ _ORDER_COLUMNS = (("commandes", "id"), ("commandes", "statut"), ("commandes", "d
                   ("commandes", "montant_ht"), ("commandes", "client_id"))
 
 
-def envelope(code: str, message: str = "", **payload: Any) -> dict[str, Any]:
-    """Construit l'enveloppe. ``code`` est toujours dans le payload, y compris sur ``ok``.
-
-    Le champ ``rows`` est **absent** de tout refus. C'est l'asymétrie qui fait le travail :
-    un client qui lit le champ structuré n'a rien à afficher, donc il ne peut pas afficher
-    un refus comme une réponse.
-    """
-    return {
-        "status": _STATUS_BY_CODE.get(code, "error"),
-        "payload": {"code": code, **payload},
-        "message": message,
-    }
-
-
-def _denied_scope(profile: str, settings: Settings) -> dict[str, Any] | None:
+def _denied_scope(profile: str, settings: Settings) -> DbStructuredAnswer | None:
     """Refus immédiat quand le profil n'a aucun périmètre — sans appeler le modèle.
 
     Un périmètre vide est un refus, jamais une intersection muette qui se lirait « rien à
-    ce sujet ».
+    ce sujet ». C'est la matrice qui tranche, donc l'étage 3.
     """
     if scope_for(profile, settings).columns:
         return None
-    return envelope(
+    return build_db_structured_answer(
         "perimetre_interdit",
-        f"le profil « {profile} » n'a accès à aucune table de la base",
+        cause=f"le profil « {profile} » n'a accès à aucune table de la base",
+        etage=3,
     )
 
 
 def _from_execution(result: Execution, sql: str, conventions: tuple[str, ...] = (),
-                    **extra: Any) -> dict[str, Any]:
-    """Traduit un résultat d'exécution en enveloppe, requête comprise.
+                    **extra: Any) -> DbStructuredAnswer:
+    """Traduit un résultat d'exécution en réponse structurée, requête comprise.
 
     La requête est renvoyée **systématiquement, pas sur demande** : c'est la garantie de
     transparence E3, et le test T1 la lit. Les conventions l'accompagnent — un chiffre de
     marge sans mention du sort des commandes annulées n'est pas vérifiable par le métier.
     """
     if result.code == "erreur_execution":
-        return envelope("erreur_execution", result.message, sql=sql, latency_ms=result.latency_ms)
+        # Le message du moteur SQLite est une cause, pas un énoncé : il porte le texte natif
+        # de sqlite3 et n'a rien à faire sous les yeux de l'utilisateur.
+        return build_db_structured_answer("erreur_execution", cause=result.message,
+                                          sql=sql, latency_ms=result.latency_ms)
     payload: dict[str, Any] = {
         "sql": sql,
         "columns": list(result.columns),
@@ -132,10 +109,10 @@ def _from_execution(result: Execution, sql: str, conventions: tuple[str, ...] = 
         payload["conventions"] = list(conventions)
     if result.truncated:
         payload["truncated"] = True
-    return envelope(result.code, result.message, **payload)
+    return build_db_structured_answer(result.code, cause=result.message, **payload)
 
 
-def get_schema(profile: str, settings: Settings | None = None) -> dict[str, Any]:
+def get_schema(profile: str, settings: Settings | None = None) -> DbStructuredAnswer:
     """Le contrat de lecture de la base, tel que ce profil a le droit de le voir.
 
     Aucun argument exposé. C'est **le même artefact** que celui injecté au prompt
@@ -150,12 +127,12 @@ def get_schema(profile: str, settings: Settings | None = None) -> dict[str, Any]
     try:
         contract = build_read_contract(profile, settings)
     except RuntimeError as error:
-        return envelope("erreur_execution", str(error))
-    return envelope("ok", schema=contract.as_text())
+        return build_db_structured_answer("erreur_execution", cause=str(error))
+    return build_db_structured_answer("ok", schema=contract.as_text())
 
 
 def ask_database(question: str, profile: str, settings: Settings | None = None,
-                 generator: SqlGenerator | None = None) -> dict[str, Any]:
+                 generator: SqlGenerator | None = None) -> DbStructuredAnswer:
     """Traduit une question métier en requête, la valide, l'exécute, et rend les deux.
 
     L'ordre compte, et il est celui du flux : la matrice borne le périmètre **avant** que le
@@ -170,24 +147,31 @@ def ask_database(question: str, profile: str, settings: Settings | None = None,
         contract = build_read_contract(profile, settings)
         generator = generator or build_generator(settings)
     except RuntimeError as error:
-        return envelope("erreur_execution", str(error))
+        return build_db_structured_answer("erreur_execution", cause=str(error))
 
     axes = clarification_axes(profile, settings)
     try:
         generation = generator.generate(question, contract, axes)
     except Exception as error:  # noqa: BLE001 - toute panne du fournisseur est une erreur d'appel
-        return envelope("erreur_execution", f"génération indisponible : {error}")
+        return build_db_structured_answer("erreur_execution",
+                                          cause=f"génération indisponible : {error}")
 
     if generation.branch == "panne":
-        return envelope("erreur_execution", generation.reason)
+        return build_db_structured_answer("erreur_execution", cause=generation.reason)
     if generation.branch == "refus":
+        # Le texte du modèle devient la **cause**, jamais l'énoncé : c'est lui qui rendait
+        # deux refus identiques en deux phrases différentes. Et l'étage reste vide — c'est le
+        # modèle qui a refusé, pas une barrière ; le journal ne doit pas lui en attribuer une.
         if generation.motive == "ecriture":
-            return envelope("ecriture_refusee", generation.reason)
-        return _refusal_out_of_scope(question, profile, settings) or envelope(
-            "hors_schema", generation.reason
-        )
+            return build_db_structured_answer("ecriture_refusee", cause=generation.reason)
+        return _refusal_out_of_scope(question, profile, settings) or \
+            build_db_structured_answer("hors_schema", cause=generation.reason)
     if generation.branch == "clarification":
-        return envelope("clarification", generation.question, axes=list(generation.axes))
+        # Les axes rendus sont ceux du **code** (`clarification_axes`), filtrés par la
+        # matrice — pas les chaînes libres du modèle. Sans quoi le déterminisme se perdrait
+        # sur le seul code où le payload accompagne encore la phrase.
+        return build_db_structured_answer("clarification", cause=generation.question,
+                                          axes=list(axes))
 
     verdict = validate(generation.sql, profile, settings)
     if verdict.repairable:
@@ -208,25 +192,34 @@ def ask_database(question: str, profile: str, settings: Settings | None = None,
             verdict = validate(generation.sql, profile, settings)
     if not verdict.allowed:
         # La requête refusée n'est pas renvoyée : elle n'a pas été exécutée, et la montrer
-        # comme « la requête qui a produit ce résultat » serait faux. Le motif, lui, nomme
-        # la colonne en cause.
-        payload = {"forbidden": [f"{t}.{c}" for t, c in verdict.forbidden]} if verdict.forbidden \
-            else {}
-        return envelope(verdict.code, verdict.message, **payload)
+        # comme « la requête qui a produit ce résultat » serait faux. Les colonnes en cause
+        # sont nommées **au journal**, pas au client : les lui énumérer ferait du refus un
+        # oracle sur la matrice.
+        #
+        # L'étage n'est posé que sur un vrai refus : un `erreur_execution` du validateur
+        # (requête inanalysable, `LIMIT` impossible) n'est pas une décision d'accès.
+        return build_db_structured_answer(
+            verdict.code,
+            cause=verdict.message,
+            forbidden=tuple(f"{t}.{c}" for t, c in verdict.forbidden),
+            etage=3 if verdict.code in REFUSAL_CODES else None,
+        )
 
     return _from_execution(execute(verdict.sql, settings), verdict.sql, CONVENTIONS)
 
 
 def _refusal_out_of_scope(question: str, profile: str,
-                          settings: Settings) -> dict[str, Any] | None:
+                          settings: Settings) -> DbStructuredAnswer | None:
     """Requalifie en ``perimetre_interdit`` un refus qui porte sur une colonne fermée.
 
     Le modèle a refusé parce que la colonne n'était pas dans son contrat — il ne pouvait pas
     dire autre chose, et c'est voulu : il ne voit jamais une colonne interdite. Mais les deux
     refus n'appellent pas la même action de l'utilisateur. « Hors schéma » invite à
-    reformuler ; « hors périmètre » invite à demander l'accès au profil correspondant. On
-    refuse en nommant la colonne : lui apprendre que ``marge_pct`` existe est un moindre mal
-    comparé à un refus qu'il ne peut pas comprendre.
+    reformuler ; « hors périmètre » invite à demander l'accès au profil correspondant. La
+    requalification garde donc tout son sens même si le client ne lit qu'une phrase figée :
+    les deux codes portent deux phrases différentes, et c'est le code qui porte le recours.
+
+    La colonne, elle, est nommée dans ``forbidden`` — pour le journal seul.
     """
     allowed = scope_for(profile, settings).columns
     asked = question.lower()
@@ -236,15 +229,17 @@ def _refusal_out_of_scope(question: str, profile: str,
     ]
     if not named:
         return None
-    listed = ", ".join(f"{table}.{column}" for table, column in sorted(set(named)))
-    return envelope(
+    listed = tuple(f"{table}.{column}" for table, column in sorted(set(named)))
+    return build_db_structured_answer(
         "perimetre_interdit",
-        f"ce profil n'a pas accès à : {listed}",
-        forbidden=[f"{table}.{column}" for table, column in sorted(set(named))],
+        cause=f"ce profil n'a pas accès à : {', '.join(listed)}",
+        forbidden=listed,
+        etage=3,
     )
 
 
-def check_stock(reference: str, profile: str, settings: Settings | None = None) -> dict[str, Any]:
+def check_stock(reference: str, profile: str,
+                settings: Settings | None = None) -> DbStructuredAnswer:
     """Le stock d'une référence, **entrepôt par entrepôt**, plus le total.
 
     Jamais un scalaire : 114 références sur 120 sont stockées dans plusieurs entrepôts, et
@@ -266,9 +261,10 @@ def check_stock(reference: str, profile: str, settings: Settings | None = None) 
         # Un paramètre malformé n'est pas une requête à tenter. Ce n'est pas non plus un
         # refus de droit : l'appel est mal formé, et l'`inputSchema` MCP l'aura normalement
         # écarté avant l'envoi.
-        return envelope(
+        return build_db_structured_answer(
             "erreur_execution",
-            f"référence attendue au format REF-NNNN, reçu « {reference} »",
+            client_key=MALFORMED_ARGUMENT,
+            cause=f"référence attendue au format REF-NNNN, reçu « {reference} »",
         )
     forbidden = _forbidden(profile, _STOCK_COLUMNS, settings)
     if forbidden is not None:
@@ -279,7 +275,8 @@ def check_stock(reference: str, profile: str, settings: Settings | None = None) 
     return _from_execution(result, _STOCK_SQL, total=total, reference=reference)
 
 
-def order_status(order_id: str, profile: str, settings: Settings | None = None) -> dict[str, Any]:
+def order_status(order_id: str, profile: str,
+                 settings: Settings | None = None) -> DbStructuredAnswer:
     """L'en-tête d'une commande identifiée — le détail des lignes est un autre besoin.
 
     ``CMD-2026-0042`` n'existe pas : la numérotation est globale et trouée par année.
@@ -290,9 +287,10 @@ def order_status(order_id: str, profile: str, settings: Settings | None = None) 
     if denied is not None:
         return denied
     if not _ORDER_ID.match(order_id or ""):
-        return envelope(
+        return build_db_structured_answer(
             "erreur_execution",
-            f"identifiant attendu au format CMD-AAAA-NNNN, reçu « {order_id} »",
+            client_key=MALFORMED_ARGUMENT,
+            cause=f"identifiant attendu au format CMD-AAAA-NNNN, reçu « {order_id} »",
         )
     forbidden = _forbidden(profile, _ORDER_COLUMNS, settings)
     if forbidden is not None:
@@ -303,11 +301,16 @@ def order_status(order_id: str, profile: str, settings: Settings | None = None) 
 
 
 def _forbidden(profile: str, columns: tuple[tuple[str, str], ...],
-               settings: Settings) -> dict[str, Any] | None:
+               settings: Settings) -> DbStructuredAnswer | None:
     """Le figement ne dispense pas de la matrice : les colonnes de sortie d'un tool figé
     sont des lignes de la matrice comme les autres."""
     missing = columns_outside_scope(profile, set(columns), settings)
     if not missing:
         return None
-    named = ", ".join(f"{table}.{column}" for table, column in missing)
-    return envelope("perimetre_interdit", f"ce profil n'a pas accès à : {named}")
+    named = tuple(f"{table}.{column}" for table, column in missing)
+    return build_db_structured_answer(
+        "perimetre_interdit",
+        cause=f"ce profil n'a pas accès à : {', '.join(named)}",
+        forbidden=named,
+        etage=3,
+    )

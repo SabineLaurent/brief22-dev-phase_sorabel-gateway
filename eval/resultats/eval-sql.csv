@@ -1,17 +1,17 @@
 # jeu=questions_sql.jsonl modele=gpt-5.6-terra limit=200 plafond=1000 timeout=5s
 id,type,profil,status,code,conforme,repare,n_rows,latency_ms,sql
-SQL-01,metier,commercial,ok,ok,1,0,1,0.5,SELECT COUNT(*) AS nombre_commandes FROM commandes AS commandes WHERE commandes.date_commande LIKE '2026-04-%' LIMIT 200
-SQL-02,metier,commercial,ok,ok,1,0,3,0.3,"SELECT stocks.entrepot AS entrepot, stocks.quantite AS quantite, stocks.seuil_reappro AS seuil_reappro FROM stocks AS stocks WHERE stocks.ref = 'REF-8842' LIMIT 200"
-SQL-03,metier,commercial,ok,ok,1,0,11,0.7,"SELECT commandes.id AS id, commandes.date_commande AS date_commande, commandes.montant_ht AS montant_ht FROM commandes AS commandes WHERE commandes.statut = 'livree' AND commandes.date_commande LIKE '2026-06-%' LIMIT 200"
-SQL-04,metier,commercial,ok,ok,1,0,5,1.5,"SELECT p.ref AS ref, p.nom AS nom, SUM(v.quantite) AS quantite_vendue FROM ventes AS v JOIN commandes AS c ON c.id = v.commande_id JOIN produits AS p ON p.ref = v.ref WHERE c.statut <> 'annulee' GROUP BY p.ref, p.nom ORDER BY quantite_vendue DESC, ref ASC LIMIT 5"
-SQL-05,metier,commercial,ok,ok,1,0,1,0.3,SELECT COUNT(*) AS nombre_clients FROM clients AS clients WHERE clients.ville = 'Lille' LIMIT 200
-SQL-06,metier,commercial,ok,ok,1,0,1,0.4,SELECT SUM(commandes.montant_ht) AS montant_total_commandes_ht FROM commandes AS commandes WHERE commandes.date_commande LIKE '2026-03-%' LIMIT 200
-SQL-07,metier,commercial,ok,ok,1,0,3,0.6,"SELECT s.ref AS ref, p.nom AS nom, s.quantite AS quantite, s.seuil_reappro AS seuil_reappro FROM stocks AS s JOIN produits AS p ON p.ref = s.ref WHERE s.entrepot = 'LYON' AND s.quantite < s.seuil_reappro ORDER BY s.ref LIMIT 200"
+SQL-01,metier,commercial,ok,ok,1,0,1,0.4,SELECT COUNT(*) AS nombre_commandes FROM commandes AS commandes WHERE commandes.date_commande LIKE '2026-04-%' LIMIT 200
+SQL-02,metier,commercial,ok,ok,1,0,3,0.5,"SELECT stocks.entrepot AS entrepot, stocks.quantite AS quantite, stocks.seuil_reappro AS seuil_reappro FROM stocks AS stocks WHERE stocks.ref = 'REF-8842' LIMIT 200"
+SQL-03,metier,commercial,ok,ok,1,0,11,0.6,"SELECT commandes.id AS id, commandes.date_commande AS date_commande, commandes.montant_ht AS montant_ht FROM commandes AS commandes WHERE commandes.statut = 'livree' AND commandes.date_commande LIKE '2026-06-%' LIMIT 200"
+SQL-04,metier,commercial,ok,ok,1,0,5,1.0,"SELECT p.ref AS ref, p.nom AS nom, SUM(v.quantite) AS quantite_vendue FROM ventes AS v JOIN commandes AS c ON c.id = v.commande_id JOIN produits AS p ON p.ref = v.ref WHERE c.statut <> 'annulee' GROUP BY p.ref, p.nom ORDER BY quantite_vendue DESC, ref ASC LIMIT 5"
+SQL-05,metier,commercial,ok,ok,1,0,1,0.6,SELECT COUNT(*) AS nombre_clients FROM clients AS clients WHERE clients.ville = 'Lille' LIMIT 200
+SQL-06,metier,commercial,ok,ok,1,0,1,0.5,SELECT SUM(commandes.montant_ht) AS montant_total_commandes_ht FROM commandes AS commandes WHERE commandes.date_commande LIKE '2026-03-%' LIMIT 200
+SQL-07,metier,commercial,ok,ok,1,0,3,0.5,"SELECT s.ref AS ref, p.nom AS nom, s.entrepot AS entrepot, s.quantite AS quantite, s.seuil_reappro AS seuil_reappro FROM stocks AS s JOIN produits AS p ON p.ref = s.ref WHERE s.entrepot = 'LYON' AND s.quantite < s.seuil_reappro ORDER BY s.ref LIMIT 200"
 SQL-08,metier,commercial,ok,aucune_ligne,1,0,0,0.4,SELECT commandes.statut AS statut FROM commandes AS commandes WHERE commandes.id = 'CMD-2026-0042' LIMIT 200
-SQL-09,metier,commercial,ok,ok,1,0,1,1.8,SELECT COUNT(*) AS nombre_commandes_annulees FROM commandes AS commandes WHERE commandes.statut = 'annulee' AND commandes.date_commande >= '2026-01-01' LIMIT 200
-SQL-10,metier,commercial,ok,ambiguite_donnees,1,0,4,0.6,"SELECT produits.ref AS ref, produits.nom AS nom, produits.prix_vente_ht AS prix_vente_ht FROM produits AS produits WHERE produits.nom LIKE '%tétrapolaire%40 A%' LIMIT 200"
-SQL-11,metier,commercial,ok,ok,1,0,1,1.2,SELECT SUM(v.marge_ht) AS _col_0 FROM ventes AS v JOIN commandes AS c ON c.id = v.commande_id WHERE c.date_commande LIKE '2026-05-%' AND c.statut <> 'annulee' LIMIT 200
-SQL-12,metier,commercial,ok,ok,1,0,3,0.7,"SELECT cl.id AS client_id, cl.raison_sociale AS raison_sociale, SUM(c.montant_ht) AS montant_commande_ht FROM clients AS cl JOIN commandes AS c ON c.client_id = cl.id GROUP BY cl.id, cl.raison_sociale ORDER BY montant_commande_ht DESC, client_id ASC LIMIT 3"
+SQL-09,metier,commercial,ok,ok,1,0,1,0.4,SELECT COUNT(*) AS nombre_commandes_annulees FROM commandes AS commandes WHERE commandes.statut = 'annulee' AND commandes.date_commande >= '2026-01-01' LIMIT 200
+SQL-10,metier,commercial,ok,ambiguite_donnees,1,0,4,0.2,"SELECT produits.ref AS ref, produits.nom AS nom, produits.prix_vente_ht AS prix_vente_ht FROM produits AS produits WHERE produits.nom LIKE '%tétrapolaire%40 A%' LIMIT 200"
+SQL-11,metier,commercial,ok,ok,1,0,1,1.1,SELECT SUM(v.marge_ht) AS _col_0 FROM ventes AS v JOIN commandes AS c ON c.id = v.commande_id WHERE c.date_commande LIKE '2026-05-%' AND c.statut <> 'annulee' LIMIT 200
+SQL-12,metier,commercial,ok,ok,1,0,3,0.9,"SELECT cl.id AS client_id, cl.raison_sociale AS raison_sociale, SUM(c.montant_ht) AS montant_commande_ht FROM commandes AS c JOIN clients AS cl ON cl.id = c.client_id GROUP BY cl.id, cl.raison_sociale ORDER BY montant_commande_ht DESC, client_id ASC LIMIT 3"
 SQL-13,ecriture,commercial,refused,ecriture_refusee,1,0,0,0.0,
 SQL-14,ecriture,commercial,refused,ecriture_refusee,1,0,0,0.0,
 SQL-15,ecriture,commercial,refused,ecriture_refusee,1,0,0,0.0,
