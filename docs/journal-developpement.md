@@ -2393,3 +2393,84 @@ fichiers, pas par le protocole.
 52. Journal relu après essais : une entrée par appel, `profile` égal à celui du
 sous-processus, `blocked_at` renseigné (0 servi, 2 tool interdit, 3 périmètre, `null` hors
 décision d'accès), et **un seul** `logs/journal.jsonl`.
+
+## 2026-09-06 — Piste à instruire : passer d'un processus par profil à un service pour vingt utilisateurs
+
+**Question de l'utilisatrice, posée juste après le branchement de l'étape C** : « dans la
+vraie vie, comment ça fonctionnerait pour 20 utilisateurs ? On multiplierait comme ici ? »
+Consignée parce que la réponse est **déjà écrite pour moitié** dans le dossier de conception
+— `3-exposition-mcp-et-matrice-d-acces/note-transport.md` — et que l'autre moitié est un
+constat neuf de cette session, qui n'apparaît nulle part ailleurs.
+
+### Ce que le branchement multiplie aujourd'hui, et ce qu'il ne multiplie pas
+
+`GatewayRegistry` indexe ses sessions **par profil**, jamais par session cliente ni par
+requête : vingt utilisateurs répartis sur cinq rôles font cinq sous-processus, pas vingt.
+Ce n'est donc pas le nombre d'utilisateurs qui met la forme actuelle en défaut.
+
+Ce qui la met en défaut, c'est **stdio**, où « un serveur » veut dire *un binaire, N
+processus* — un par poste. `note-transport.md` §1 le chiffre client par client, et le verdict
+n'appelle pas de débat : le poste commercial tient, l'IDE des développeurs coûte cher (il
+faut l'index Chroma **et PyTorch** sur chaque machine), le bot Slack **ne tient pas** — un
+service partagé n'a nulle part où accrocher un profil par utilisateur. E4 dit « un même
+serveur MCP sert tous les clients internes » ; à vingt postes, stdio ne le tient plus.
+
+### Ce que la conception a déjà tranché — à ne pas re-débattre
+
+* **Transport Streamable HTTP, un seul processus, N connexions.** Il n'y a *pas* d'arbitrage
+  entre les deux transports : le catalogue est un objet enregistré une fois, et
+  `run(transport=…)` n'est qu'un choix de flux. Les deux câblages cohabitent derrière le
+  même point d'entrée (§2) ;
+* **le profil est résolu par appel, jamais lu dans un en-tête.** Un `X-Sorabel-Profile`
+  serait la panne que `Q3` §2 écarte, déplacée du LLM vers HTTP — le SDK porte
+  l'avertissement en toutes lettres : *« headers are client-supplied input — never treat one
+  as an identity assertion »*. Le profil se **déduit** d'un secret que le serveur vérifie
+  (§4) ;
+* **la matrice ne bouge pas d'une ligne.** `Q3` §1 sépare déjà `client → profil` (l'annuaire,
+  qui bouge) de `profil → droits` (la matrice, qui est gouvernée). Sous stdio l'annuaire est
+  **inerte**, absorbé par la configuration de chaque poste ; sous HTTP il devient le
+  mécanisme réel (`annuaire.yaml`, secrets hors dépôt, référencés par nom d'entrée
+  d'environnement). Passer à HTTP n'étend pas la gouvernance : ça active une indirection
+  déjà isolée (§5) ;
+* **trois propriétés à conserver** : comparaison du secret à temps constant, `default` reste
+  total (secret inconnu → refus propre et journalisé, pas une trace de pile), et le journal
+  écrit le profil **résolu par le serveur**, jamais celui allégué.
+
+### Ce que la note ne traite pas, et qui est le vrai goulot
+
+**Les huit tools sont synchrones, et FastMCP les exécute dans sa boucle d'événements.**
+Vérifié dans le SDK : `call_fn_with_arg_validation` fait `return fn(**arguments_parsed_dict)`
+sans thread quand la fonction ne l'est pas
+(`mcp/server/fastmcp/utilities/func_metadata.py:115`). Un serveur MCP traite donc ses appels
+**en série**. Aujourd'hui c'est sans conséquence — un processus par profil, un utilisateur à
+la fois. À vingt utilisateurs sur **un** processus, vingt questions documentaires se
+mettraient à la queue leu leu, à ~5 s la première puis le temps du modèle.
+
+Le passage à HTTP ne le corrige pas : il l'expose. C'est la première chose à instruire, et
+elle est indépendante du transport.
+
+La mémoïsation de l'embedder et du reranker (étape C, étape 0) va dans le bon sens sans
+suffire : elle est **par processus**, donc un modèle partagé par les vingt au lieu d'un par
+appel — mais elle ne rend pas les appels concurrents.
+
+### Ce qu'il reste à instruire
+
+1. **Rendre les tools concurrents.** `async def` côté serveur avec la partie bloquante en
+   `anyio.to_thread`, ou un pool. À mesurer avant de choisir : quelle part du temps est
+   CPU-bound (embedding, rerank local) et quelle part est attente réseau (Azure). Les deux
+   n'appellent pas la même réponse, et le journal porte déjà `latency_ms` pour trancher ;
+2. **la sûreté de ce qui est partagé** entre appels concurrents dans un processus unique :
+   l'embedder et le reranker mémoïsés, le client Chroma, la connexion SQLite `mode=ro`.
+   C'est la question que la sérialisation actuelle masque entièrement ;
+3. **`resolve_profil(ctx)` et `annuaire.yaml`**, tels que `note-transport.md` §5 les décrit ;
+4. **ce que devient `GatewayRegistry`** côté banc d'essai : un registre de sous-processus
+   n'a plus d'objet face à un service HTTP — il devient un client par secret, ou rien.
+
+### Hors périmètre, et nommé comme tel
+
+`note-transport.md` §6 les liste déjà, et ils le restent : **OAuth 2.1 / Resource Server**
+(voie normative pour un serveur MCP distant — un secret par application authentifie
+l'*application*, pas l'*utilisateur* derrière le bot Slack), **rotation et révocation** des
+secrets, **TLS** de bout en bout, et **l'utilisateur derrière un client de service** — si le
+support et le commercial partageaient un même bot, le profil devrait suivre l'utilisateur
+Slack et l'annuaire ne suffirait plus.
