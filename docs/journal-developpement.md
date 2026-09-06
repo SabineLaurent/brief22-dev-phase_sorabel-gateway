@@ -2474,3 +2474,208 @@ l'*application*, pas l'*utilisateur* derrière le bot Slack), **rotation et rév
 secrets, **TLS** de bout en bout, et **l'utilisateur derrière un client de service** — si le
 support et le commercial partageaient un même bot, le profil devrait suivre l'utilisateur
 Slack et l'annuaire ne suffirait plus.
+
+## 2026-09-06 — Le secret de l'annuaire : ce qu'il prouve, ce qu'il ne prouve pas
+
+**Question de l'utilisatrice** : « comment ça marche cette histoire de secret ? Dans la vraie
+vie (en prod et dans une boîte) cela fonctionnerait aussi comme ça ? » Consignée parce que la
+réponse sépare **ce qui est un bouchon** de **ce qui est de l'architecture réelle** dans la
+conception d'accès du projet — et que la distinction est exactement ce qu'une soutenance
+interroge. `note-transport.md` §4 et §5 décrit le mécanisme ; ce qui suit dit *pourquoi* il a
+cette forme, et jusqu'où elle tient hors du brief.
+
+### D'où vient la question, et un point de brief à ne pas re-débattre
+
+Elle est arrivée en instruisant le déploiement, sur l'idée qu'il faudrait une URL pour le
+serveur MCP, donc un transport autre que stdio. **Relecture du brief : il ne demande pas
+d'URL pour le MCP.** Les deux livrables se lisent littéralement :
+
+* « Le serveur MCP (`mcp_server/`) exposant le catalogue complet **ainsi qu'un mini guide
+  d'accès** » — un répertoire et un guide, pas un point d'accès réseau ;
+* « **Un lien** d'une interface graphique du produit fonctionnel » — l'URL est là, et elle
+  porte sur l'IGU.
+
+Le brief assume stdio ailleurs, explicitement : chantier MCP étape 3, « démontrer deux profils
+différents **avec `scripts/mcp_client.py`** ». C'est ce que fait déjà `make client
+PROFILE=support|commercial`. **stdio tient donc le livrable**, et le déploiement à instruire
+est celui de l'interface, pas celui du protocole. Le `--transport` sur `main()` reste possible
+à peu de frais (`server.py:223-230`) si un client externe doit être branché à l'oral ; il ne
+préempte aucune décision de `note-transport.md`, puisque le profil resterait dans
+`SORABEL_PROFILE`, un déploiement par profil.
+
+### Le mécanisme, et le sens de la déduction
+
+Trois temps :
+
+1. **l'annuaire associe un nom de client à un profil, et dit *où* est son secret** — jamais le
+   secret lui-même. Le YAML est versionné, le secret vit dans l'environnement du serveur.
+   Même discipline que le `.env` actuel ;
+2. **le client envoie son secret à chaque requête**. Pas son profil : son secret ;
+3. **le serveur compare et en déduit le profil** — comparaison à temps constant, pour ne pas
+   fuir l'information par la durée. Secret absent, inconnu ou malformé → `default`, zéro
+   droit, appel journalisé.
+
+**Le client ne dit jamais qui il est ; il prouve qu'il détient un secret, et le serveur en
+conclut qui il est.** C'est toute la raison pour laquelle un `X-Sorabel-Profile` doit être
+**ignoré** et non honoré : un en-tête est une déclaration, un secret est une preuve. Le
+quatrième contrôle du §7 de la note — secret `support` + en-tête `commercial` → droits
+`support` — ne vérifie rien d'autre que ça, et c'est lui qui distingue la conception de sa
+version décorative.
+
+### En production : oui pour la moitié, non pour l'autre
+
+**Le motif existe en production**, et le projet l'utilise déjà sans le nommer :
+`AZURE_AI_API_KEY` est exactement ça. Elle n'authentifie pas l'utilisatrice, elle authentifie
+*l'application* auprès d'Azure, qui en déduit l'abonnement et les déploiements autorisés.
+Clés d'API et comptes de service sont le pain quotidien du service-à-service.
+
+**Il ne suffit pas dès que les droits dépendent de la personne** — le cas d'ici, puisque la
+matrice cloisonne des données métier sensibles. Le secret partagé authentifie l'application,
+pas l'utilisateur derrière elle : le bot Slack a *un* secret et sert *N* personnes. Le jour où
+un commercial et un agent du support écrivent au même bot, le serveur ne peut plus les
+distinguer. `note-transport.md` §6 le nomme déjà comme hors périmètre — c'est la bonne limite
+à annoncer plutôt qu'à laisser découvrir.
+
+Ce qui remplace le secret sur ce cas-là, en entreprise :
+
+* **un fournisseur d'identité** (Entra ID, Okta, Keycloak) authentifie la personne, pas
+  l'application ;
+* **le serveur MCP devient Resource Server OAuth 2.1** : il ne compare plus un secret, il
+  valide la **signature** d'un jeton émis par l'IdP et lit ses *claims* — identité, groupes,
+  rôles ;
+* **la délégation d'identité** fait que le bot parle *au nom de* l'utilisateur, au lieu de
+  parler en son nom propre ;
+* **rotation et révocation** deviennent gratuites : un jeton expire seul. Un secret statique
+  qui fuit oblige à redéployer tous les clients qui le portent — c'est la vraie raison pour
+  laquelle on ne bâtit pas un accès utilisateur sur des secrets partagés.
+
+### Ce qui tient tel quel en production, et qu'il ne faut pas brader
+
+**La séparation en deux tables de `Q3` §1 n'est pas un artifice pédagogique : c'est la forme
+du contrôle d'accès réel.**
+
+| | ici | en production |
+|---|---|---|
+| `client → profil` | `annuaire.yaml` + secret | les *claims* du jeton (groupes de l'annuaire d'entreprise) |
+| `profil → droits` | `matrice.yaml` | **inchangée** |
+
+Seule la colonne de gauche change de source. La matrice, les trois étages, et le journal qui
+écrit le profil **résolu** et jamais celui allégué survivent intacts au passage à OAuth. **Le
+secret est un bouchon sur la brique d'identité, pas une erreur d'architecture** — et c'est la
+réponse à donner si la question vient à l'oral.
+
+La règle « ne jamais traiter un en-tête comme une identité » ne bouge pas d'un iota non plus :
+en OAuth, l'en-tête `Authorization` n'est pas cru davantage, il est *vérifié* — sa signature
+est validée contre la clé publique de l'IdP. Même geste, preuve plus solide.
+
+### Ce que cette entrée ne change pas
+
+Aucune ligne de code. Elle consigne un arbitrage de lecture du brief (stdio tient le livrable
+serveur) et la portée réelle d'un mécanisme conçu mais non implémenté. Les points ouverts de
+l'entrée précédente restent ouverts, dans le même ordre.
+
+## 2026-09-06 — Piste à instruire : de l'application à la personne, une chaîne de délégation
+
+**Chaîne proposée par l'utilisatrice**, en cinq mouvements, après l'entrée précédente sur le
+secret d'annuaire. Consignée parce qu'elle **re-dérive depuis le besoin un motif standard** —
+la délégation d'identité, *On-Behalf-Of* chez Microsoft, échange de jetons OAuth 2.0 en
+RFC 8693 — et parce qu'elle referme au passage un point ouvert de la piste « vingt
+utilisateurs ». Les quatre corrections du §« Ce qui est resserré » font partie de la piste :
+c'est elle *avec* elles qui est consignée, pas la version brute.
+
+### La chaîne, telle que proposée
+
+1. l'API agent porte une clé d'API, partagée avec le front Chainlit : le front a le droit de
+   l'appeler ;
+2. l'API accepte la communication parce que la clé est présente et correcte. L'utilisateur se
+   connecte — `user-du-support` et son mot de passe — ce qui met en route le JWT ;
+3. l'utilisateur connecté fait passer l'agent de `default` (zéro droit) à `support` ;
+4. l'agent se branche au serveur MCP, qui porte lui aussi une clé d'API que l'agent connaît
+   dans ses secrets ;
+5. l'agent, mandaté par `user-du-support`, s'authentifie auprès du MCP **comme acteur pour le
+   compte** de cet utilisateur, dont le profil est `support`.
+
+### Ce que la chaîne a de juste, et qu'il ne faut pas perdre
+
+* **Les deux niveaux sont séparés.** Les mouvements 1-2 et 4 authentifient une *application* ;
+  3 et 5 authentifient une *personne*. C'est la distinction que le secret d'annuaire de
+  `note-transport.md` §6 ne franchissait pas, et c'est l'erreur la plus courante de la confondre ;
+* **le refus par défaut est propagé à chaque saut** — la propriété 2 de `matrice.yaml`, tenue
+  de bout en bout ;
+* **l'invariant du projet survit au multi-utilisateurs, et ce n'est pas accidentel.** L'agent
+  est un LLM : il choisit ses tools sur les descriptions, et une question portant une
+  injection peut le pousser à en appeler un qu'il ne doit pas. La chaîne tient parce que le
+  profil se résout **côté serveur, depuis un jeton signé** — il n'apparaît nulle part dans ce
+  que le modèle manipule. C'est la propriété que `SORABEL_PROFILE` donne aujourd'hui, portée
+  intacte.
+
+### Les quatre corrections, qui font partie de la piste
+
+**1. Le mouvement 4 n'est pas un état, et il ne précède pas le 5.** L'énoncé initial mettait
+le profil à `default` au mouvement 4, « parce que never trust user input ». Ça décrit deux
+échanges successifs, donc **une fenêtre où l'agent parle au MCP sans utilisateur**. En
+pratique c'est **un seul appel portant deux justificatifs** — la clé de l'application *et* le
+jeton de l'utilisateur — vérifiés ensemble et résolus une fois. Jeton absent ou invalide →
+`default` ; valide → `support`. Modéliser 4 et 5 en séquence invite à écrire cette fenêtre, et
+c'est là que les défauts se logent.
+Et `default` n'y est pas le produit d'une *méfiance* mais d'une **résolution absente ou
+échouée** : la méfiance ne produit pas un profil, elle produit une vérification.
+
+**2. « Prouver son identité » doit vouloir dire transmettre le jeton, pas l'affirmer.**
+L'agent **retransmet le jeton signé tel quel** ; le serveur MCP en vérifie la **signature**
+contre la clé de l'émetteur. Si l'agent pouvait *déclarer* « je suis mandaté par
+`user-du-support` », ce serait le piège de l'en-tête (§4 de `note-transport.md`) une troisième
+fois, un étage plus haut.
+Corollaire à poser tout de suite : **l'API agent devient l'émetteur** de jetons — c'est elle
+qui tient la table utilisateurs — et le serveur MCP doit pouvoir les vérifier : clé publique
+partagée, ou secret de signature commun. C'est le contenu technique réel du mouvement 5.
+
+**3. Le mouvement 1 fait moins qu'il n'y paraît, et ce n'est pas grave.** La clé entre
+Chainlit et l'API tient **parce que Chainlit tourne côté serveur** : c'est un processus Python
+qui fait ses appels HTTP lui-même. Une clé d'API dans un front navigateur serait publique et
+ne prouverait rien. Les mouvements 1 et 4 sont des **grilles de transport** — elles empêchent
+un inconnu d'atteindre le service, elles ne décident d'aucun droit. La garantie est au
+mouvement 5, et nulle part ailleurs.
+
+**4. Le risque neuf que la chaîne introduit.** Si le jeton transite **par** l'agent, le
+processus agent détient des jetons d'utilisateurs, et un processus unique servant plusieurs
+personnes **ne doit jamais mélanger deux jetons entre sessions concurrentes**. C'est le point
+ouvert n° 2 de l'entrée « vingt utilisateurs » — la sûreté de ce qui est partagé entre appels
+concurrents — mais **il change de nature** : problème de performance jusqu'ici, il devient un
+problème de sécurité. À traiter **avant** la chaîne, pas après.
+
+### Ce que la chaîne referme
+
+**Le point ouvert n° 4 de la piste « vingt utilisateurs » : ce que devient `GatewayRegistry`.**
+Si le profil voyage dans le jeton, **l'agent n'a plus besoin d'être instancié par profil** :
+un agent, N utilisateurs, le profil porté par l'appel. Le registre indexé par profil n'a plus
+d'objet.
+
+Ça simplifie aussi l'étiquette proposée : `agent-support` n'a pas lieu d'être. Il n'y a qu'**un**
+agent, acteur pour le compte de N sujets — soit exactement les deux champs de RFC 8693,
+`act` = l'agent et `sub` = l'utilisateur, et non un nom composé. Le journal peut alors porter
+les deux : **qui**, et **par l'intermédiaire de qui**.
+
+### Position par rapport aux deux autres voies
+
+| Voie | Ce qu'elle authentifie | État |
+|---|---|---|
+| `SORABEL_PROFILE` (aujourd'hui) | le *processus* | livré, tient le brief |
+| `annuaire.yaml` + secret (`note-transport.md` §5) | l'*application* | conçu, non implémenté |
+| comptes + JWT + délégation (cette entrée) | la *personne* | piste instruite |
+
+Les trois partagent la même colonne de droite : `matrice.yaml`, les trois étages, et le
+journal qui écrit le profil **résolu** et jamais celui allégué. **Seule la source de
+`client → profil` change** — c'est la séparation de `Q3` §1, et c'est ce qui rend ces voies
+substituables sans rouvrir la gouvernance.
+
+### Réserve de périmètre, nommée
+
+Quatre mécanismes d'authentification, une table utilisateurs, une IGU de connexion et un
+émetteur de jetons. **Rien de tout cela n'est noté** : le brief ne demande ni authentification
+ni déploiement, et `make mesure-acces` comme le mini guide d'accès le sont, eux.
+
+Et la limite de fond reste celle de l'entrée précédente : cette chaîne **construit un
+fournisseur d'identité**. En entreprise on ne le fait pas — on se branche sur celui de la
+maison, précisément pour ne pas gérer soi-même mots de passe, rotation, révocation et cycle de
+vie des comptes. Défendable pour un projet interne ; délégué en production.
