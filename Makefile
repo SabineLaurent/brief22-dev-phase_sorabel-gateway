@@ -1,6 +1,6 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-sans-nettoyage mesure-sans-versions \
-	mesure-rag-simple mesure check-sql check-feedback eval-sql test fmt lint serve client \
+	mesure-rag-simple mesure check-rag-tools check-sql check-feedback eval-sql test fmt lint serve client \
 	journal api web
 
 install:
@@ -57,6 +57,9 @@ mesure-rag-simple:
 mesure: mesure-dense mesure-lexical mesure-hybride mesure-sans-nettoyage mesure-sans-versions mesure-rag-simple
 	uv run python -m packages.rag_machines.evals_and_controls.eval_rag --report
 
+check-rag-tools:
+	uv run python -m packages.rag_machines.evals_and_controls.check_rag_tools
+
 check-sql:
 	uv run python -m packages.text_to_sql_factory.evals_and_controls.check_sql
 
@@ -78,7 +81,7 @@ fmt:
 
 lint:
 	uv run ruff check .
-	uv run mypy packages sql mcp_server
+	uv run mypy packages mcp_server
 
 serve:
 	uv run python -m mcp_server.server

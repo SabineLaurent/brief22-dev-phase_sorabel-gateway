@@ -2056,3 +2056,177 @@ La revue a relevé quatre points, corrigés sans changer le périmètre :
   compatibilité pour les appels internes et les tests à réglages personnalisés.
 
 `make check-feedback`, `make check-sql`, Ruff et mypy restent au vert après ce correctif.
+
+---
+
+## 2026-09-06 — Chantier 3, étapes A et B : les quatre tools RAG, puis les huit au serveur
+
+Le point de départ n'est pas une exigence du brief, c'est une gêne exprimée par
+l'utilisatrice : *« le fait que le MCP ne soit pas sollicité par l'agent alors que tout est
+en place côté SQL me chagrine »*. La gêne était fondée, et le diagnostic n'était pas celui
+qu'on croyait.
+
+### Ce que l'exploration a corrigé dans l'énoncé du problème
+
+**Le serveur MCP existait déjà.** `mcp_server/server.py` (102 lignes, `3672f56`) servait les
+quatre tools SQL, filtrait son catalogue par `authorize()`, et `make serve` / `make client`
+fonctionnaient. `docs/flux-text-to-sql.md` — écrit la veille — le disait déjà : « les deux
+façades convergent vers le handler, mais le frontend n'appelle pas le serveur MCP ».
+
+Le défaut n'était donc pas l'absence de serveur, c'était que **le serveur ne servait que la
+moitié du catalogue**. Six des douze tests d'acceptance appelaient `answer_question`,
+`search_docs` ou `get_document` et échouaient sur un tool inconnu. Brancher l'agent sur ce
+serveur-là lui aurait retiré le RAG : l'ordre s'imposait de lui-même — compléter le
+catalogue d'abord, brancher l'agent ensuite.
+
+Périmètre arrêté avec l'utilisatrice : **étapes A et B seulement**. Le branchement de
+l'agent en client MCP et le front comparatif par rôle attendent les feux verts.
+
+### A1 — une couche de réponse parallèle, cousue par le protocole
+
+Le choix structurant est de **ne pas** généraliser `DbStructuredAnswer`. Trois raisons, dont
+la troisième est la vraie :
+
+* les deux domaines n'ont pas les mêmes codes — le SQL ignore `hors_corpus` et
+  `contexte_insuffisant`, le RAG ignore `ecriture_refusee`, `hors_schema` et
+  `clarification`. Une table commune aurait été une union dont chaque moitié ne vaut que
+  pour un domaine ;
+* le SQL est vert sur 183 contrôles déterministes, qu'un refactor aurait touchés pour un
+  besoin qui n'est pas le sien ;
+* **la couture nécessaire existait déjà**, et elle avait été écrite pour ça. Le protocole
+  `Journalable` de `packages/journal.py:34` porte en toutes lettres : « le paquet SQL le
+  satisfait aujourd'hui, le RAG le satisfera demain, et ce module n'a besoin d'importer ni
+  l'un ni l'autre ». `RagStructuredAnswer` honore cette phrase. Un seul journal, un seul
+  format d'entrée, deux domaines qui l'alimentent sans se connaître.
+
+Deux décisions de table méritent d'être consignées, parce que ni l'une ni l'autre n'est
+évidente :
+
+**`contexte_insuffisant` partage le statut `hors_corpus` sans partager son code.** Le
+contrat DSI n'a que cinq statuts et n'en offre pas un sixième pour séparer « je n'ai rien
+trouvé » de « j'ai trouvé, ça ne répond pas ». Le *code* les distingue, lui, dans le payload
+et au journal — et c'est le code que la mesure exploitera. Le statut n'a qu'un travail :
+empêcher le client de rendre une non-réponse comme une réponse.
+
+**Ni `hors_corpus` ni `contexte_insuffisant` ne sont des refus.** C'est le piège le plus
+facile de ce module, et il a son contrôle dédié : les compter dans `REFUSAL_CODES` ferait
+dire `denied` au journal sur des non-réponses documentaires, et le taux de refus d'E5
+deviendrait illisible. Les deux seuls refus du domaine sont `tool_interdit` (étage 2) et
+`perimetre_interdit` (étage 3).
+
+**`blocked_at` a été posé en même temps que la couche, pas après.** C'est exactement ce que
+l'entrée « Piste à instruire » du 2026-09-04 exigeait — « capter tôt, publier tard », parce
+que « les sites de construction de réponse sont déjà seize, et il y en aura le double avec
+les huit tools ». Ils sont désormais trente et un, tous instrumentés dès l'écriture. Reste
+ouvert, comme prévu : la réserve « nommer, pas numéroter » et la cible Make de mesure.
+
+### A3 — ce que le jet mis de côté servait au client, et qu'il ne fallait pas
+
+Le brouillon `78933ed` portait déjà les quatre tools, en bon état de marche. Il a été relu,
+pas recopié : il écrivait sur l'ancienne `envelope()`, et surtout il passait des **textes
+calculés** au client —
+
+```python
+envelope(_FORBIDDEN_PERIMETER,
+         "collection non ouverte à ce profil : " + ", ".join(closed))
+```
+
+— c'est-à-dire qu'il **nommait à l'utilisateur exactement ce que la matrice lui ferme**. En
+sondant collection par collection, on cartographiait la matrice : le refus devenait un
+oracle. C'est le même défaut que celui corrigé côté SQL deux jours plus tôt, sous une autre
+forme : là le texte venait du modèle, ici il venait du code, mais dans les deux cas il
+variait avec ce qu'il ne devait pas révéler. Ces textes existent toujours — ils partent en
+`cause` et en `forbidden`, vers le journal, où le lecteur est humain et habilité.
+
+### B — le serveur, et le seul étage que ce fichier ajoute
+
+Les huit tools sont enregistrés, avec un aiguillage par domaine vers les deux handlers.
+`mcp_server/server.py` ne décide rien : l'étage 2 et la journalisation vivent dans les
+handlers, l'étage 3 dans les tools. La seule chose que ce fichier ajoute à la chaîne, c'est
+**l'étage 1** — le catalogue que le client voit — et sa docstring dit désormais qu'il n'est
+pas une sécurité : un client peut appeler un tool qu'il n'a pas listé, et c'est l'étage 2
+qui le refuse *et* le journalise.
+
+**L'import du handler RAG est local aux fonctions de tool, et c'est une contrainte de
+protocole.** `conftest.py` borne `initialize` à trente secondes ; un import au niveau du
+module chargerait l'embedder et le reranker avant la première poignée de main. Mesuré : le
+premier appel de recherche coûte 8,2 s, les suivants sont immédiats — la latence est payée
+au premier appel, jamais à la connexion.
+
+`mcp_server/__main__.py` ajoute la forme courte `python -m mcp_server`, celle que nomment
+`note-transport.md` §7 et l'exemple de configuration client de `Q3` §2. La forme longue du
+cadrage reste valide et reste celle que lance la suite d'acceptance.
+
+### Le résultat : `make test` passe, pour la première fois du projet
+
+```
+tests/acceptance/test_mcp.py ....    tests/acceptance/test_rag.py ....
+tests/acceptance/test_sql.py ....    12 passed in 47.06s
+```
+
+Deux effets attendus se sont confirmés sans code défensif :
+
+* `test_matrice_d_acces_respectee` échouait parce qu'un tool inconnu rendait
+  `erreur_execution` → `error` au lieu de `refused`. Les huit tools enregistrés, tout tool
+  hors matrice **existe**, et c'est `authorize()` qui tranche → `tool_interdit` → `refused` ;
+* les catalogues servis correspondent exactement à `TOOLS_BY_PROFILE` du conftest —
+  `support` 7 tools sans `get_schema`, `commercial` 8. Vérifié aussi hors suite : `dev` 5,
+  `default` 0.
+
+T2 (« une demande d'écriture est refusée **et journalisée** ») n'est plus seulement
+satisfaisable : il est satisfait.
+
+`make check-rag-tools` : **62 contrôles déterministes**, tous au vert. `make check-sql`
+(81), `make check-feedback` (102) et `make check-perimetre` (31) sont inchangés — c'est la
+preuve que la couche RAG n'a rien cassé de ce qui l'était déjà.
+
+### Un contrôle qui s'est trompé lui-même, et ce qu'on en a gardé
+
+En écrivant `check_rag_tools.py`, un contrôle a lu `granted["status"] == "ok"` pour vérifier
+qu'un document était bien servi — et il est passé sur un document **introuvable**, qui
+partage ce statut. Le mapping n'était pas en cause : `introuvable` est un constat d'absence,
+pas une panne, et en faire une `error` ferait compter au journal des échecs qui n'ont pas eu
+lieu — même arbitrage qu'`aucune_ligne` côté SQL. Ce qui protège le client, c'est que la clé
+`text` est absente : il n'a rien à afficher. Le contrôle a été réécrit pour nommer ce qu'il
+vérifie — le **code**, pas le statut — et un contrôle explicite a été ajouté sur la
+distinction. L'incident est consigné parce qu'il montre où le mapping se lit mal, ce qui est
+une information sur la couche, pas seulement sur le contrôle.
+
+### Écarts décidés, à ne pas re-débattre
+
+| Écart | Décision |
+|---|---|
+| `search_docs(query)` / `get_document(doc_id)` contre `search_docs(question)` / `get_document(doc_key)` de `03-catalogue-tools.md` | **Le test fait foi** (règle d'arbitrage du dépôt). Les noms suivent `tests/acceptance/` |
+| Transport Streamable HTTP, `annuaire.yaml`, `resolve_profil(ctx)` par appel | Hors périmètre. Ils supposent une identité de client, hors sujet pour une démonstration à un processus par profil |
+| Le seuil de refus dans le flux agent → API → Chainlit | Toujours ouvert. Il est branché dans `answer_question` côté MCP, pas dans le `search_docs` du banc d'essai |
+| Cible Make de mesure de `blocked_at` | À écrire quand les huit tools auront tourné, comme prévu |
+
+### Points ouverts que cette étape ne referme pas
+
+* **Le profil reste déclaré par le client dans le banc d'essai.** L'agent LangChain appelle
+  toujours `handle()` en direct : les deux façades restent parallèles. C'est l'étape
+  suivante, et c'est elle qui fera tomber l'écart.
+* **Point n°7 de la revue du 2026-09-04** (`agent/cli.py:143`, `status == "ok"` avec
+  `hits == []`) : non traité, et il appartient au chemin de l'agent, pas à celui du serveur.
+* **`make lint` a été réparé, et redevient rouge pour la bonne raison.** Il faisait
+  `mypy packages sql mcp_server` alors que `sql/__init__.py` est supprimé : mypy s'arrêtait
+  sur `cannot read file 'sql'` **avant de vérifier quoi que ce soit**. Le lint ne lintait
+  donc plus rien — une cible verte-par-accident aurait été pire, mais celle-ci était muette.
+  `sql` retiré du Makefile et `sql*` de l'`include` de `pyproject.toml` (celui-ci purement
+  cosmétique : le glob ne correspondait à rien et n'émettait pas d'erreur). `make lint`
+  vérifie de nouveau ses 50 fichiers et rend les **trois erreurs préexistantes** connues
+  (Chainlit ×2, `IncludeEnum`). Aucune dette neuve : `ruff check` passe sur tout le code
+  ajouté.
+  Vérifié au passage : `include = ["packages*", …]` couvre déjà tous les sous-paquets — le
+  `*` de fnmatch matche aussi les points — donc `rag_machines` et `text_to_sql_factory`
+  n'avaient rien à y ajouter. En revanche les deux dossiers `evals_and_controls` n'avaient
+  pas d'`__init__.py` : ils n'étaient **pas empaquetés** et ne fonctionnaient qu'en PEP 420,
+  depuis la racine du dépôt. Sans effet en développement — ce sont des outils, jamais
+  importés par le code servi — mais un `pip install` du projet ne les aurait pas emportés,
+  et les cibles `make check-*` auraient échoué sur une installation. Les deux `__init__.py`
+  ont été ajoutés, avec la table des modules de chaque dossier en docstring : setuptools
+  trouve désormais dix paquets au lieu de huit, et `mypy` en vérifie 52 fichiers au lieu de
+  50, toujours sur les mêmes trois erreurs.
+* **Le contournement `literalai`** doit être rejoué après chaque `uv sync` : le paquet
+  installe son propre `tests/` à la racine de `site-packages`, qui masque celui du dépôt et
+  empêche pytest de collecter. Il a été écarté par renommage, pas par suppression.

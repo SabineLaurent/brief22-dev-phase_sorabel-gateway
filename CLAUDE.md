@@ -78,30 +78,53 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `authorize()` + `read_journal` dans `matrice.yaml`), entrées **entières** : sa protection
   est son droit d'accès, pas son contenu. `make check-feedback` : 102 contrôles
   déterministes, tous au vert ; `make check-sql` 81/81 et `make eval-sql` 24/24 inchangés.
-  Schéma des deux voies : `docs/schema-feedback.html` (à ouvrir dans un navigateur).
+  Schéma des deux voies : `docs/archives/schema-feedback.html` (à ouvrir dans un navigateur).
   **Écart corrigé** : `get_schema` retiré à `support` dans `matrice.yaml` — arbitrage déjà
   consigné au journal, devenu bloquant dès que l'étage 2 s'exerce.
-- **Reste du chantier 3 : à faire.** Étendre la couche au RAG, puis le serveur MCP
-  lui-même. Puis l'interface graphique.
-  **À instruire à la fin du chantier, et à ne pas oublier** : un champ `blocked_at` au
-  journal disant **quelle couche a bloqué la chaîne de réponse** (`0` = servi, toutes les
-  couches franchies), puis la mesure de quel point de contrôle décide chaque refus. Le champ
-  doit être **posé en même temps que l'extension au RAG**, pas après. Motif, réserves de
-  conception et mesure visée : `docs/journal-developpement.md`, entrée « Piste à instruire :
-  quelle couche a bloqué la chaîne de réponse ».
+- **Chantier 3, étapes A et B — les quatre tools RAG, puis les huit au serveur : faites.**
+  `rag_machines/structured_answer.py` (`RagStructuredAnswer`, `build_rag_structured_answer()`,
+  `rag_client_view()` — **le seul sérialiseur du domaine**), `writer.py` (rédaction + garde
+  de suffisance), `tools.py` (les quatre tools), `handler.py` (`handle()` : étage 2,
+  journalisation, purge — **dans cet ordre**), `models.py`, et `classify()` ajouté à
+  `ingest/normalize.py`. Côté serveur : `mcp_server/server.py` sert les **huit** tools,
+  `mcp_server/__main__.py` ajoute la forme courte `python -m mcp_server`.
+  **La couche RAG est parallèle à la couche SQL, pas partagée** : elle n'a pas les mêmes
+  codes, et le SQL était vert sur 183 contrôles. Ce qui est partagé l'est par le protocole
+  `Journalable` de `packages/journal.py`, écrit structurel exprès pour ça. Un seul journal,
+  deux domaines qui l'alimentent sans se connaître.
+  **Deux codes que le SQL n'a pas** : `hors_corpus` (le seuil, avant tout appel au modèle)
+  et `contexte_insuffisant` (le modèle juge les extraits). Ils **partagent le statut
+  `hors_corpus`** — le contrat DSI n'a pas de sixième statut — mais gardent des codes
+  distincts, et **ni l'un ni l'autre n'est un refus** : les compter dans `REFUSAL_CODES`
+  ferait dire `denied` au journal sur des non-réponses et rendrait E5 illisible.
+  **`blocked_at` a été posé en même temps que la couche**, comme l'exigeait la piste
+  « capter tôt, publier tard ». Reste ouvert : « nommer, pas numéroter » et la cible Make de
+  mesure.
+  **L'import du handler RAG est local aux fonctions de tool du serveur** — contrainte de
+  protocole, pas optimisation : `initialize` a 30 s, et un import au niveau du module
+  chargerait l'embedder avant la poignée de main. Premier appel de recherche : 8,2 s.
+  **`make test` passe : 12/12, pour la première fois du projet.** T2 est satisfait.
+  `make check-rag-tools` : 62 contrôles déterministes au vert ; `make check-sql` 81,
+  `make check-feedback` 102, `make check-perimetre` 31 inchangés.
+  **Écart décidé** : les noms d'arguments suivent la suite d'acceptance —
+  `search_docs(query)`, `get_document(doc_id)` — et non `question` / `doc_key` de
+  `03-catalogue-tools.md`. Le test fait foi.
+- **Reste du chantier 3 : à faire.** Brancher l'agent du banc d'essai **en client MCP** —
+  il appelle encore `handle()` en direct (`packages/agent/cli.py:154`), donc les deux
+  façades restent parallèles et le profil reste déclaré par le client. Puis l'interface
+  graphique : un front Chainlit **splitté par rôle**, une colonne par profil, chaque colonne
+  adossée à son propre processus MCP (custom element React, exécution en `asyncio.gather`).
+  Décisions déjà prises, à ne pas re-débattre : `docs/journal-developpement.md`, entrée du
+  2026-09-06.
 
-Aucun test d'acceptance ne passe encore : ils exigent tous un serveur MCP, qui n'existe
-pas avant le troisième chantier.
+**Les douze tests d'acceptance passent** (`make test`, ~47 s). **Ne rien modifier dans
+`tests/`** : la suite est arrivée avec le dépôt et fait foi.
 
-T2 (« une demande d'écriture est refusée **et journalisée** ») est désormais *satisfaisable* :
-le journal qu'il relit existe, il ne manque plus que le serveur pour l'appeler.
-
-`pytest` échoue même à la **collecte**, et **ce n'est pas un défaut de la suite** :
-`literalai` (dépendance de `chainlit`) installe un paquet `tests` dans `site-packages`, qui
-masque le `tests/` du dépôt. Écarter ce dossier parasite fait repartir la collecte : 1
-succès (`test_gain_hybride_mesure_et_documente`) et 11 échecs, tous « `mcp_server.server`
-introuvable ». **Ne rien modifier dans `tests/`** : la suite est arrivée avec le dépôt et
-fait foi.
+**Un contournement est nécessaire avant chaque `make test`, et il doit être rejoué après
+chaque `uv sync`** : `literalai` (dépendance de `chainlit`) installe un paquet `tests` à la
+racine de `site-packages`, qui masque le `tests/` du dépôt et empêche pytest de collecter.
+Écarter ce dossier — renommage plutôt que suppression — fait repartir la collecte. Ce n'est
+pas un défaut de la suite.
 
 **Lire `docs/journal-developpement.md` avant de reprendre** — il tient les décisions, les
 arbitrages, les écarts constatés et les points ouverts de chaque étape livrée. Y ajouter
@@ -168,11 +191,14 @@ make ingest-brut   # index témoin, texte non nettoyé (axe 2 du protocole de me
 make calibrer      # règle le seuil de refus sur le jeu de calibration
 make check-index   # contrôles d'intégrité de l'index
 make check-perimetre # contrôles du filtre de périmètre documentaire (matrice sur le corpus)
+make check-rag-tools # contrôles des quatre tools RAG et de leur journal (sans appel de modèle)
 make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
 make check-feedback # contrôles de la réponse structurée et du journal (sans appel de modèle)
 make journal       # les 20 dernières entrées de logs/journal.jsonl
 make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM chacune)
-make test          # suite d'acceptance
+make serve         # serveur MCP stdio, les huit tools (profil dans SORABEL_PROFILE)
+make client        # client de test : catalogue et appel d'un tool (PROFILE=support|commercial)
+make test          # suite d'acceptance — 12/12
 make lint          # ruff + mypy — rouge sur 3 erreurs préexistantes (Chainlit, IncludeEnum)
 ```
