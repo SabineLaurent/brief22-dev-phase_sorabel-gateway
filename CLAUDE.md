@@ -133,11 +133,26 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   pour comparer les étages.
   `make test` 12/12 ; check-sql 81, check-feedback 102, check-rag-tools 62,
   check-perimetre 31 inchangés.
-- **Reste du chantier 3 : l'interface graphique.** Un front Chainlit **splitté par rôle**,
-  une colonne par profil, chaque colonne adossée à son propre processus MCP (custom element
-  React, exécution en `asyncio.gather`). Le registre de sessions par profil
-  (`GatewayRegistry`) est déjà en place pour ça. Reste aussi la cible Make de mesure de
-  `blocked_at`, et la réserve « nommer, pas numéroter ».
+- **Reste du chantier 3.** Par ordre d'exigence du brief :
+  1. **Le mini guide d'accès** — *livrable exigé*, au même titre que `mcp_server/` : « Le
+     serveur MCP (mcp_server/) exposant le catalogue complet **ainsi qu'un mini guide
+     d'accès** ». Il n'existe pas encore. C'est aussi l'endroit où mettre le bloc de
+     configuration stdio pour un client externe, donc la réponse à « essai du service » ;
+  2. **la mesure de `blocked_at`** — cible `make mesure-acces` → `eval/rapport_acces.md`.
+     **E5 est la seule des six exigences sans preuve chiffrée publiée** ; les cinq autres ont
+     `rapport_gain.md`, `rapport_sql.md` ou `rapport_perimetre.md`. La réserve « nommer, pas
+     numéroter » se tranche à cette occasion ;
+  3. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
+     chaque colonne adossée à son propre processus MCP (custom element React, exécution en
+     `asyncio.gather`). Le registre de sessions par profil (`GatewayRegistry`) est déjà en
+     place pour ça. C'est aussi elle qui porte le livrable « un lien d'une interface graphique
+     du produit fonctionnel » — **l'URL exigée porte sur l'IGU, pas sur le serveur MCP** :
+     stdio tient le livrable serveur (arbitrage consigné au journal le 2026-09-06).
+
+  Hors périmètre du brief, instruit et journalisé mais **non ouvert** : le passage à un
+  service partagé (transport HTTP, annuaire et secrets), et la chaîne de délégation
+  d'identité (comptes, JWT, OBO). Trois entrées de journal les tiennent — ne pas les rouvrir
+  sans décision explicite, elles ne rapportent aucun point.
 
 **Les douze tests d'acceptance passent** (`make test`, ~47 s). **Ne rien modifier dans
 `tests/`** : la suite est arrivée avec le dépôt et fait foi.

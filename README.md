@@ -4,12 +4,25 @@ Point d'accès unique aux données de **Sorabel**, distributeur B2B de matériel
 
 ## Features
 
-- Recherche documentaire avancée sur le corpus : dense + lexicale (hybride), reranking, réponses sourcées (titre + référence + date), refus explicite hors corpus (à construire)
-- Accès aux données en langage naturel : génération SQL lecture seule, périmètre de tables par profil, requête toujours renvoyée avec le résultat (à construire)
-- Tools figés pour les besoins récurrents : `check_stock`, `order_status` (à construire)
-- Serveur MCP unique exposant tout le catalogue, sous matrice d'accès par profil (`support`, `commercial`) avec journalisation de chaque appel (à construire)
-- Données en place : base SQL générée par `scripts/seed.py`, corpus de ~400 documents, Chroma prête via docker compose (index encore vide)
-- Client MCP de test jouable avec les deux profils (`scripts/mcp_client.py`)
+- **Recherche documentaire avancée** : dense + lexicale (BM25), fusion RRF, reranking
+  (cross-encoder local ou LLM Azure, commutables), réponses sourcées (titre + référence +
+  date), refus explicite hors corpus sur seuil calibré. Gain mesuré et publié
+  (`eval/rapport_gain.md`) : Hit@1 **2/8 → 8/8**, MRR 1,000 en hybride
+- **Accès aux données en langage naturel** : génération SQL une passe, validation en six
+  contrôles (sqlglot puis `EXPLAIN`), exécution `mode=ro` bornée, requête toujours renvoyée
+  avec le résultat. `make eval-sql` : **24/24** conformes (`eval/rapport_sql.md`)
+- **Tools figés** pour les besoins récurrents : `check_stock`, `order_status`
+- **Serveur MCP unique** exposant les **huit tools**, sous matrice d'accès par profil
+  (`support`, `commercial`, `dev`, `admin`, `default`), journalisation de chaque appel —
+  servi comme refusé
+- **Matrice appliquée au corpus** : filtre de périmètre documentaire (collections et thèmes)
+  appliqué **avant** la troncature, côté Chroma comme côté BM25 (`eval/rapport_perimetre.md`)
+- **Banc d'essai** : agent LangChain client MCP (CLI + API FastAPI) et interface Chainlit ;
+  le rôle choisit un processus serveur, jamais un argument
+- Données en place : base SQL générée par `scripts/seed.py`, corpus de ~400 documents
+  indexés dans Chroma
+
+**La suite d'acceptance passe : `make test` → 12/12.**
 
 ## Contrat d'intégration
 
@@ -19,7 +32,8 @@ matrice d'accès, et **contrat d'intégration** — commande de lancement du ser
 `GATEWAY_JOURNAL`), catalogue de tools, enveloppe de réponse JSON
 `{status, payload, message}` et format du journal. La suite `tests/acceptance/`
 consomme la gateway en boîte noire, exactement comme un client interne :
-elle est rouge tant que le serveur et ses tools ne tiennent pas ce contrat.
+elle est rouge tant que le serveur et ses tools ne tiennent pas ce contrat — elle est
+aujourd'hui verte, 12/12.
 
 ## Stack
 
@@ -41,7 +55,8 @@ uv sync --extra vector        # + sentence-transformers
 make install      # uv sync
 make seed         # génère data/sorabel.db (déterministe, aligné sur le corpus)
 make up           # docker compose : Chroma sur localhost:8002
-make test         # suite d'acceptance (rouge tant que la gateway n'est pas construite)
+make ingest       # indexation du corpus dans Chroma
+make test         # suite d'acceptance — 12/12
 make serve        # serveur MCP stdio (profil via SORABEL_PROFILE)
 make client       # client de test (PROFILE=support|commercial)
 ```
@@ -56,21 +71,47 @@ uv run python scripts/mcp_client.py --profile commercial --tool ask_database --a
 ## Layout
 
 ```
+config.py             # configuration unique (pydantic-settings) — aucun module ne lit os.environ
+packages/
+  access.py           # matrice d'accès : Scope, scope_for, authorize — l'étage 2 des huit tools
+  journal.py          # journal JSONL transverse (record / tail, protocole Journalable)
+  rag_machines/       # domaine documentaire
+    ingest/           # normalisation, registre, indexation, CLI
+    retrieval/        # embedder, recherche dense, BM25, RRF, reranker, périmètre
+    tools.py          # les quatre tools RAG          handler.py  # étage 2, journal, purge
+    structured_answer.py  # le seul sérialiseur du domaine
+  text_to_sql_factory/  # domaine SQL
+    contract.py       # contrat de lecture filtré par profil
+    generator.py      # génération (une passe, trois branches, une reprise)
+    validator.py      # cinq contrôles sqlglot + LIMIT + contrôle 6 EXPLAIN
+    executor.py       # connexion mode=ro + query_only, bornes, contrôles du résultat
+    tools.py          # les quatre tools SQL          handler.py  # étage 2, journal, purge
+  agent/              # banc d'essai : gateway.py (client MCP), cli.py, api.py (FastAPI)
+  web_client/         # interface Chainlit
+mcp_server/
+  server.py           # le serveur : les huit tools, étage 1 sur tools/list
+  matrice.yaml        # matrice d'accès — donnée de configuration versionnée, jamais du code
 data/
   corpus/             # ~400 documents : fiches/ notices/ (PDF), sav/ (HTML), notes/ (Markdown)
-  sorabel.db          # base SQL (hors git — générée par make seed, schéma dans docs/schema.sql)
+  bm25/               # index lexicaux sérialisés
+  sorabel.db          # base SQL (hors git — make seed, schéma dans docs/schema.sql)
 docs/
   cadrage_dsi.md      # exigences E1–E6, matrice d'accès, contrat d'intégration
-  schema.sql          # schéma commenté de la base (colonnes sensibles signalées)
+  conception/         # dossier de conception (livrables de la phase 1)
+  journal-developpement.md  # décisions, arbitrages, écarts et points ouverts — à lire d'abord
 eval/
-  questions_rag.jsonl # questions documentaires : couvertes, hors corpus, par référence exacte
-  questions_sql.jsonl # questions métier en langage naturel, dont cas limites
-ingest/               # chaîne d'ingestion du corpus (à concevoir et construire)
-retrieval/            # recherche documentaire (à concevoir et construire)
-sql/                  # accès SQL en langage naturel (à concevoir et construire)
-mcp_server/           # serveur MCP de la gateway (à concevoir et construire)
+  protocole-mesure.md # ce qui varie et ce qui ne varie pas dans toute comparaison
+  rapport_gain.md     # E6 : gain de l'hybride sur le dense
+  rapport_sql.md      # les 24 questions SQL      rapport_perimetre.md  # axe 3 du protocole
 scripts/
   seed.py             # génère et peuple data/sorabel.db
   mcp_client.py       # client MCP de test (profils support / commercial)
 tests/acceptance/     # suite d'acceptance boîte noire, adossée aux exigences E1–E6
 ```
+
+## Où en est le projet
+
+Les trois chantiers du brief sont livrés et vérifiés ; `CLAUDE.md` en tient l'état détaillé
+et `docs/journal-developpement.md` les décisions. Reste, côté phase de développement :
+l'interface graphique splittée par rôle, la mesure de `blocked_at`, et le mini guide d'accès
+destiné aux équipes clientes.

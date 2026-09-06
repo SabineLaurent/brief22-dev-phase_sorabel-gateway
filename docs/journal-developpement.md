@@ -2679,3 +2679,66 @@ Et la limite de fond reste celle de l'entrée précédente : cette chaîne **con
 fournisseur d'identité**. En entreprise on ne le fait pas — on se branche sur celui de la
 maison, précisément pour ne pas gérer soi-même mots de passe, rotation, révocation et cycle de
 vie des comptes. Défendable pour un projet interne ; délégué en production.
+
+### Complément — trois points établis après la rédaction de l'entrée ci-dessus
+
+**1. La chaîne impose le transport HTTP. Ce n'est pas un choix, c'est une propriété du
+protocole.** Sous stdio il n'existe **aucun canal par appel** pour porter un justificatif :
+le modèle est « le client a lancé le processus, les identifiants viennent de l'environnement ».
+Un jeton par utilisateur devrait alors voyager **en argument de tool**, donc passer entre les
+mains du LLM — le piège de l'en-tête sous sa pire forme. Les cinq mouvements proposés ne le
+mentionnaient pas ; il conditionne tout le reste, et il place `note-transport.md` §2 en
+prérequis de cette piste plutôt qu'en voie parallèle.
+
+**2. Deux formes d'OBO, et elles ne coûtent pas pareil.**
+
+* **retransmission simple** — l'agent repasse le jeton reçu tel quel, le MCP vérifie la
+  signature. Court, mais le jeton a été émis **pour l'agent** : le réutiliser sur un autre
+  destinataire est le motif du *député confus*, et le MCP ne distingue pas « l'utilisateur
+  appelle » de « l'agent appelle pour lui » ;
+* **échange véritable (RFC 8693)** — l'agent présente son justificatif *et* le jeton de
+  l'utilisateur à l'émetteur, qui rend un jeton **neuf** dont le destinataire (`aud`) est le
+  serveur MCP, portant `sub` = l'utilisateur et `act` = l'agent. C'est la forme que décrivaient
+  les cinq mouvements, et la seule qui tienne la traçabilité.
+
+**3. Impact contrat, à trancher et non à coder.** Avec la délégation, une entrée de journal
+devrait porter **deux identités** — sinon on perd exactement ce que l'OBO apporte, la trace de
+*par l'intermédiaire de qui*. Or `entry_for()` (`packages/journal.py:83`) écrit une seule clé
+`profile`, les champs du journal sont fixés par `docs/cadrage_dsi.md`, et `tests/` lit
+certaines clés. **Ajouter `sub` et `act` est une décision de contrat**, à consigner comme les
+autres écarts — pas un ajout de champs.
+
+**Ordre de coût, pour mémoire** (établi sur la forme du code, non exécuté) : la chaîne
+complète ~5-6 jours — l'équivalent du brief entier, pour zéro point ; ~3-4 jours en déployant
+volontairement **un seul worker**, ce qui neutralise le risque de la correction 4 en rendant
+la concurrence *impossible* plutôt que *sûre* — assumable à condition de l'écrire ; ~1 jour
+pour une version démonstrative à émetteur bouchonné (deux utilisateurs en dur), qui garde
+l'échange, les deux identités et la vérification côté MCP. **L'OBO lui-même n'est pas la
+partie chère** : ~150 lignes. Ce sont ses prérequis qui coûtent.
+
+## 2026-09-06 — Une anticipation de conception, vérifiée après coup
+
+Entrée courte, et c'est un **constat de méthode**, pas une piste.
+
+`note-transport.md` §3 imposait que le profil soit un **paramètre** de la façade, jamais un
+état de démarrage, pour un cas HTTP qui n'existait pas encore. La note assumait l'entorse en
+toutes lettres : *« c'est le seul endroit où la note anticipe au lieu de constater, et le coût
+de l'anticipation est un paramètre »*.
+
+**Vérifié aujourd'hui, en préparant le chiffrage de la chaîne de délégation :**
+
+| | craint par la note | constaté |
+|---|---|---|
+| signature des façades | à rouvrir | `handle(tool, arguments, profile, settings)` — **déjà bonne**, dans les deux domaines |
+| usages à changer pour une résolution par appel | les huit tools | **trois** : `list_tools` (`server.py:66`), `_sql_result` (l. 81), `_rag_result` (l. 97) |
+
+L'anticipation a coûté **un paramètre** ; elle économise la réouverture des huit tools et de
+leurs contrôles. Et parce que la résolution rendrait sous stdio la constante d'environnement,
+l'étape se livrerait **sans faire bouger la suite d'acceptance**.
+
+**Ce qu'on en retient, et pourquoi c'est écrit ici.** C'est le principe « chiffrer les
+arbitrages » appliqué à une décision de *conception* et non à une mesure : une anticipation
+vérifiée après coup, avec un décompte, vaut mieux qu'une conviction — et elle ne s'écrit
+jamais spontanément, précisément parce que tout s'est bien passé. La règle générale n'est pas
+« anticiper » : c'est **nommer l'anticipation quand on la fait**, pour pouvoir la juger plus
+tard au lieu de la croire.
