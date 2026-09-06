@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+from functools import lru_cache
 from typing import Protocol, cast
 
 from config import Settings
@@ -109,16 +110,26 @@ class AzureReranker:
         return [max(0.0, min(1.0, by_index.get(i, 0.0))) for i in range(len(documents))]
 
 
+@lru_cache(maxsize=None)
+def _reranker(azure: bool, endpoint: str, api_key: str, deployment: str,
+              model: str) -> Reranker:
+    """Le cache est ici, sur les seuls champs lus — ``Settings`` n'est pas hachable."""
+    if azure:
+        return cast(Reranker, AzureReranker(endpoint, api_key, deployment))
+    return cast(Reranker, LocalReranker(model))
+
+
 def build_reranker(settings: Settings | None = None) -> Reranker:
-    """Rend le reranker configuré. Azure s'il est renseigné, cross-encoder local sinon."""
+    """Rend le reranker configuré. Azure s'il est renseigné, cross-encoder local sinon.
+
+    Mémoïsé pour la même raison que :func:`build_embedder` : ``LocalReranker`` charge son
+    ``CrossEncoder`` par instance, et ``search()`` en construisait un par appel.
+    """
     settings = settings or default_settings
-    if settings.uses_azure_rerank:
-        return cast(
-            Reranker,
-            AzureReranker(
-                settings.azure_ai_endpoint,
-                settings.azure_ai_api_key,
-                settings.azure_rerank_deployment,
-            ),
-        )
-    return cast(Reranker, LocalReranker(settings.reranker_model))
+    return _reranker(
+        settings.uses_azure_rerank,
+        settings.azure_ai_endpoint,
+        settings.azure_ai_api_key,
+        settings.azure_rerank_deployment,
+        settings.reranker_model,
+    )

@@ -109,13 +109,35 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   **Écart décidé** : les noms d'arguments suivent la suite d'acceptance —
   `search_docs(query)`, `get_document(doc_id)` — et non `question` / `doc_key` de
   `03-catalogue-tools.md`. Le test fait foi.
-- **Reste du chantier 3 : à faire.** Brancher l'agent du banc d'essai **en client MCP** —
-  il appelle encore `handle()` en direct (`packages/agent/cli.py:154`), donc les deux
-  façades restent parallèles et le profil reste déclaré par le client. Puis l'interface
-  graphique : un front Chainlit **splitté par rôle**, une colonne par profil, chaque colonne
-  adossée à son propre processus MCP (custom element React, exécution en `asyncio.gather`).
-  Décisions déjà prises, à ne pas re-débattre : `docs/journal-developpement.md`, entrée du
-  2026-09-06.
+- **Chantier 3, étape C — l'agent du banc d'essai est client MCP : faite.**
+  `packages/agent/gateway.py` (**le seul endroit du code servi qui parle le protocole**) :
+  `gateway_session()`, `GatewayRegistry`, et l'adaptateur catalogue MCP → `StructuredTool`.
+  `cli.py` et `api.py` passent en async ; `packages/web_client/app.py` n'est pas touché.
+  **Le profil n'est plus un argument** : il est dans `SORABEL_PROFILE`, dans l'environnement
+  du sous-processus serveur, et le rôle de l'interface sert désormais à choisir *quel
+  processus* on interroge — plus *quel argument* on passe. `profile_for_role()` est
+  inchangé. Écart refermé.
+  **Le catalogue n'est plus en dur** : les tools de l'agent sont ceux que `tools/list` rend
+  (support 7, commercial 8, dev 5, admin 8, **default 0**). L'étage 1 existait depuis
+  l'étape B, rien ne l'exerçait. Et les quatre tools documentaires passent enfin par leur
+  handler : étage 2, seuil de refus et journalisation, les trois d'un coup.
+  **Prérequis levé au passage** : `build_embedder` / `build_reranker` n'étaient pas
+  mémoïsés, et `search()` en construisait un par appel. Invisible pour la suite
+  d'acceptance, qui relance un processus par appel — mais 4 s par question dans un serveur
+  qui vit. Mesuré : 5,00 / 4,22 / 3,77 s avant, 5,35 / **0,16** / **0,16** après.
+  **Défaut introduit puis corrigé** : un catalogue vide ne rend pas un modèle muet — sous
+  `sans_role` il annonçait « je vais interroger la base ». `build_agent()` rend `None` sur
+  catalogue vide, CLI et API rendent `EMPTY_CATALOGUE`, la phrase figée du refus.
+  **Écart décidé** : `--strategy` disparaît (CLI et `ChatRequest`) — les tools MCP
+  n'exposent pas d'étage de recherche, le serveur décide. `make mesure-*` reste l'endroit
+  pour comparer les étages.
+  `make test` 12/12 ; check-sql 81, check-feedback 102, check-rag-tools 62,
+  check-perimetre 31 inchangés.
+- **Reste du chantier 3 : l'interface graphique.** Un front Chainlit **splitté par rôle**,
+  une colonne par profil, chaque colonne adossée à son propre processus MCP (custom element
+  React, exécution en `asyncio.gather`). Le registre de sessions par profil
+  (`GatewayRegistry`) est déjà en place pour ça. Reste aussi la cible Make de mesure de
+  `blocked_at`, et la réserve « nommer, pas numéroter ».
 
 **Les douze tests d'acceptance passent** (`make test`, ~47 s). **Ne rien modifier dans
 `tests/`** : la suite est arrivée avec le dépôt et fait foi.

@@ -1,12 +1,14 @@
 """API FastAPI de l'agent conversationnel, consommée par l'interface web de test.
 
-Le rôle **a désormais un effet réel sur le SQL** : il est converti en profil de la matrice,
-qui décide du droit d'interroger la base et des colonnes atteignables. Il reste sans effet
-sur la recherche documentaire, inchangée.
+Le rôle **choisit un processus, plus un argument.** ``profile_for_role()`` le convertit en
+profil de matrice, et ce profil sert à désigner *quel sous-processus serveur MCP* on
+interroge — chacun lancé avec son ``SORABEL_PROFILE``. L'écart du banc d'essai est donc
+refermé : le profil n'est plus déclaré par le client, il est une propriété du processus
+d'en face, et le LLM n'a aucun moyen de l'atteindre.
 
-C'est un **banc d'essai**, et un écart assumé : le profil est ici déclaré par le client,
-alors que la conception veut ``SORABEL_PROFILE`` lu au lancement du serveur MCP et jamais
-reçu du client (cf. docs/cadrage_dsi.md et matrice.yaml). Il disparaît au chantier 3.
+Le rôle a désormais un effet réel sur **les deux domaines** : la base *et* le corpus. Le
+raccourci documentaire du banc d'essai — étage 2 en dur, seuil de refus contourné — a
+disparu avec le branchement.
 
 **Rien de technique ne franchit cette frontière.** Ce module est le dernier point avant
 l'écran, et il applique deux règles :
@@ -24,7 +26,8 @@ Lancement : uv run uvicorn packages.agent.api:app --reload
 from __future__ import annotations
 
 import traceback
-from functools import lru_cache
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
@@ -33,14 +36,14 @@ from pydantic import BaseModel
 from config import settings as gateway_settings
 from packages import journal
 from packages.access import authorize
-from packages.rag_machines.retrieval.search import Strategy
 from packages.text_to_sql_factory.handler import read_feedback
 from packages.text_to_sql_factory.structured_answer import (
     CLIENT_MESSAGES,
     build_db_structured_answer,
 )
 
-from .cli import build_agent, call_record, frozen_text
+from .cli import EMPTY_CATALOGUE, build_agent, call_record, frozen_text
+from .gateway import GatewayRegistry
 
 ROLES = ["support", "dev", "commerciale", "sans_role", "admin"]
 
@@ -65,13 +68,38 @@ def profile_for_role(role: str) -> str:
     return _PROFILE_BY_ROLE.get(role, "default")
 
 
-app = FastAPI(title="Sorabel Data Gateway — API de test")
+#: Les sessions MCP ouvertes par cette API, une par profil. Vit au niveau du module et non
+#: dans l'état de l'application : ``build_agent`` en a besoin à la construction, et un
+#: registre par instance de ``FastAPI`` n'apporterait rien à un banc d'essai à un processus.
+GATEWAYS = GatewayRegistry()
+
+#: Un agent par profil. Le profil est dans la clé pour la même raison qu'avant : partagé,
+#: le premier rôle utilisé serait servi à tous les suivants, et un `sans_role` hériterait
+#: des droits d'un `commerciale` passé avant lui. La différence est qu'aujourd'hui cette
+#: séparation est **doublée** par celle des processus serveur.
+_AGENTS: dict[str, Any] = {}
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Les sous-processus serveur s'ouvrent au premier besoin et se ferment tous ici.
+
+    Sans cette fermeture, arrêter l'API laisserait derrière elle autant de serveurs MCP
+    que de rôles utilisés — chacun tenant son embedder en mémoire.
+    """
+    try:
+        yield
+    finally:
+        await GATEWAYS.aclose()
+        _AGENTS.clear()
+
+
+app = FastAPI(title="Sorabel Data Gateway — API de test", lifespan=lifespan)
 
 
 class ChatRequest(BaseModel):
     role: str
     question: str
-    strategy: Strategy = "hybrid"
 
 
 class ChatResponse(BaseModel):
@@ -93,19 +121,19 @@ class JournalResponse(BaseModel):
     entries: list[dict[str, Any]] = []
 
 
-@lru_cache(maxsize=None)
-def _agent_for(strategy: Strategy, profile: str):  # type: ignore[no-untyped-def]
-    """Un agent par couple (stratégie, profil).
+async def _agent_for(profile: str):  # type: ignore[no-untyped-def]
+    """L'agent de ce profil, construit sur le catalogue que **son** serveur lui sert.
 
-    Le profil est capturé à la construction du tool : mis en cache sur la seule stratégie,
-    le premier rôle utilisé serait servi à tous les suivants — et un `sans_role` hériterait
-    des droits d'un `commerciale` passé avant lui.
+    Le catalogue est lu une fois, à la construction : il ne peut pas changer en cours de
+    route, puisque le profil du processus d'en face ne change pas non plus.
     """
-    return build_agent(strategy, profile)
+    if profile not in _AGENTS:
+        _AGENTS[profile] = await build_agent(await GATEWAYS.get(profile))
+    return _AGENTS[profile]
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest) -> ChatResponse:
     # Un rôle inconnu n'est pas renvoyé en écho : le répéter à l'écran fait de la réponse un
     # miroir de l'entrée, et la matrice retombe déjà sur `default` sans qu'on ait à le dire.
     if request.role not in ROLES:
@@ -114,8 +142,12 @@ def chat(request: ChatRequest) -> ChatResponse:
     profile = profile_for_role(request.role)
     with call_record() as book:
         try:
-            agent = _agent_for(request.strategy, profile)
-            response = agent.invoke(
+            agent = await _agent_for(profile)
+            # Catalogue vide : pas d'appel possible, donc rien à faire rédiger. La phrase
+            # figée du refus part directement — cf. `cli.build_agent`.
+            if agent is None:
+                return ChatResponse(answer=EMPTY_CATALOGUE)
+            response = await agent.ainvoke(
                 {"messages": [{"role": "user", "content": request.question}]}
             )
         except Exception as error:  # noqa: BLE001 - dernier filet avant l'écran
@@ -123,7 +155,7 @@ def chat(request: ChatRequest) -> ChatResponse:
             # nommé `chat` : ce n'est pas un tool du catalogue, mais c'est bien un appel qui
             # a échoué, et le retrouver au journal est précisément ce qu'on veut au débug.
             journal.record(
-                "chat", profile, {"question": request.question, "strategy": request.strategy},
+                "chat", profile, {"question": request.question},
                 build_db_structured_answer(
                     "erreur_execution",
                     cause=f"{type(error).__name__}: {error}",

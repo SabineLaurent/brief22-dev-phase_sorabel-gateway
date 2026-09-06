@@ -2230,3 +2230,166 @@ une information sur la couche, pas seulement sur le contrôle.
 * **Le contournement `literalai`** doit être rejoué après chaque `uv sync` : le paquet
   installe son propre `tests/` à la racine de `site-packages`, qui masque celui du dépôt et
   empêche pytest de collecter. Il a été écarté par renommage, pas par suppression.
+
+## 2026-09-06 — Chantier 3, étape C : l'agent du banc d'essai devient client MCP
+
+L'étape précédente s'était arrêtée sur une phrase : « le profil reste déclaré par le
+client dans le banc d'essai. L'agent LangChain appelle toujours `handle()` en direct :
+les deux façades restent parallèles. C'est l'étape suivante, et c'est elle qui fera
+tomber l'écart. » C'est fait. `packages/agent/` n'appelle plus ni `handle()`, ni
+`handle_request()`, ni `search_for_profile()` — vérifiable par `grep`, et c'est la
+condition d'arrêt qu'on s'était donnée.
+
+### Le prérequis que la revue de code a fait apparaître
+
+La revue de `1c97113` a relevé que `search()` fait `embedder or build_embedder(settings)`
+(`retrieval/search.py:375`) et `build_reranker(settings)` (`:389`), et qu'**aucun des deux
+builders n'est mémoïsé** — contrairement à l'index BM25, `lru_cache`é dans `lexical.py`.
+`LocalEmbedder` et `LocalReranker` chargent leur modèle paresseusement, mais **par
+instance** : une instance neuve à chaque appel, c'est un chargement à chaque appel.
+
+Le constat intéressant n'est pas le cache manquant, c'est **pourquoi personne ne l'avait
+vu**. La suite d'acceptance relance un processus serveur par appel : elle ne peut pas
+distinguer un coût de démarrage d'un coût par appel, les deux se confondent chez elle.
+Le chiffre « 8,2 s au premier appel, immédiat ensuite » publié à l'étape B décrivait donc
+un comportement que le code ne tenait pas dans un serveur qui vit. Mesuré, trois
+recherches d'affilée dans un même processus :
+
+| | appel 1 | appel 2 | appel 3 |
+|---|---|---|---|
+| avant (cache vidé entre les appels) | 5,00 s | 4,22 s | 3,77 s |
+| après | 5,35 s | **0,16 s** | **0,16 s** |
+
+Le branchement rendait ce défaut bloquant : il repose sur **un processus serveur gardé
+vivant par profil**, et `answer_question` (embedding + rerank + complétion Azure) aurait
+dépassé le `CALL_TIMEOUT` de 30 s. Le correctif tient en deux `@lru_cache`, posés sur les
+seuls champs lus de `Settings` — qui n'est pas hachable, et dont on ne veut pas faire une
+clé de cache implicite.
+
+**Ce que ça dit sur la mesure**, au-delà du correctif : un banc de test qui isole chaque
+appel dans son processus ne mesure jamais ce que coûte le deuxième. C'est le genre de
+biais que `eval/protocole-mesure.md` cherche à nommer.
+
+### Le lien client : `packages/agent/gateway.py`
+
+Un module neuf, et **le seul endroit du code servi qui parle le protocole MCP**. Il ferme
+au passage la duplication qui s'installait entre `scripts/mcp_client.py` et
+`tests/conftest.py` — sans toucher à `tests/`, gelé par convention du dépôt.
+
+Trois pièces :
+
+* `gateway_session(profile)` lance `python -m mcp_server.server` en sous-processus avec
+  `SORABEL_PROFILE=<profil>` et `cwd` **explicite** sur la racine du dépôt. Le `cwd` n'est
+  pas cosmétique : `logs/journal.jsonl` est relatif, et un répertoire différent aurait créé
+  un second journal au lieu d'alimenter celui que `make journal` lit ;
+* `GatewayRegistry` tient une session par profil pour l'API. **Chaque session est ouverte
+  et fermée dans une tâche à elle**, et c'est une contrainte, pas un style : `stdio_client`
+  ouvre un groupe de tâches anyio dont la portée d'annulation doit être quittée par la
+  tâche qui l'a entrée. Un `AsyncExitStack` partagé — entré dans une requête, fermé au
+  `lifespan` — lève une erreur au moment précis où l'on cherche à ranger proprement. La
+  tâche gardienne ouvre, publie la session, puis attend le signal d'arrêt ;
+* `build_tools(gateway, render)` adapte le catalogue en tools LangChain. **Adaptateur
+  maison, ~30 lignes, aucune dépendance ajoutée** : `StructuredTool` accepte un
+  `args_schema` sous forme de dictionnaire JSON Schema (`langchain_core/tools/base.py:584`
+  et `:614`), donc l'`inputSchema` du serveur passe tel quel — le `pattern`
+  `^REF-\d{4}$` de `check_stock` compris, vérifié. `langchain-mcp-adapters` aurait fait le
+  travail en une ligne, mais aurait mis une boîte noire à l'endroit exact où la
+  démonstration doit être lisible, et modifié `pyproject.toml` sans nécessité.
+
+`render` est le seul point d'extension : `gateway.py` ne connaît que le protocole, et
+c'est `cli.py` qui décide ce qu'un modèle a le droit de voir d'une enveloppe.
+
+### Ce que le branchement apporte sans qu'on l'ait codé
+
+**Le catalogue n'est plus en dur.** Les tools de l'agent sont ceux que `tools/list` rend,
+donc filtrés par `authorize()` côté serveur. Vérifié, les cinq profils :
+
+```
+support     7  answer_question, ask_database, check_stock, get_document, list_sources, order_status, search_docs
+commercial  8  (+ get_schema)
+dev         5  answer_question, get_document, get_schema, list_sources, search_docs
+admin       8
+default     0  (vide)
+```
+
+L'étage 1 était écrit depuis l'étape B, mais **rien du banc d'essai ne l'exerçait**.
+
+**Les quatre tools documentaires passent enfin par leur handler.** Le `search_docs` local
+appelait `search_for_profile()` et portait son étage 2 en dur (`_denied_docs`) : il
+court-circuitait l'étage 2, le seuil de refus **et** la journalisation. Les trois tombent
+d'un coup. L'écart n°3 du tableau de l'étape B — « le seuil de refus dans le flux agent →
+API → Chainlit, toujours ouvert » — est refermé : question hors corpus posée à `support`,
+réponse « Le corpus documentaire ne couvre pas cette question. », entrée au journal avec
+`code: hors_corpus`, `blocked_at: null` (ce n'est pas un refus, conformément à l'arbitrage
+de l'étape A).
+
+Le **point n°7 de la revue du 2026-09-04** (`status == "ok"` avec `hits == []`) disparaît
+avec le code qui le portait.
+
+### Le défaut que le branchement a introduit, et qu'il fallait corriger
+
+Un catalogue vide ne rend pas un modèle muet. Premier essai sous `sans_role` :
+
+> « Je vais interroger la base pour compter les commandes d'avril 2024. »
+
+Il annonçait une action qu'il ne pouvait pas faire. Il ne mentait pas **avant** le
+branchement, parce que le tool existait alors pour se faire refuser et rendre sa phrase
+figée. Le catalogue filtré supprime l'appel *et* le refus qui l'accompagnait ; la phrase,
+elle, doit rester. `build_agent()` rend donc `None` sur un catalogue vide, et la CLI comme
+l'API rendent `EMPTY_CATALOGUE` — la même phrase figée que l'étage 2 aurait prononcée.
+
+**Effet de bord à consigner** : un profil sans aucun tool ne produit plus d'entrée au
+journal, puisqu'aucun appel n'a lieu. Ce n'est pas une perte de traçabilité — c'est
+exactement ce que dit `03-catalogue-tools.md` §3 de l'étage 1 (« le LLM ne voit pas ce
+qu'il n'a pas le droit d'appeler, donc il ne l'essaie pas ») — mais E5 ne comptera plus
+ces tentatives-là. Tout tool appelé hors catalogue reste refusé **et** journalisé par
+l'étage 2, ce que la suite d'acceptance vérifie en appelant directement.
+
+### L'API : le rôle choisit un processus, plus un argument
+
+`profile_for_role()` n'a pas bougé d'une ligne. Ce qui a changé, c'est ce qu'on fait de son
+résultat : il désigne désormais **quel sous-processus** on interroge. Le `@lru_cache` sur
+`_agent_for` devient un dictionnaire — l'agent est lié à une session — et son commentaire
+sur la fuite de droits entre rôles reste valable mot pour mot, avec une garantie de plus :
+la séparation est maintenant **doublée** par celle des processus. `POST /chat` passe en
+`async`, `agent.invoke` en `await agent.ainvoke`, et un `lifespan` ferme les sessions —
+sans quoi arrêter l'API laisserait derrière elle autant de serveurs MCP que de rôles
+utilisés, chacun tenant son embedder en mémoire. Vérifié : arrêt propre, aucune erreur de
+portée d'annulation.
+
+`GET /journal` et `/journal/allowed` ne changent pas : le journal se lit sur le système de
+fichiers, pas par le protocole.
+
+### Écarts décidés, à ne pas re-débattre
+
+| Écart | Décision |
+|---|---|
+| `--strategy` disparaît de la CLI, `strategy` de `ChatRequest` | **Conséquence du protocole, pas un choix** : les tools MCP n'exposent pas d'étage de recherche. Le serveur décide, avec la configuration que la mesure a réglée (hybride). Comparer les étages reste possible par `make mesure-*`, qui est l'endroit prévu pour ça |
+| Un profil à zéro tool ne journalise plus ses tentatives | Assumé, cf. ci-dessus. C'est le sens de l'étage 1 |
+| Les descriptions de tools ne sont plus dans `cli.py` | Elles viennent du serveur. Deux copies auraient divergé, et c'est le serveur qui fait autorité sur l'aiguillage |
+| Le prompt système reste dans `cli.py` | Il n'appartient pas au catalogue : c'est la consigne du client, pas celle de la gateway |
+
+### Points ouverts que cette étape ne referme pas
+
+* **Le front Chainlit splitté par rôle** — l'étape suivante. `packages/web_client/app.py`
+  n'a pas été touché : il parle à l'API en HTTP (`{role, question}`) et bénéficie du
+  branchement sans le voir. Vérifié au niveau du contrat qu'ils partagent, pas au
+  navigateur ;
+* **La cible Make de mesure de `blocked_at`** — toujours à écrire. Les huit tools tournent
+  désormais dans le flux réel, donc la matière existe ;
+* **« Nommer, pas numéroter »** — la réserve posée le 2026-09-04 sur `blocked_at` ;
+* Les six autres constats de la revue de `1c97113` : métadonnées `url` rendues au client
+  par `get_document`, `classify()` qui décide sur un chemin non normalisé, le repli
+  `or [result.hits[0]]` de `answer_question`, `journal.record()` hors du `try` des deux
+  handlers, `check_rag_tools` qui s'interrompt au lieu de rapporter, et
+  `docs/archives/flux-text-to-sql.md` qui documente `_json_result` renommé `_sql_result`.
+  Aucun n'est sur le chemin de cette étape.
+
+### Vérifications
+
+`make test` **12/12** (46 s). `make check-sql` 81, `make check-feedback` 102,
+`make check-rag-tools` 62, `make check-perimetre` 31 — tous inchangés. `make lint` : les
+**trois** erreurs préexistantes (Chainlit ×2, `IncludeEnum`), sur 53 fichiers au lieu de
+52. Journal relu après essais : une entrée par appel, `profile` égal à celui du
+sous-processus, `blocked_at` renseigné (0 servi, 2 tool interdit, 3 périmètre, `null` hors
+décision d'accès), et **un seul** `logs/journal.jsonl`.
