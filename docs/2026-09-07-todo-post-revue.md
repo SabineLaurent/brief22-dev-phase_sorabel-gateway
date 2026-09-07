@@ -582,21 +582,24 @@ contrat servi, on n'adopte pas le contrat conçu.**
 
 `03-catalogue-tools.md` §4 spécifie, sur trois pages et avec un JSON Schema par tool, une
 sortie MCP 2026-07-28 : `outputSchema` d'union, `structuredContent`, `isError` tranché code
-par code, champ `hint` portant le recours. **Le code n'implémente rien de tout cela** : il
-sert `{status, payload, message}` de `docs/cadrage_dsi.md`, en un seul `TextContent`, sans
-`outputSchema` déclaré, sans `isError`, sans `hint`.
+par code, champ `hint` portant le recours. Le code en implémente désormais **les deux
+premiers** : il sert `{status, payload, message}` de `docs/cadrage_dsi.md`, en un seul
+`TextContent` **et** en `structuredContent`, sous un `outputSchema` déclaré par tool. Restent
+non implémentés `isError` tranché code par code et `hint` — les deux **abandonnés par
+décision**, pas par omission.
 
 Ce n'est pas une régression — le cadrage est le contrat imposé, la suite d'acceptance lit
 `result["status"]` et `payload["answer"]` — mais **la validation du dossier de conception est
-la porte d'entrée du brief**, et le jury lira une spécification que le code contredit sur
-son point le plus visible.
+la porte d'entrée du brief**, et le jury lira une spécification dont le code s'écarte encore
+sur les noms de champs.
 
-À écrire, en une demi-page : le contrat retenu et pourquoi (le cadrage prime, le test fait
-foi) · ce qui est perdu (le mécanisme `structuredContent`/`isError`, que §4 défendait comme
-« le chemin correct sans avoir à y penser ») · **ce qui le remplace** — l'absence de la clé
-`answer` sur les non-réponses (`PAYLOAD_KEPT`), qui tient la même garantie par liste
-blanche, et que la suite vérifie littéralement (`not result["payload"].get("answer")`) · le
-sort du champ `hint`, abandonné sans remplaçant.
+À reprendre au mini guide : le contrat retenu et pourquoi (le cadrage prime, le test fait
+foi) · **ce qui a été regagné** — `structuredContent` et l'`outputSchema`, que §4 défendait
+comme « le chemin correct sans avoir à y penser », et que le schéma publie en décrivant
+l'asymétrie de `PAYLOAD_KEPT` (« `answer` ABSENTE dès que `code` n'est pas `ok` ») · ce qui
+reste écarté et pourquoi : `isError` — le discriminant du client est `status` puis
+`payload.code` — et `hint`, **abandonné sans remplaçant**, sa fonction étant tenue par les
+descriptions des tools, qui nomment déjà le recours.
 
 > **Succès** : la question « pourquoi votre catalogue conçu ne ressemble pas à votre
 > serveur ? » a une réponse écrite d'avance, avec ce qu'elle coûte.
