@@ -28,7 +28,11 @@ from config import settings
 from packages.text_to_sql_factory.generator import build_generator
 from packages.text_to_sql_factory.tools import ask_database
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+#: La racine du dépôt. **parents[3]**, pas [2] : ce module vit un niveau plus bas que
+#: les autres, dans `evals_and_controls/`. Le compte était juste avant ce déplacement,
+#: et il a fait pointer les jeux de questions et les rapports dans `packages/eval/`,
+#: qui n'existe pas — la cible échouait à la lecture du jeu.
+REPO_ROOT = Path(__file__).resolve().parents[3]
 QUESTION_SET = REPO_ROOT / "eval" / "questions_sql.jsonl"
 RESULTS_DIR = REPO_ROOT / "eval" / "resultats"
 REPORT = REPO_ROOT / "eval" / "rapport_sql.md"

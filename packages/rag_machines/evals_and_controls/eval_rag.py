@@ -42,7 +42,11 @@ from packages.rag_machines.retrieval.search import (
     search,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+#: La racine du dépôt. **parents[3]**, pas [2] : ce module vit un niveau plus bas que
+#: les autres, dans `evals_and_controls/`. Le compte était juste avant ce déplacement,
+#: et il a fait pointer les jeux de questions et les rapports dans `packages/eval/`,
+#: qui n'existe pas — la cible échouait à la lecture du jeu.
+REPO_ROOT = Path(__file__).resolve().parents[3]
 QUESTIONS_SET = REPO_ROOT / "eval" / "questions_rag.jsonl"
 RESULTS_DIR = REPO_ROOT / "eval" / "resultats"
 REPORT_PATH = REPO_ROOT / "eval" / "rapport_gain.md"
@@ -307,7 +311,7 @@ def build_report() -> str:
     lines = [
         "# Rapport de gain — recherche avancée (E6)",
         "",
-        "Généré par `packages/rag_machines/eval_rag.py --report` à partir des CSV de `eval/resultats/` — "
+        "Généré par `make mesure` à partir des CSV de `eval/resultats/` — "
         "voir `eval/protocole-mesure.md` pour le protocole complet. **Ne pas éditer à la "
         "main** : `make mesure` réécrit ce fichier en entier.",
         "",
@@ -338,6 +342,7 @@ def build_report() -> str:
         "",
         "`B` n'a pas de seuil de refus praticable (aucune échelle bornée sur un score BM25 "
         "— Q4 §3) : la case vide est un résultat, pas un trou.",
+        "",
         "",
         "## Effet de la règle de départage — avec / sans, sur les trois sous-ensembles",
         "",
