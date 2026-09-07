@@ -50,6 +50,20 @@ from packages.text_to_sql_factory.sql_tool_launcher import SqlToolLauncher
 
 PROFILE = os.environ.get("SORABEL_PROFILE", "support")
 
+#: La description de ``collections``, écrite une fois pour les trois tools qui l'acceptent.
+#: Elle dit « restreindre » et non « choisir » : le périmètre du profil est le plafond, cet
+#: argument ne peut que descendre en dessous.
+_COLLECTIONS = Annotated[
+    list[str] | None,
+    Field(
+        default=None,
+        description=(
+            "Restreint la recherche à certains types de documents, parmi ceux auxquels "
+            "le profil a droit. Omettre pour chercher dans tout le périmètre accessible."
+        ),
+    ),
+]
+
 
 class SorabelMCP(FastMCP):
     """FastMCP avec un catalogue visible limité au profil du processus.
@@ -85,6 +99,15 @@ def _sql_result(tool: str, arguments: dict[str, Any]) -> str:
     )
 
 
+def _documentary(**arguments: Any) -> dict[str, Any]:
+    """Les arguments d'un tool documentaire, **les absents retirés**.
+
+    Un ``None`` transmis serait journalisé comme un argument reçu, alors que le client n'a
+    rien envoyé. Le handler l'écarterait de l'appel, mais pas de l'entrée de journal.
+    """
+    return {name: value for name, value in arguments.items() if value is not None}
+
+
 def _rag_result(tool: str, arguments: dict[str, Any]) -> str:
     """Appelle la façade journalisée du domaine documentaire.
 
@@ -107,6 +130,17 @@ _READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHi
 # modèle qui lit ces phrases et tranche. Elles disent donc ce que le tool fait *et* vers
 # quoi renvoyer quand ce n'est pas lui — un tool qui ne dit pas ce qu'il n'est pas se fait
 # appeler à tort.
+#
+# ``collections`` est exposé sur les trois tools qui le portent, et **sans ``enum``** — les
+# deux moitiés de l'arbitrage du 2026-09-07 :
+#
+# * exposé, parce que l'étage 3 promet de *réduire* un périmètre à la demande. Le retirer
+#   rendrait morte la branche « collection fermée au profil » de ``_resolve_perimeter``,
+#   qui est contrôlée ;
+# * sans ``enum``, parce qu'une énumération statique des quatre ``doc_type`` publierait
+#   l'existence de ``note_interne`` à un client ``dev`` qui n'y a pas droit. Un tableau de
+#   chaînes libres réutilise l'arbitrage déjà écrit pour ``get_document`` : un nom inventé
+#   et un nom fermé rendent le même ``perimetre_interdit``, et ne se distinguent pas.
 
 
 @mcp.tool(
@@ -119,8 +153,9 @@ _READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHi
     ),
     annotations=_READ_ONLY,
 )
-def answer_question(question: str) -> str:
-    return _rag_result("answer_question", {"question": question})
+def answer_question(question: str, collections: _COLLECTIONS = None) -> str:
+    return _rag_result("answer_question", _documentary(question=question,
+                                                       collections=collections))
 
 
 @mcp.tool(
@@ -133,8 +168,8 @@ def answer_question(question: str) -> str:
     ),
     annotations=_READ_ONLY,
 )
-def search_docs(query: str) -> str:
-    return _rag_result("search_docs", {"query": query})
+def search_docs(query: str, collections: _COLLECTIONS = None) -> str:
+    return _rag_result("search_docs", _documentary(query=query, collections=collections))
 
 
 @mcp.tool(
@@ -162,8 +197,8 @@ def get_document(doc_id: str, version: str | None = None) -> str:
     ),
     annotations=_READ_ONLY,
 )
-def list_sources() -> str:
-    return _rag_result("list_sources", {})
+def list_sources(collections: _COLLECTIONS = None) -> str:
+    return _rag_result("list_sources", _documentary(collections=collections))
 
 
 # --- Domaine métier -------------------------------------------------------------------
