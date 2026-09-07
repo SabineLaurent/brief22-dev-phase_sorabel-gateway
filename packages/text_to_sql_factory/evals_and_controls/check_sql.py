@@ -26,7 +26,10 @@ from pathlib import Path
 from config import settings
 from packages.access import scope_for
 from packages.text_to_sql_factory.contract import ReadContract, build_read_contract
-from packages.text_to_sql_factory.executor import execute, explain
+# `_connect` est importé exprès malgré son tiret bas : le contrôle de l'invariant de
+# lecture seule doit porter sur **la** fonction qui ouvre les connexions du service, pas
+# sur une connexion réécrite ici — qui ne prouverait rien de ce que fait l'exécuteur.
+from packages.text_to_sql_factory.executor import _connect, execute, explain
 from packages.text_to_sql_factory.generator import Generation, SqlGenerator, clarification_axes
 from packages.text_to_sql_factory.tools import ask_database, check_stock, get_schema, order_status
 from packages.text_to_sql_factory.validator import validate
@@ -221,6 +224,28 @@ def main() -> int:
         except sqlite3.Error:
             check(label, "refusé", "refusé")
     connection.close()
+
+    # L'invariant qui porte réellement la garantie : la connexion est **neuve à chaque
+    # requête**. `query_only` se désarme par un PRAGMA — que le validateur refuse en amont,
+    # mais la défense de fond est que le désarmement ne survive pas d'un appel au suivant :
+    # une connexion désarmée exfiltre la base entière par un seul `VACUUM INTO`.
+    # Ce contrôle existe parce que le dépôt a déjà mémoïsé des constructeurs pour la
+    # performance (`build_embedder`, `build_reranker`) : le même geste sur `_connect`
+    # laisserait tous les autres contrôles au vert.
+    disarmed = _connect(settings)
+    disarmed.execute("PRAGMA query_only=OFF")
+    fresh = _connect(settings)
+    check("query_only réarmé sur connexion neuve",
+          (disarmed.execute("PRAGMA query_only").fetchone()[0],
+           fresh.execute("PRAGMA query_only").fetchone()[0]),
+          (0, 1))
+    disarmed.close()
+    fresh.close()
+
+    # Garde de dernier recours de `execute()` : jamais atteinte par le service, puisque
+    # `validate()` passe avant. Appelée seule, elle doit tenir quand même.
+    check("execute() seule sur une non-lecture → erreur_execution",
+          execute("UPDATE produits SET prix_vente_ht=1").code, "erreur_execution")
 
     print("\nExécution et contrôles du résultat (N7)")
     check("T1 — commandes d'avril 2026",
