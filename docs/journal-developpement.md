@@ -785,6 +785,12 @@ départage qui se déclenche ; ici RRF et le reranker corrigent déjà la moiti�
 même le départage (voir plus bas). La ligne « RAG simple » (A, texte brut, filtre et
 départage désactivés) confirme l'écart : **1/8** contre **8/8** pour le RAG avancé.
 
+> **Chiffres republiés le 2026-09-07 — cette table est celle du 2026-09-02 et reste telle
+> quelle.** L'index a été reconstruit depuis, et les cibles de mesure ne tournaient plus
+> pendant trois jours. Après correction : A passe à **1/8** (MRR 0,271), la ligne « RAG
+> simple » à **4/8** ; B et C sont rejoués **identiques**. Voir l'entrée du 2026-09-07,
+> « Les deux mesures qui manquaient, et une cible qui ne tournait plus ».
+
 ### Écart mesuré, chassé jusqu'à sa cause — B lexical à 3/8, pas 8/8
 
 `Q3.md` §2 annonce le lexical seul à 8/8 en Hit@1 référence. La mesure en rend **3/8**.
@@ -2742,3 +2748,281 @@ vérifiée après coup, avec un décompte, vaut mieux qu'une conviction — et e
 jamais spontanément, précisément parce que tout s'est bien passé. La règle générale n'est pas
 « anticiper » : c'est **nommer l'anticipation quand on la fait**, pour pouvoir la juger plus
 tard au lieu de la croire.
+
+## 2026-09-07 — Revue de fin de chantier : trois suites données, dont une garantie non contrôlée
+
+Suites de la revue du jour (`docs/2026-09-07-revue-brief22-phase-developpement.md`, TODO en
+`docs/2026-09-07-todo-post-revue.md`). Trois items, dans l'ordre où ils protègent quelque
+chose. Aucun ne change ce que le produit rend : `make test` reste à 12/12.
+
+### 1. La lecture seule était garantie par une propriété que rien ne contrôlait
+
+Le Text-to-SQL défend la lecture seule sur trois couches, et **les trois n'ont pas la même
+couverture de contrôle**. Mesuré, sur la base réelle :
+
+| Couche | Ce qu'elle arrête seule | Contrôlée avant ce jour ? |
+|---|---|---|
+| `mode=ro` | rien de l'exfiltration : `ATTACH` puis `CREATE TABLE p.vol AS SELECT * FROM produits` copie **120 lignes / 24 Ko**, `prix_achat_ht` et `marge_pct` comprises | c'est le contre-exemple, il n'a pas à l'être |
+| `PRAGMA query_only=ON` | l'exfiltration, **jusqu'à `PRAGMA query_only=OFF`** — qui passe sur la connexion | oui, le PRAGMA est refusé au validateur |
+| **connexion neuve par requête** | tout le reste : le désarmement ne survit pas d'un appel au suivant | **non** |
+
+La troisième est celle qui porte réellement la garantie. Une connexion désarmée exfiltre
+**159 744 o — la base entière — par un seul `VACUUM INTO`**, en une instruction qui n'écrit
+rien. Ce qui l'empêche est que `_connect()` ouvre une connexion neuve à chaque `_run()`.
+
+**Pourquoi c'était le contrôle qui manquait le plus.** Le dépôt a déjà fait ce geste, et pour
+une bonne raison : à l'étape C, `build_embedder` et `build_reranker` ont été **mémoïsés** pour
+la performance — 4 s par question. Le même réflexe appliqué à `_connect` aurait laissé les 81
+contrôles au vert et fait tomber la lecture seule en silence, puisque le premier appel qui
+désarme profiterait au suivant. Une garantie qu'aucun contrôle ne tient n'est pas une
+garantie, c'est une habitude.
+
+Le contrôle importe `_connect` **nommément**, tiret bas compris. C'est délibéré : une
+connexion réécrite dans le script contrôlerait le script. `check-sql` passe de 81 à **83** —
+le second contrôle est la garde de dernier recours d'`execute()` sur une non-lecture, jamais
+atteinte par le service puisque `validate()` passe avant, et jamais exercée non plus.
+
+Critère de succès vérifié en remplaçant `_connect` par une connexion gardée : le contrôle rend
+`(0, 0)` au lieu de `(0, 1)` et `check-sql` rougit, seul.
+
+### 2. `collections` était promis, implémenté, contrôlé — et inatteignable
+
+`03-catalogue-tools.md` promet `answer_question(question, collections)`. `_resolve_perimeter`
+l'implémente, avec un refus explicite sur collection fermée plutôt qu'un rognage muet, et
+`check-rag-tools` le couvre. Mais **les tools MCP ne l'exposaient pas** : aucun client ne
+pouvait l'atteindre.
+
+Deux moitiés à l'arbitrage :
+
+- **exposer plutôt que retirer la promesse.** Retirer aurait rendu morte la branche
+  « collection fermée » et ses contrôles : on aurait échangé un écart de catalogue contre du
+  code mort, le plus mauvais des deux échanges ;
+- **sans `enum`.** Une énumération statique des quatre `doc_type` publierait l'existence de
+  `note_interne` à un client `dev`, qui n'y a pas droit — l'`inputSchema` est lu par le LLM du
+  client. Un tableau de chaînes libres réutilise l'arbitrage déjà écrit pour `get_document` :
+  **un nom fermé et un nom inventé rendent le même `perimetre_interdit`**, et ne se
+  distinguent pas.
+
+Vérifié de bout en bout sous `dev` : 270 sources sans argument, 120 en `fiche_technique`,
+`note_interne` et `zzz_inexistante` refusées à l'identique.
+
+Un détail qui n'en est pas un : `_documentary()` **retire les arguments absents** avant de les
+passer au handler. Le handler écartait déjà un `None` de l'appel, mais pas de l'entrée de
+journal — un `collections: null` journalisé dirait que le client a envoyé quelque chose.
+
+### 3. Deux écarts au cadrage DSI : ne rien changer, écrire pourquoi
+
+`docs/cadrage_dsi.md` est plus restrictif que `mcp_server/matrice.yaml` sur deux points, tous
+deux pour `support` : les notes internes y sont « réservées au profil `commercial` », et
+`ventes.*` y est « table non accessible ». La matrice ouvre les notes sur trois thèmes (318
+éditions) et `ventes` moins `marge_ht`.
+
+**Décision : la matrice ne change pas, les motifs s'écrivent** — et au ras des lignes
+concernées, pas en tête de fichier : un motif à trente lignes de la donnée qu'il justifie ne
+sera pas relu au moment où l'on touche la donnée.
+
+Le motif des notes était déjà à moitié écrit (le grain est le thème, `Q3` §6 ; le marqueur
+« Diffusion restreinte » ne couvre que 16 des 32 notes sensibles, et fermer la collection
+coûterait au support ses 16 notes alerte-qualité). Il gagne la mention explicite de l'écart.
+
+**Le motif de `ventes` est nouveau, et il est de nature différente.** Le premier argument est
+que E5 ferme **trois colonnes, pas une table** — le secret est en trois exemplaires, `marge_ht`
+donne `prix_achat_ht` sur 993 lignes de vente sur 993, qui donne `marge_pct` sur 120 produits
+sur 120. Le second est un effet sur les contrôles eux-mêmes : fermer `ventes` ferait attraper
+la requête au **contrôle 5a** (« table hors périmètre »), qui est antérieur au 5b. Or le cas
+`SUM(v.marge_ht) FROM ventes v JOIN produits p` de `check_sql.py` est **le seul cas `support`
+qui exerce la résolution d'alias du contrôle 5b**. Fermer la table le ferait passer au vert
+sans jamais parcourir 5b : un contrôle vert pour la mauvaise raison ne contrôle plus rien.
+
+C'est le même argument que celui déjà écrit pour `ask_database` — accordé à `support` parce que
+SQL-17 → SQL-20 doivent être refusées **sur le périmètre et non sur le tool** — mais un étage
+plus bas. Vérifié au passage : les quatre questions portent sur des *marges*, pas sur `ventes`
+comme table.
+
+### Ce que la revue apprend, au-delà des trois items
+
+Les trois ont la même forme : **une garantie réelle, et un contrôle qui ne la tient pas**. La
+lecture seule tenait sur une propriété non contrôlée ; `collections` était contrôlé mais
+inatteignable ; deux écarts assumés n'étaient assumés que dans la tête de celui qui les avait
+décidés. Aucun des trois n'était un bug — et c'est précisément pourquoi aucun n'aurait été
+trouvé en exécutant le produit.
+
+Contrôles après coup : `make test` 12/12, `check-sql` **83**, `check-feedback` 103,
+`check-rag-tools` 62, `check-perimetre` 31, `make lint` ruff au vert et les **trois mêmes**
+erreurs mypy préexistantes (Chainlit ×2, `IncludeEnum`).
+
+## 2026-09-07 — Les deux mesures qui manquaient, et une cible qui ne tournait plus
+
+Suite de la revue du jour : les deux items de mesure de la vague 1. Ils ajoutent **deux axes**
+au protocole — la même figure que l'axe 3 au chantier du périmètre : *ajouter* un axe n'est pas
+*ajuster* une mesure, et les sept mesures des axes 1 et 2 ne sont pas touchées.
+
+### Axe 4 — le refus tel qu'il est servi
+
+`rapport_gain.md` publie une ligne « refus corrects » à 5/8 pour la configuration servie. Elle
+est juste, et elle ne mesure pas E1. Elle porte sur `search()` suivi d'une comparaison au
+seuil — **la barrière 1 seule**, ce qui est le bon périmètre pour comparer trois étages de
+recherche. Mais E1 vit dans `answer_question`, et ce tool a **deux** barrières.
+
+| | Où | Ce qu'elle lit | Nature |
+|---|---|---|---|
+| **1** `hors_corpus` | `search(threshold=…)` | le score du premier résultat | déterministe, **avant tout appel au modèle** |
+| **2** `contexte_insuffisant` | la garde de suffisance du rédacteur | les extraits eux-mêmes | jugement du modèle, **non déterministe** |
+
+Mesuré, profil `commercial` : **refus corrects 5/8 → 8/8**, **faux refus 1/22 → 3–4/22**. La
+barrière 2 rattrape RAG-23, RAG-24 et RAG-29 ; la barrière 1 tranche les cinq autres, et elle
+les tranche sans dépenser un token — ce que la seconde ne peut pas faire.
+
+**Un seul appel de tool par question suffit aux deux colonnes**, et c'est ce qui rend la mesure
+honnête plutôt que reconstituée : le code rendu *dit* lequel des deux étages a tranché. Deux
+exécutions dont l'une serait rejouée à part n'auraient pas la même valeur de preuve.
+
+**Ce que le rapport publie et qu'un rapport de mesure n'aime pas publier.** La barrière 2 est
+un appel de modèle. Le protocole §11 refuse tout juge probabiliste *dans la mesure* ; ici il
+est dans le **produit**, et mesurer ce que la gateway fait suppose de faire ce qu'elle fait.
+La cible joue donc **trois passes**, le rapport donne une plage `n–m` sur toute métrique qui
+bouge, et il **nomme** les questions qui bougent — RAG-05 et RAG-08. Jamais une moyenne :
+« 3,3 faux refus » cacherait laquelle des 22 bouge, qui est la seule information exploitable.
+
+Les trois plages de score sont publiées au passage, et elles portent l'argument de fond :
+`reference_exacte` 0,9998–1,0000 · `couverte` **0,0049**–0,9997 · `hors_corpus`
+0,0015–**0,8422**. Les deux dernières se recouvrent largement — **aucun réglage du seuil ne
+les sépare**. Une seconde barrière qui lit le *contenu* n'est donc pas une ceinture de
+sécurité ajoutée par prudence : c'est le seul organe qui puisse trancher là où le score ne
+peut pas.
+
+### Axe 5 — E5, la seule exigence qui n'avait pas de chiffre
+
+E5 porte **deux** obligations, et elles ne se prouvent pas de la même façon. *Tout appel est
+journalisé* se **compte**. *Les colonnes sensibles ne sortent jamais pour `support`* se
+**cherche** — dans la vue client sérialisée, la seule chaîne qui parte vraiment.
+
+Dix scénarios × cinq profils = 50 appels. **50/50 journalisés**, **0 occurrence** des trois
+colonnes chez `default`, `dev` et `support`.
+
+**Le point de conception que la mesure a fait apparaître : les trois étages ne se lisent pas au
+même endroit.** L'étage 1 se lit dans `tools/list` ; les étages 2 et 3 dans `blocked_at`. Et
+**l'étage 1 ne peut pas apparaître dans `blocked_at`** — il filtre une liste, il n'arrête aucun
+appel ; un client qui appelle un tool non listé est refusé à l'étage 2, et c'est celui-là qui
+est journalisé. Mesurer E5 sur le seul journal aurait donc manqué un étage entier. Vérifié :
+zéro `blocked_at = 1` sur les 50 appels, et aucun site du code ne peut l'écrire.
+
+Le catalogue par profil est confronté à la matrice **telle que le code la lit** (`load_matrix`,
+pas le YAML) : 0 · 5 · 7 · 8 · 8, les deux colonnes coïncident. Ce n'est pas une redondance —
+c'est ce qui atteste que le catalogue servi *est* la matrice et non une copie qui pourrait
+dériver.
+
+Le script vit dans un paquet neuf, `packages/evals_and_controls/`, et le motif est structurel :
+c'est la seule mesure qui porte sur les huit tools. La mettre côté RAG ou côté SQL lui ferait
+importer l'autre domaine, ce que ni l'un ni l'autre ne fait — leur seul lien est le protocole
+`Journalable`.
+
+**« Nommer, pas numéroter » : tranché — on numérote.** La réserve était ouverte depuis la pose
+de `blocked_at` ; c'est cette mesure qui lit le champ pour la première fois, donc c'est ici
+qu'elle se tranche. `etage` porte déjà le même entier et les deux doivent s'accorder — deux
+vocabulaires pour une notion divergeraient. Les numéros sont ceux de `03-catalogue-tools.md`
+§3. Et un entier se compare : `blocked_at > 0` dit « arrêté par la gouvernance » en trois
+caractères. **Le nom appartient à la lecture, pas à l'écriture** — c'est le rapport qui nomme
+les trois étages, et c'est le bon endroit.
+
+### Ce qu'on a trouvé en chemin : neuf cibles de mesure ne tournaient plus
+
+Découvert en écrivant l'axe 4, pas par la revue. `make eval-sql` échouait à l'instant :
+
+```
+jeu de questions absent : …/packages/eval/questions_sql.jsonl
+```
+
+`REPO_ROOT = Path(__file__).resolve().parents[2]` — juste tant que le module vivait un cran
+plus haut, faux depuis `dc5e9eb` (2026-09-04, « un sous-répertoire par domaine »). Trois
+modules concernés, donc **`eval-sql`, les sept `mesure-*` et `make mesure`**. L'échec était
+bruyant — rien n'a été publié en silence. Correctif : `parents[3]`, motif en commentaire.
+
+**Et derrière le chemin, le vrai constat : `rapport_gain.md` ne se régénère pas à
+l'identique.** Deux causes superposées.
+
+`04e9bdf` (2026-09-03, « mesure-dense rejouée ») a réécrit `mesure-dense.csv`
+**sans régénérer le rapport**. Puis l'index a changé — la réingestion du chantier du
+périmètre. Les scores de RAG-06, RAG-07, RAG-13, RAG-17 et RAG-18 ont bougé, jusqu'à +0,04 :
+ce n'est pas du bruit numérique, c'est un texte indexé différent.
+
+| Configuration A (dense) | rapport commité | ses CSV commités | passe fraîche |
+|---|---:|---:|---:|
+| Hit@1 référence | **2/8** | 2/8 | **1/8** |
+| MRR | 0,375 | 0,354 | 0,271 |
+| Recall@5 type | 11/13 | 9/13 | 11/13 |
+
+**`mesure-hybride` est rejoué bit pour bit identique** — `git diff` vide. B 3/8 et C 8/8 sont
+intacts, et la thèse d'E6 n'est pas en cause : l'« avant » devient *plus mauvais*, donc le
+gain publié est sous-estimé et jamais l'inverse.
+
+**Décision prise : republié.** Un rapport que ses propres entrées contredisent ne se défend
+pas, et l'écart joue en faveur du produit. `make mesure` rejoué en entier ; `CLAUDE.md`, la
+revue du jour et l'aide-mémoire de soutenance reprennent le chiffre. **La table du 2026-09-02,
+plus haut dans ce journal, garde les siens** — on n'y réécrit pas l'histoire, on l'annote d'un
+renvoi vers ici.
+
+### Deux questions posées pendant la republication, et leurs réponses mesurées
+
+**« Puisqu'il y a eu réindexation, faut-il recalibrer les seuils ? »** Fondé : un seuil de
+refus est réglé *sur des scores*, et les scores ont bougé. Rejoué :
+
+| | Configuré | Reproposé après réindexation |
+|---|---:|---:|
+| `REFUSAL_THRESHOLD` (A, cosinus) | 0,8308 | **0,8308** |
+| `RERANK_THRESHOLD` (C, reranker) | 0,0530 | **0,0530** |
+
+**Rien à reporter.** Et la raison tient à une décision de conception antérieure : la
+calibration se règle sur `questions_calibration.jsonl`, huit questions écrites pour ça et
+distinctes des trente du jeu de mesure (`Q4` §6). Ce sont les scores du *jeu de mesure* qui
+ont bougé ; l'optimum sur le *jeu de calibration* n'a pas changé de place. La séparation des
+deux jeux, prise pour ne pas « constater un réglage au lieu de mesurer une capacité », rend
+ici la calibration **robuste à une réindexation** — un bénéfice qui n'était pas le motif.
+
+**« C'est quoi ce crash, `Error 134` ? »** `SIGABRT` (128+6), une fois, **après** que le CSV
+et la ligne de synthèse aient été écrits — donc à la finalisation de l'interpréteur, pas
+pendant la mesure. Non reproduit : `mesure-hybride` relancé trois fois de suite sort en 0, et
+le CSV est identique au bit. C'est la classe de fragilité connue de PyTorch/OpenMP et de
+Chroma dans un même processus sur macOS, à l'extinction. **Aucun chiffre n'est affecté.** Ce
+qui l'est, c'est l'orchestration : `make mesure` chaîne sept cibles, et un abort au teardown
+de la troisième a fait tomber les quatre suivantes. Reste ouvert au TODO, sans urgence — la
+parade est de rejouer la cible qui a sauté, et l'échec est bruyant.
+
+### Un chiffre contre-intuitif, décomposé plutôt que laissé tel quel
+
+La republication fait apparaître ceci : la ligne « RAG simple » rend **4/8** là où la
+configuration A « propre » rend **1/8**. Le baseline censé être le plus faible bat la mesure
+« avant » du brief. Décomposé sur place, un drapeau à la fois — la règle du §1 du protocole
+appliquée à sa propre anomalie :
+
+| Configuration A (dense seul) | Hit@1 référence | MRR |
+|---|---:|---:|
+| `clean` · filtre **on** *(mesure-dense)* | 1/8 | 0,271 |
+| `clean` · filtre **off** | 1/8 | 0,292 |
+| `raw` · filtre **on** | **4/8** | 0,573 |
+| `raw` · filtre **off** *(mesure-rag-simple)* | **4/8** | 0,573 |
+
+**C'est le texte brut, et lui seul** — le filtre de version ne change rien au Hit@1.
+
+Ce n'est pas une contradiction du dossier, c'est une précision de son périmètre. `Q3` §2
+justifie le nettoyage par « +5 en Hit@3 » et le mesure **sur BM25**, où une référence est un
+terme à IDF très élevé : retirer la ligne « Accessoires et produits associés » empêche la fiche
+de `REF-8842` de remonter sur une recherche `REF-4581`. Sur le **dense**, le même retrait coûte
+trois questions sur huit — l'embedding d'une fiche qui cite plusieurs références ressemble
+davantage à une requête qui *est* une référence nue.
+
+La décision de nettoyer n'est pas invalidée pour autant, et c'est le point : dans la
+configuration **servie** (C), `raw` et `clean` donnent tous deux 8/8. Le reranker rend
+l'arbitrage invisible là où il compte. Le nettoyage se défend donc sur son étage, BM25, et non
+comme une amélioration générale — nuance qui n'était écrite nulle part.
+
+**Ce que l'épisode enseigne, et c'est le vrai enseignement de la journée.** Le dépôt écrit
+« *Rejouer : `make mesure-perimetre`* » au bas de chaque rapport. Cette phrase est une
+**promesse vérifiable**, et personne ne l'avait vérifiée depuis trois jours. Une mesure publiée
+n'est pas un chiffre : c'est un chiffre **plus la commande qui le refait**. La seconde moitié
+se casse en silence — un déplacement de fichier suffit — et rien dans `make test`, `make lint`
+ni les 278 contrôles déterministes ne la regarde.
+
+Contrôles après coup : `make test` 12/12, check-sql **83**, check-feedback 103,
+check-rag-tools 62, check-perimetre 31, ruff au vert, les **trois mêmes** erreurs mypy
+préexistantes.

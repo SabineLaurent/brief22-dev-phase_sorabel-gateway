@@ -14,12 +14,18 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
 - **Chantier RAG, étape 2 — recherche dense, citations, refus : faite.**
   `retrieval/search.py` (tout paramétré : collection, étage, filtre, départage, seuil),
   `scripts/calibrate_threshold.py`, `eval/questions_calibration.jsonl`. Mesure « avant »
-  posée : Hit@1 2/8 en dense seul, refus 7/8 au seuil 0,831.
+  posée : Hit@1 **1/8** en dense seul, refus 7/8 au seuil 0,831 (2/8 à la première mesure ;
+  republié le 2026-09-07 après réindexation — cf. journal du jour).
 - **Chantier RAG, étape 3 — hybride BM25 + RRF + rerank, mesure du gain E6 : faite.**
   `retrieval/lexical.py` (BM25), `retrieval/reranker.py` (cross-encoder / LLM Azure,
   commutables), `scripts/eval_rag.py`, sept cibles `mesure-*`. E6 mesuré et publié dans
-  `eval/rapport_gain.md` : Hit@1 référence 2/8 (A) → 3/8 (B) → **8/8 (C)**, MRR 1,000 en
+  `eval/rapport_gain.md` : Hit@1 référence **1/8** (A) → 3/8 (B) → **8/8 (C)**, MRR 1,000 en
   hybride. Chantier RAG terminé.
+  **Chiffres republiés le 2026-09-07.** A valait 2/8 à la première mesure ; l'index a été
+  reconstruit depuis, et les neuf cibles de mesure ne tournaient plus (chemin faux, corrigé).
+  B et C sont **rejoués identiques** : seul l'« avant » bouge, et il devient plus mauvais —
+  le gain publié était sous-estimé. Les seuils, eux, **n'ont pas bougé** : `make calibrer` et
+  `make calibrer-hybride` reproposent 0,8308 et 0,0530, les valeurs configurées.
 - **Chantier Text-to-SQL : fait, en bibliothèque.** `packages/text_to_sql_factory/` :
   `access_sql` (les colonnes ; la matrice elle-même vit dans `packages/access.py`), `contract` (contrat de lecture filtré), `generator` (une passe LLM,
   trois branches, plus une reprise sur requête fausse), `validator` (cinq contrôles sqlglot
@@ -202,7 +208,7 @@ domaine. Pour le corpus : `build_metadata()` dans `ingest/registry.py`.
 ## Mesure
 
 `eval/protocole-mesure.md` fixe **ce qui varie et ce qui ne varie pas** dans toute
-comparaison : quatre drapeaux orthogonaux, trois axes, une cible Make par mesure
+comparaison : quatre drapeaux orthogonaux, cinq axes, une cible Make par mesure
 publiée. À lire avant d'écrire la moindre ligne d'évaluation — le protocole a été
 arrêté avant l'implémentation exprès pour ne pas se façonner sur elle.
 
@@ -232,6 +238,8 @@ make check-rag-tools # contrôles des quatre tools RAG et de leur journal (sans 
 make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
 make check-feedback # contrôles de la réponse structurée et du journal (sans appel de modèle)
+make mesure-refus  # axe 4 : le refus servi sur les deux barrières -> eval/rapport_refus.md
+make mesure-acces  # axe 5 : E5 chiffrée, étages d'arrêt et colonnes fermées -> eval/rapport_acces.md
 make journal       # les 20 dernières entrées de logs/journal.jsonl
 make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM chacune)
 make serve         # serveur MCP stdio, les huit tools (profil dans SORABEL_PROFILE)
