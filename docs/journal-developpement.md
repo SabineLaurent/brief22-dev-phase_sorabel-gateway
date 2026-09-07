@@ -3119,3 +3119,169 @@ imaginée — pas traité, faute de reproduction.
 Contrôles après coup : check-rag-tools **62 → 67**, check-sql 83, check-feedback 103,
 check-perimetre 31, `make check-index` au vert, **`make lint` au vert pour la première fois du
 projet**.
+
+## 2026-09-07 — L'`outputSchema` : le contrat n'était pas absent, il était faux
+
+Question posée en marge du mini guide : « pour les MCP, existe-t-il une manière de présenter ce
+qu'il fournit en contrat, un peu comme un Swagger pour une API ? » Oui — et l'instruire a
+renversé une décision prise le matin même.
+
+### Ce que `tools/list` est, et ce qu'il n'est pas
+
+C'est l'équivalent de `/openapi.json`, à une différence qui est tout l'intérêt : **ce n'est pas
+un fichier maintenu à côté du code, c'est une méthode du serveur**. Chez nous, `list_tools` est
+même l'expression de la matrice — le catalogue publié *est* le droit d'accès. Un `openapi.yaml`
+mente dès qu'on oublie de le régénérer ; celui-ci ne peut pas.
+
+L'équivalent de Swagger UI existe et il est officiel : `@modelcontextprotocol/inspector`, en
+GUI et en CLI. C'est aussi la réponse à « essai du service » des modalités d'évaluation, et le
+tableau profil × tools du mini guide devient reproductible en une commande au lieu d'être
+recopié.
+
+### Le fait qui a renversé la décision du matin
+
+`§3.5` du TODO disait « ne rien rétro-adapter », et le tableau §B.1 de la revue écrivait
+« `outputSchema` : **non déclaré** ». **Les deux étaient faux.** FastMCP dérive l'`outputSchema`
+de l'annotation de retour sans qu'on le lui demande. Les huit tools étant annotés `-> str`, le
+serveur publiait depuis son premier jour :
+
+```json
+{"type":"object","required":["result"],"properties":{"result":{"type":"string"}}}
+```
+
+et rendait `structuredContent = {"result": "<toute l'enveloppe DSI en chaîne>"}`.
+
+**Un contrat déclaré qui promet une chaîne est pire qu'un contrat absent.** Il est publié dans
+`tools/list`, donc lu par tout client externe et par l'Inspector ; et il passe la validation du
+SDK — serveur et client — sans rien attraper, puisqu'une chaîne est bien une chaîne. Le champ
+structuré existait et ne contenait qu'une opacité.
+
+La seconde erreur était le risque : « cela changerait `content[0].text`, on mettrait 12/12 en
+risque pour zéro point ». Le bloc texte passe en réalité de `json.dumps(view,
+ensure_ascii=False)` à `pydantic_core.to_json(view, indent=2)` — **le même objet à
+l'indentation près** — et les trois seuls clients MCP du dépôt font tous `json.loads`. Le
+risque évalué à douze tests valait l'espacement d'une chaîne que personne ne compare.
+
+**Ce que l'épisode enseigne, et ce n'est pas « vérifier ses affirmations ».** Les deux erreurs
+portaient dans le même sens : elles décrivaient une absence là où il y avait un défaut. Une
+absence se répare quand on a le temps ; un contrat faux ment tant qu'on ne le regarde pas. La
+revue a lu le **dépôt** — où `grep -r outputSchema` ne rend rien — et pas le **servi**. Entre
+les deux il y a un framework qui remplit les blancs, et il les remplit toujours par un défaut
+plausible. Une revue qui ne fait pas tourner ce qu'elle décrit ne voit que la moitié écrite.
+
+### Pourquoi le schéma est écrit à la main, alors que tout le reste du dépôt est dérivé
+
+C'est le point de conception de la séance, et il vient d'une mesure.
+
+Un type de retour joue **deux** rôles dans FastMCP : il dérive le schéma *et* il filtre la
+sortie, par `model_validate` puis `model_dump`. Mesuré sur un modèle volontairement plus
+étroit que le dictionnaire rendu :
+
+```
+bloc texte : {"status":"ok","payload":{"code":"ok"},"message":"phrase servie"}
+structuré  : {"status":"ok","payload":{"code":"ok"}}
+égaux      : False        clés perdues au structuré : ['message']
+```
+
+`content[0].text` est sérialisé depuis le dictionnaire **brut** ; `structuredContent` passe par
+le modèle, qui écarte en silence ce qu'il ne déclare pas. **Les deux moitiés de la réponse
+divergent** — précisément l'erreur que le §4 conçu voulait empêcher, retournée contre lui.
+
+Or le payload servi est un **surensemble du cadrage** : `code` partout, `conventions` et
+`truncated` sur `ask_database`, cinq clés de citation là où le cadrage en nomme trois, neuf à
+onze clés de métadonnées là où il en nomme quatre. Un schéma calqué sur le cadrage serait donc
+plus étroit que le servi, et il coûterait des clés au client structuré.
+
+D'où le découplage. Le décorateur n'accepte pas de schéma, mais **`SorabelMCP.list_tools`
+existait déjà** — pour l'étage 1 — et c'est cette liste qui remplit le cache dont le serveur se
+sert pour valider. En y réécrivant `tool.outputSchema`, le schéma publié se sépare du type de
+retour : le type reste `dict[str, Any]`, donc il ne filtre rien, et le schéma dit ce qu'on veut.
+Le schéma servi et le droit d'accès sont posés **au même endroit, sur la même liste** — ce qui
+est la bonne symétrie, pas une coïncidence de commodité.
+
+### Trois provenances, et chacune évite une panne nommée
+
+| Partie | D'où elle vient | La panne évitée |
+|---|---|---|
+| `status` | **calculée** depuis `DB_STATUS_BY_CODE` / `RAG_STATUS_BY_CODE` | un enum recopié dérive le jour où un domaine gagne un statut ; celui-ci *est* la table |
+| `payload` | **écrit à la main**, par tool | un payload dérivé d'un type filtre la réponse (mesuré ci-dessus) |
+| `payload.code` | décrit, **sans `enum`** | un enum incomplet transforme une réponse valide en panne |
+
+Le troisième mérite son détail, parce que c'est une leçon empirique. J'ai voulu relever les
+codes atteignables par tool pour en faire une énumération. Le relevé par lecture en a **manqué
+trois** : côté RAG `perimetre_interdit` passe par la constante `_FORBIDDEN_PERIMETER`, côté SQL
+`aucune_ligne` et `ambiguite_donnees` sont propagés depuis le résultat d'exécution, jamais
+écrits au site de construction. Un enum bâti sur ce relevé aurait fait échouer trois cas
+légitimes. **La démonstration était dans l'échec de la démonstration** — et elle donne la même
+forme d'arbitrage que `collections` exposé sans `enum` : décrire sans contraindre.
+
+Et `additionalProperties` n'est fermé nulle part. Un objet fermé refuserait les clés que le
+schéma ne nomme pas — `conventions` et `truncated` aujourd'hui, la première ajoutée demain.
+
+### Le seul mode de panne, mesuré plutôt que redouté
+
+Si une enveloppe violait le schéma, le serveur rendrait `isError=True` et un bloc texte qui
+**n'est pas du JSON** :
+
+```
+isError : True
+texte   : Output validation error: 'inconnu' is not one of
+          ['ok','refused','clarification','hors_corpus','error']
+```
+
+Les trois clients passeraient ce texte à `json.loads` — **alors que le journal aurait déjà
+écrit `allowed`**. C'est le prix de tout `outputSchema` non trivial, et il faut le nommer plutôt
+que l'espérer absent. Il est borné par trois choses : le payload n'est jamais fermé, `code` n'a
+pas d'énumération, et la seule contrainte dure — l'enum des statuts — est calculée depuis les
+tables, donc structurelle et non conventionnelle.
+
+Vérifié aussi, et c'est ce qui met la suite d'acceptance hors d'atteinte : **un tool absent de
+`tools/list` n'est jamais validé**, ni par le serveur ni par le client — les deux se contentent
+d'un `warning`. Les tests de matrice, qui appellent justement des tools filtrés à l'étage 1,
+ne peuvent pas rencontrer ce chemin.
+
+### Le premier contrôle du serveur MCP du projet
+
+`make check-contrat` → `packages/evals_and_controls/check_mcp_contract.py`, **121 contrôles**.
+Les quatre suites existantes — 83, 103, 67, 31 — portent toutes sur les couches *en dessous* du
+protocole ; le catalogue publié n'était vu que par `eval_access.py`, et seulement en décompte.
+
+Il existe parce qu'un schéma écrit à la main est une source de vérité **séparée du code**, donc
+capable de dériver. C'est le prix du découplage, et le contrôle est ce qui le paie. Sa section
+la plus utile est celle qu'aucun schéma ne peut se donner à lui-même : l'énumération publiée
+confrontée à la table de domaine relue. Elle attrape le jour où un statut est ajouté sans que
+le schéma bouge — c'est-à-dire le jour où des appels normaux commenceraient à rendre `isError`.
+
+Les dix-sept enveloppes réelles y sont confrontées au schéma publié, chacune contre les quatre
+tools de son domaine : ce ne sont pas des enveloppes reconstituées, ce sont celles que
+`client_view()` et `rag_client_view()` rendent.
+
+### Ce qui reste d'écart, et il est nommé
+
+Les **noms de champs**. Le §4 conçu dit `code` / `hint` / `reponse` / `citations` ; le servi dit
+`status` / `payload` / `message`, avec `code` dans le payload. Deux contrats concurrents, et un
+`outputSchema` ne peut décrire que celui qui est servi. La portée de §3.5 a donc changé sans
+disparaître : **on déclare le contrat servi, on n'adopte pas le contrat conçu** — et c'est au
+mini guide de le dire.
+
+`hint` est **abandonné sans remplaçant**, décidé : le cadrage ne le prévoit pas, et l'ajouter
+ouvrirait un écart dans l'autre sens. Sa fonction est tenue par les descriptions des tools, qui
+nomment déjà le recours. `isError` tranché code par code reste abandonné aussi : le discriminant
+du client est `status`, puis `payload.code`.
+
+**Un bénéfice pour la tâche suivante** : le mini guide peut désormais recommander
+`structuredContent` comme chemin de lecture — ce que `03-catalogue-tools.md` §4 défendait comme
+« le chemin correct sans avoir à y penser ». Hier, il ne pouvait pas l'écrire sans mentir.
+
+Vérifications : `make lint` au vert · `check-contrat` **121** · check-sql 83, check-feedback
+103, check-rag-tools 67, check-perimetre 31 inchangés · `make test` **12/12** (46,68 s) ·
+de bout en bout à travers un vrai processus serveur, `structuredContent` porte l'enveloppe
+entière, un seul bloc de contenu, et `texte == structuré`.
+
+`make mesure-acces` rejoué : **E5 identique** — 50/50 journalisés, 0 fuite, catalogues
+0/5/7/8/8, et `rapport_acces.md` régénéré à l'octet près. Une seule ligne du CSV bouge,
+`admin sql-marge` de `ok` à `clarification` : c'est le générateur qui a jugé la question
+ambiguë cette fois, un appel de modèle et non un effet du schéma — `decision`, `etage`,
+`blocked_at` et la colonne sensible sont inchangés sur cette ligne. Le noter plutôt que le
+lisser : une mesure qui contient un jugement de modèle bouge, et l'endroit où elle bouge est
+l'information.

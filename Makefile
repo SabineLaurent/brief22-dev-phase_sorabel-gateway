@@ -1,6 +1,6 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
-	mesure-rag-simple mesure check-rag-tools check-sql check-feedback eval-sql test fmt lint serve client \
+	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat eval-sql test fmt lint serve client \
 	journal api web
 
 install:
@@ -107,3 +107,6 @@ api:
 # que `make api` et `make web` puissent tourner en même temps.
 web:
 	uv run chainlit run packages/web_client/app.py --port 8100
+
+check-contrat:
+	uv run python -m packages.evals_and_controls.check_mcp_contract

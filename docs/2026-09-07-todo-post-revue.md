@@ -8,6 +8,7 @@ sait pas quand la barrer.
 État de départ, mesuré le 2026-09-07 : `make test` 12/12 (48,46 s) · `check-sql` 81 ·
 `check-feedback` 103 · `check-rag-tools` 62 · `check-perimetre` 31.
 Après la vague 1 : `check-sql` **83** · `check-rag-tools` **67** · `make lint` **au vert**.
+Après §3.5 : `check-contrat` **121** — cible neuve, premier contrôle du serveur MCP.
 
 **Les mesures citées ici ont été relevées par des scripts jetables**, hors dépôt et non
 conservés : refaire la mesure fait partie de la tâche qui la cite (§2.1, §2.2, §2.3, §2.4).
@@ -527,17 +528,57 @@ tient ce choix, c'est le contrôle 5b. À dire ainsi, et pas autrement.
 > l'ouvrez-vous ? » a une réponse en deux phrases, et elle porte sur une propriété de test,
 > pas sur une préférence.
 
-### 3.5 Le contrat de réponse — **tranché le 2026-09-07 : ne rien rétro-adapter, écrire**
+### 3.5 Le contrat de réponse — **rouvert et refermé le 2026-09-07 : le contrat servi est déclaré**
 
-- [ ] **Écrire noir sur blanc que l'enveloppe DSI remplace l'`outputSchema` conçu.**
-  **Aucune modification du code servi.**
+- [x] **Déclarer au protocole l'enveloppe DSI, et consigner ce qui reste d'écart.**
+  *Fait le 2026-09-07* — `mcp_server/output_schemas.py` (les huit schémas),
+  `mcp_server/server.py` (les huit tools rendent l'enveloppe, `list_tools` publie le schéma),
+  `make check-contrat` : **121 contrôles**, le premier contrôle du serveur MCP du projet.
 
-**Pourquoi ne pas rétro-adapter.** Déclarer un `outputSchema` suppose de faire rendre aux
-tools un modèle typé au lieu de `str` : FastMCP dérive le schéma du type de retour. Cela
-changerait la forme servie — donc `content[0].text`, que la suite d'acceptance décode en
-`{status, payload, message}`. On mettrait **12/12 en risque pour zéro point** : le cadrage
-DSI est le contrat imposé, et c'est lui que les tests lisent. La décision est donc d'écrire
-l'écart, pas de le refermer.
+**La décision initiale reposait sur deux faits faux. Les voici, et ce qu'ils étaient.**
+
+1. « `outputSchema` non déclaré » (revue §B.1) — **faux**. FastMCP le dérive de l'annotation
+   de retour sans qu'on le lui demande : `-> str` publiait
+   `{"required":["result"],"properties":{"result":{"type":"string"}}}` et rendait
+   `structuredContent = {"result": "<l'enveloppe en chaîne>"}`. **Le défaut n'était pas une
+   absence, c'était un contrat qui promettait une chaîne** — publié dans `tools/list`, donc lu
+   par tout client externe, et validé par le SDK sans rien attraper ;
+2. « cela changerait `content[0].text`, on mettrait 12/12 en risque » — **faux**. Le bloc texte
+   passe de `json.dumps(view, ensure_ascii=False)` à `pydantic_core.to_json(view, indent=2)` :
+   le même objet à l'indentation près. Les trois seuls clients MCP du dépôt font tous
+   `json.loads`. `make test` reste 12/12, vérifié.
+
+**Ce qui a été décidé, et le pourquoi de chaque tiers.** Un type de retour joue *deux* rôles
+dans FastMCP : il dérive le schéma **et** il filtre la sortie. Mesuré sur un modèle plus
+étroit que le dict rendu : `content[0].text` garde la clé, `structuredContent` la perd — **les
+deux moitiés de la réponse divergent en silence**. Or le payload servi est un surensemble du
+cadrage (`code` partout, `conventions`, `truncated`, cinq clés de citation contre trois). D'où
+le partage :
+
+| Partie du schéma | D'où elle vient | Pourquoi |
+|---|---|---|
+| `status` | **calculée** depuis `DB_STATUS_BY_CODE` / `RAG_STATUS_BY_CODE` | elle *est* la table, elle ne la recopie pas — un enum qui ne peut pas dériver |
+| `payload` | **écrit à la main**, par tool | la seule moitié qui dit quelque chose, et le §4 conçu la spécifiait déjà |
+| `payload.code` | décrit, **sans `enum`** | un enum incomplet transforme une réponse valide en panne — et les codes ne sont pas relevables par lecture : `perimetre_interdit` passe par une constante, `aucune_ligne` est propagé depuis l'exécution |
+
+Le type de retour reste `dict[str, Any]`, donc **rien n'est filtré et rien ne peut diverger**.
+Le schéma publié est réécrit dans `SorabelMCP.list_tools` — le décorateur n'accepte pas de
+schéma, et cette méthode est déjà celle qui décide du catalogue *et* celle qui remplit le cache
+dont le serveur se sert pour valider. Le schéma servi et le droit d'accès sont posés au même
+endroit, sur la même liste.
+
+**Le champ `hint` du §4 est abandonné sans remplaçant**, décidé et consigné : le cadrage ne le
+prévoit pas, et l'ajouter au payload ouvrirait un écart dans l'autre sens. Sa fonction est
+tenue par les descriptions des tools, qui nomment déjà le recours — « Pour obtenir les extraits
+bruts sans rédaction, utiliser `search_docs` ». `isError` tranché code par code reste abandonné
+lui aussi : le serveur ne le pose que sur une violation de schéma, et le discriminant du client
+est `status`, puis `payload.code`.
+
+**Ce qui reste d'écart, et il faut l'écrire au mini guide** : les **noms de champs**. Le §4
+conçu dit `code` / `hint` / `reponse` / `citations` ; le servi dit `status` / `payload` /
+`message`, avec `code` dans le payload. Ce sont deux contrats concurrents, et un `outputSchema`
+ne peut décrire que celui qui est servi. La portée de cette case a donc changé : **on déclare le
+contrat servi, on n'adopte pas le contrat conçu.**
 
 `03-catalogue-tools.md` §4 spécifie, sur trois pages et avec un JSON Schema par tool, une
 sortie MCP 2026-07-28 : `outputSchema` d'union, `structuredContent`, `isError` tranché code
@@ -619,7 +660,7 @@ choix d'architecture seront « justifiés ». Voici ce qui répond, et ce qui ma
 | « Le support voit-il une marge ? » | non — trois colonnes fermées **ensemble** (fermeture par dérivation), contrôlé sur la projection, le `WHERE`, l'`ORDER BY` et les alias résolus par scope |
 | « Montrez le journal » | `make journal`, et T12 vérifie une ligne par appel, servi comme refusé |
 | « Et E5, chiffrée ? » | **rien à montrer aujourd'hui** — c'est §1.2, le trou le plus visible du dossier |
-| « Votre catalogue conçu ne ressemble pas à votre serveur » | §3.5, à écrire avant |
+| « Votre catalogue conçu ne ressemble pas à votre serveur » | **§3.5, fait** — l'`outputSchema` du §4 est publié (`mcp_server/output_schemas.py`) ; reste l'écart de **noms de champs**, à écrire au mini guide |
 | « Le cadrage dit `ventes` non accessible au support » | §3.4, à écrire avant |
 | « Un lien vers l'interface ? » | §1.3 |
 
@@ -655,7 +696,7 @@ Les trois qui bloquaient le mini guide sont **tranchées**. **6 et 7 sont appliq
 |---|---|---|
 | 6 | ~~**3.1** exposer `collections` sans `enum`~~ | **fait le 2026-09-07** — `server.py`, schéma vérifié sans `enum` |
 | 7 | ~~**3.4** motifs dans `matrice.yaml`~~ | **fait le 2026-09-07** — écrits au ras des lignes ; reste leur reprise au mini guide (§1.1) |
-| 8 | **3.5** demi-page sur le contrat de réponse | tranché — à écrire, code inchangé |
+| 8 | ~~**3.5** contrat de réponse~~ | **fait le 2026-09-07** — rouvert : deux faits faux le fondaient. `outputSchema` déclaré, 121 contrôles |
 | 9 | **2.5** `citations` au journal | **ouvert** — ajouter, ou consigner la contradiction de la conception |
 | 10 | **3.2** `search_for_profile()` | **ouvert** — sans effet sur le reste ; à trancher avant de la voir grossir |
 

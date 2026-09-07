@@ -34,7 +34,6 @@ du module ferait charger l'embedder et le reranker avant la première poignée d
 
 from __future__ import annotations
 
-import json
 import os
 from typing import Annotated, Any
 
@@ -43,6 +42,7 @@ from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from config import settings
+from mcp_server.output_schemas import OUTPUT_SCHEMAS
 from packages.access import authorize
 from packages.text_to_sql_factory.handler import SQL_TOOLS, handle_request
 from packages.text_to_sql_factory.models import SqlToolRequest
@@ -76,8 +76,18 @@ class SorabelMCP(FastMCP):
     """
 
     async def list_tools(self) -> list[Any]:
-        tools = await super().list_tools()
-        return [tool for tool in tools if authorize(PROFILE, tool.name, settings)]
+        listed = [tool for tool in await super().list_tools()
+                  if authorize(PROFILE, tool.name, settings)]
+        for tool in listed:
+            # L'``outputSchema`` est **réécrit ici**, et cet endroit n'est pas un choix de
+            # commodité : le décorateur ``@mcp.tool`` n'accepte pas de schéma explicite,
+            # FastMCP ne sait que le dériver de l'annotation de retour — et un type de
+            # retour ne fait pas que décrire la sortie, il la filtre. Cette méthode est
+            # déjà celle qui décide du catalogue publié ; c'est aussi elle qui remplit le
+            # cache dont le serveur se sert pour valider la sortie. Le schéma servi et le
+            # droit d'accès sont donc posés au même endroit, sur la même liste.
+            tool.outputSchema = OUTPUT_SCHEMAS[tool.name]
+        return listed
 
 
 mcp = SorabelMCP(
@@ -90,13 +100,17 @@ mcp = SorabelMCP(
 SQL_TOOL_LAUNCHER = SqlToolLauncher(SQL_TOOLS, settings)
 
 
-def _sql_result(tool: str, arguments: dict[str, Any]) -> str:
-    """Appelle la façade journalisée du domaine SQL et sérialise sa vue client."""
+def _sql_result(tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Appelle la façade journalisée du domaine SQL et rend sa vue client.
+
+    **Rendue telle quelle, pas sérialisée.** La sérialisation appartient au SDK, qui écrit
+    le bloc texte *et* ``structuredContent`` depuis le même dictionnaire — sérialiser ici
+    rendrait une chaîne, et une chaîne ne peut porter aucun ``outputSchema`` utile : c'est
+    exactement ce que le serveur publiait avant, un contrat qui promettait ``{"result":
+    "<chaîne>"}``.
+    """
     request = SqlToolRequest(tool=tool, profile=PROFILE, arguments=arguments)
-    return json.dumps(
-        handle_request(request, settings, SQL_TOOL_LAUNCHER),
-        ensure_ascii=False,
-    )
+    return handle_request(request, settings, SQL_TOOL_LAUNCHER)
 
 
 def _documentary(**arguments: Any) -> dict[str, Any]:
@@ -108,7 +122,7 @@ def _documentary(**arguments: Any) -> dict[str, Any]:
     return {name: value for name, value in arguments.items() if value is not None}
 
 
-def _rag_result(tool: str, arguments: dict[str, Any]) -> str:
+def _rag_result(tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Appelle la façade journalisée du domaine documentaire.
 
     L'import est **local à la fonction**, et il doit le rester : au niveau du module, il
@@ -117,7 +131,7 @@ def _rag_result(tool: str, arguments: dict[str, Any]) -> str:
     """
     from packages.rag_machines.handler import handle
 
-    return json.dumps(handle(tool, arguments, PROFILE, settings), ensure_ascii=False)
+    return handle(tool, arguments, PROFILE, settings)
 
 
 #: Les huit tools lisent, aucun n'écrit — la gateway est en lecture seule de bout en bout.
@@ -153,7 +167,7 @@ _READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHi
     ),
     annotations=_READ_ONLY,
 )
-def answer_question(question: str, collections: _COLLECTIONS = None) -> str:
+def answer_question(question: str, collections: _COLLECTIONS = None) -> dict[str, Any]:
     return _rag_result("answer_question", _documentary(question=question,
                                                        collections=collections))
 
@@ -168,7 +182,7 @@ def answer_question(question: str, collections: _COLLECTIONS = None) -> str:
     ),
     annotations=_READ_ONLY,
 )
-def search_docs(query: str, collections: _COLLECTIONS = None) -> str:
+def search_docs(query: str, collections: _COLLECTIONS = None) -> dict[str, Any]:
     return _rag_result("search_docs", _documentary(query=query, collections=collections))
 
 
@@ -181,7 +195,7 @@ def search_docs(query: str, collections: _COLLECTIONS = None) -> str:
     ),
     annotations=_READ_ONLY,
 )
-def get_document(doc_id: str, version: str | None = None) -> str:
+def get_document(doc_id: str, version: str | None = None) -> dict[str, Any]:
     arguments: dict[str, Any] = {"doc_id": doc_id}
     if version is not None:
         arguments["version"] = version
@@ -197,7 +211,7 @@ def get_document(doc_id: str, version: str | None = None) -> str:
     ),
     annotations=_READ_ONLY,
 )
-def list_sources(collections: _COLLECTIONS = None) -> str:
+def list_sources(collections: _COLLECTIONS = None) -> dict[str, Any]:
     return _rag_result("list_sources", _documentary(collections=collections))
 
 
@@ -213,7 +227,7 @@ def list_sources(collections: _COLLECTIONS = None) -> str:
     ),
     annotations=_READ_ONLY,
 )
-def ask_database(question: str) -> str:
+def ask_database(question: str) -> dict[str, Any]:
     return _sql_result("ask_database", {"question": question})
 
 
@@ -226,7 +240,7 @@ def ask_database(question: str) -> str:
     ),
     annotations=_READ_ONLY,
 )
-def get_schema() -> str:
+def get_schema() -> dict[str, Any]:
     return _sql_result("get_schema", {})
 
 
@@ -239,7 +253,7 @@ def get_schema() -> str:
     ),
     annotations=_READ_ONLY,
 )
-def check_stock(reference: Annotated[str, Field(pattern=r"^REF-\d{4}$")]) -> str:
+def check_stock(reference: Annotated[str, Field(pattern=r"^REF-\d{4}$")]) -> dict[str, Any]:
     return _sql_result("check_stock", {"reference": reference})
 
 
@@ -251,7 +265,7 @@ def check_stock(reference: Annotated[str, Field(pattern=r"^REF-\d{4}$")]) -> str
     ),
     annotations=_READ_ONLY,
 )
-def order_status(order_id: Annotated[str, Field(pattern=r"^CMD-\d{4}-\d{4}$")]) -> str:
+def order_status(order_id: Annotated[str, Field(pattern=r"^CMD-\d{4}-\d{4}$")]) -> dict[str, Any]:
     return _sql_result("order_status", {"order_id": order_id})
 
 

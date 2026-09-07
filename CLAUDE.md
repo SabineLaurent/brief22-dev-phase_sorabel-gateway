@@ -158,11 +158,45 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `# type: ignore[arg-type]` motivés sur les décorateurs Chainlit.
   `make test` 12/12 ; check-rag-tools **67**, check-sql **83**, check-feedback 103,
   check-perimetre 31.
+- **Le contrat de réponse est déclaré au protocole : fait.** `mcp_server/output_schemas.py`
+  (les huit `outputSchema`), `mcp_server/server.py` (les huit tools rendent l'enveloppe,
+  `list_tools` publie le schéma), `packages/evals_and_controls/check_mcp_contract.py`.
+  `make check-contrat` : **121 contrôles**, et c'est le **premier contrôle du serveur MCP** du
+  projet — les quatre autres suites portent sur les couches en dessous.
+  **Le défaut n'était pas une absence, c'était un contrat faux.** FastMCP dérive
+  l'`outputSchema` de l'annotation de retour : `-> str` publiait
+  `{"required":["result"],"properties":{"result":{"type":"string"}}}` et rendait
+  `structuredContent = {"result": "<l'enveloppe en chaîne>"}`. Publié dans `tools/list`, donc
+  lu par tout client externe, et validé par le SDK sans rien attraper.
+  **Le schéma est écrit à la main, et le type de retour reste large** — `dict[str, Any]`. Un
+  type de retour joue deux rôles dans FastMCP : il dérive le schéma *et* il filtre la sortie.
+  Mesuré : un modèle plus étroit que le dict rendu fait **diverger `content[0].text` de
+  `structuredContent`**, la clé restant dans le texte et disparaissant du structuré. Or le
+  payload servi est un **surensemble du cadrage**. Le schéma est donc réécrit dans
+  `SorabelMCP.list_tools` — le décorateur n'accepte pas de schéma, et cette méthode est déjà
+  celle qui décide du catalogue *et* celle qui remplit le cache de validation du serveur.
+  **Trois provenances, trois pannes évitées** : `status` **calculé** depuis les tables de
+  statuts des domaines (un enum recopié dériverait) · `payload` **écrit à la main**, par tool
+  (un payload dérivé filtrerait) · `payload.code` décrit **sans `enum`** (un enum incomplet
+  transforme une réponse valide en panne — et les codes ne sont pas relevables par lecture :
+  `perimetre_interdit` passe par une constante, `aucune_ligne` est propagé depuis
+  l'exécution). **`additionalProperties` n'est fermé nulle part.**
+  **Écart qui reste, nommé** : les *noms de champs*. Le §4 conçu dit
+  `code`/`hint`/`reponse`/`citations`, le servi dit `status`/`payload`/`message` — deux
+  contrats concurrents, et un `outputSchema` ne décrit que celui qui est servi. `hint` et
+  `isError` tranché code par code sont **abandonnés**, décidé et consigné.
+  `make test` 12/12 ; check-sql 83, check-feedback 103, check-rag-tools 67,
+  check-perimetre 31 inchangés ; `make lint` au vert ; E5 rejouée identique.
 - **Reste du chantier 3.** Par ordre d'exigence du brief :
   1. **Le mini guide d'accès** — *livrable exigé*, au même titre que `mcp_server/` : « Le
      serveur MCP (mcp_server/) exposant le catalogue complet **ainsi qu'un mini guide
      d'accès** ». Il n'existe pas encore. C'est aussi l'endroit où mettre le bloc de
-     configuration stdio pour un client externe, donc la réponse à « essai du service » ;
+     configuration stdio pour un client externe, donc la réponse à « essai du service ».
+     Il peut désormais recommander **`structuredContent`** comme chemin de lecture — les huit
+     tools le rendent et l'`outputSchema` le décrit ; hier, l'écrire aurait été mentir. Et le
+     tableau profil × tools devient reproductible plutôt que recopié :
+     `npx @modelcontextprotocol/inspector --cli uv run python -m mcp_server.server
+     --method tools/list` ;
   2. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
      chaque colonne adossée à son propre processus MCP (custom element React, exécution en
      `asyncio.gather`). Le registre de sessions par profil (`GatewayRegistry`) est déjà en
@@ -257,6 +291,7 @@ make check-rag-tools # contrôles des quatre tools RAG et de leur journal (sans 
 make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
 make check-feedback # contrôles de la réponse structurée et du journal (sans appel de modèle)
+make check-contrat # contrôles de l'outputSchema publié par les huit tools (121)
 make mesure-refus  # axe 4 : le refus servi sur les deux barrières -> eval/rapport_refus.md
 make mesure-acces  # axe 5 : E5 chiffrée, étages d'arrêt et colonnes fermées -> eval/rapport_acces.md
 make journal       # les 20 dernières entrées de logs/journal.jsonl

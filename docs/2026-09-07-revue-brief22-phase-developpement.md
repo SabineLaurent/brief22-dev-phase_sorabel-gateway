@@ -366,6 +366,26 @@ C'est le seul écart de structure, et il touche les huit tools.
 | `hint` (le recours) | champ du socle commun | **absent** |
 | Clés de payload | `reponse`, `citations` | `answer`, `sources` (forme du cadrage) |
 
+> **Rectifié le 2026-09-07, plus tard le même jour.** Trois lignes de ce tableau étaient
+> fausses, et l'erreur portait toujours dans le même sens : elle décrivait une **absence** là
+> où il y avait un **contrat faux**.
+>
+> * « `outputSchema` : **non déclaré** » — faux. FastMCP dérive l'`outputSchema` de
+>   l'annotation de retour, sans qu'on le lui demande. Les huit tools étant annotés `-> str`,
+>   le serveur publiait depuis son premier jour
+>   `{"type":"object","required":["result"],"properties":{"result":{"type":"string"}}}` ;
+> * « `structuredContent` […] jamais posé » — faux également : le serveur rendait
+>   `structuredContent = {"result": "<toute l'enveloppe en chaîne>"}`. Le champ structuré
+>   existait, et il ne contenait qu'une chaîne opaque ;
+> * seul `isError` était exact : il n'est posé que sur une violation de schéma.
+>
+> **Un contrat déclaré qui promet une chaîne est pire qu'un contrat absent** : il est publié
+> dans `tools/list`, donc lu par tout client externe, et il passe la validation du SDK sans
+> rien attraper. Corrigé le jour même : les huit `outputSchema` sont désormais écrits
+> (`mcp_server/output_schemas.py`) et contrôlés (`make check-contrat`). Le raisonnement bâti
+> sur ces lignes — §3.5 du TODO, « ne rien rétro-adapter » — tombe avec elles ; cf. le
+> journal du jour.
+
 **Ce n'est pas une régression, c'est une substitution de contrat** : la suite d'acceptance
 lit littéralement `result["status"]`, `payload["answer"]`, `payload["sources"]`,
 `payload["hits"][0]["doc_id"]`. La conception avait conçu la forme MCP 2026-07-28 ; le
@@ -374,6 +394,12 @@ le mécanisme `structuredContent`/`isError` que `03-catalogue-tools.md` §4 déf
 « le chemin correct sans avoir à y penser » pour le client. Aujourd'hui, la protection
 équivalente est obtenue autrement — par l'absence de la clé `answer` sur les non-réponses
 (`PAYLOAD_KEPT`) — donc l'intention est tenue, le mécanisme non.
+
+> **Rectifié le 2026-09-07** : la moitié `structuredContent` est regagnée — les huit tools le
+> rendent, et l'`outputSchema` publie l'asymétrie de `PAYLOAD_KEPT` en la décrivant
+> (« `answer` ABSENTE dès que `code` n'est pas `ok` »). L'intention *et* le mécanisme sont
+> désormais tenus. Seul `isError` tranché code par code reste abandonné, et il l'est par
+> choix : le discriminant du client est `status`, puis `payload.code`.
 
 Les **douze codes** de la conception sont tous présents, répartis sur deux tables :
 9 côté SQL (`DB_STATUS_BY_CODE`), 8 côté RAG (`RAG_STATUS_BY_CODE`), union = 12.
