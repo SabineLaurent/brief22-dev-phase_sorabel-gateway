@@ -1,6 +1,6 @@
 # Rapport de gain — recherche avancée (E6)
 
-Généré par `scripts/eval_rag.py --report` à partir des CSV de `eval/resultats/` — voir `eval/protocole-mesure.md` pour le protocole complet. **Ne pas éditer à la main** : `make mesure` réécrit ce fichier en entier.
+Généré par `make mesure` à partir des CSV de `eval/resultats/` — voir `eval/protocole-mesure.md` pour le protocole complet. **Ne pas éditer à la main** : `make mesure` réécrit ce fichier en entier.
 
 ## Axe 1 — la recherche, à ingestion constante (E6)
 
@@ -8,19 +8,21 @@ Texte nettoyé, filtre de version actif, règle de départage appliquée dans le
 
 | sous-ensemble | métrique | A dense | B lexical | C hybride |
 |---|---|---:|---:|---:|
-| reference_exacte | Hit@1 (référence) | 2/8 | 3/8 | 8/8 |
-| reference_exacte | Hit@1 (fiche technique) | 2/8 | 3/8 | 8/8 |
-| reference_exacte | MRR | 0.375 | 0.688 | 1.000 |
+| reference_exacte | Hit@1 (référence) | 1/8 | 3/8 | 8/8 |
+| reference_exacte | Hit@1 (fiche technique) | 1/8 | 3/8 | 8/8 |
+| reference_exacte | MRR | 0.271 | 0.688 | 1.000 |
 | couverte | Recall@5 (`attendu_type`, n=13) | 11/13 | 11/13 | 12/13 |
 | hors_corpus | refus corrects | 7/8 | n/a — Q4 §3 | 5/8 |
 
 `B` n'a pas de seuil de refus praticable (aucune échelle bornée sur un score BM25 — Q4 §3) : la case vide est un résultat, pas un trou.
 
+> **La ligne « refus corrects » n'est pas la mesure d'E1, et ne doit pas être lue comme telle.** Elle porte sur `search()` suivi d'une comparaison au seuil — la **barrière 1 seule**, qui est le bon périmètre pour comparer trois étages de recherche. Mais E1 vit dans `answer_question`, qui a une **seconde** barrière : la garde de suffisance du rédacteur, qui lit les extraits au lieu du score. Mesuré à travers les deux, le refus servi est de **8/8** et non de 5/8 — voir [`rapport_refus.md`](rapport_refus.md), axe 4.
+
 ## Effet de la règle de départage — avec / sans, sur les trois sous-ensembles
 
 | configuration | Hit@1 référence (sans / avec) | Hit@1 fiche (sans / avec) | Recall@5 type (sans / avec) |
 |---|---:|---:|---:|
-| A dense | 2/8 / 2/8 | 2/8 / 2/8 | 11/13 / 11/13 |
+| A dense | 1/8 / 1/8 | 0/8 / 1/8 | 11/13 / 11/13 |
 | B lexical | 3/8 / 3/8 | 1/8 / 3/8 | 11/13 / 11/13 |
 | C hybride | 8/8 / 8/8 | 8/8 / 8/8 | 12/13 / 12/13 |
 
@@ -40,7 +42,7 @@ Un point de comparaison lisible, publié **en plus** des deux axes ci-dessus, ja
 
 | | Hit@1 référence | Hit@1 fiche | Recall@5 type |
 |---|---:|---:|---:|
-| RAG simple | 1/8 | 1/8 | 12/13 |
+| RAG simple | 4/8 | 4/8 | 11/13 |
 | RAG avancé | 8/8 | 8/8 | 12/13 |
 
 ## Limites méthodologiques — à lire avant les chiffres ci-dessus

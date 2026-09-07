@@ -47,9 +47,9 @@ commercial,P0,RAG-06,reference_exacte,reference,1,5,1.0000,non
 commercial,P1,RAG-06,reference_exacte,reference,1,5,1.0000,non
 admin,P0,RAG-06,reference_exacte,reference,1,5,1.0000,non
 admin,P1,RAG-06,reference_exacte,reference,1,5,1.0000,non
-dev,P0,RAG-07,reference_exacte,reference,1,5,0.9999,non
+dev,P0,RAG-07,reference_exacte,reference,1,4,0.9999,non
 dev,P1,RAG-07,reference_exacte,reference,1,5,0.9999,non
-support,P0,RAG-07,reference_exacte,reference,1,5,0.9999,non
+support,P0,RAG-07,reference_exacte,reference,1,4,0.9999,non
 support,P1,RAG-07,reference_exacte,reference,1,5,0.9999,non
 commercial,P0,RAG-07,reference_exacte,reference,1,5,0.9999,non
 commercial,P1,RAG-07,reference_exacte,reference,1,5,0.9999,non
