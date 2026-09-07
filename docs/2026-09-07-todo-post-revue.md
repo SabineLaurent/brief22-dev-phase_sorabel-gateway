@@ -7,6 +7,7 @@ sait pas quand la barrer.
 
 État de départ, mesuré le 2026-09-07 : `make test` 12/12 (48,46 s) · `check-sql` 81 ·
 `check-feedback` 103 · `check-rag-tools` 62 · `check-perimetre` 31.
+Après la vague 1 : `check-sql` **83** · `check-rag-tools` **67** · `make lint` **au vert**.
 
 **Les mesures citées ici ont été relevées par des scripts jetables**, hors dépôt et non
 conservés : refaire la mesure fait partie de la tâche qui la cite (§2.1, §2.2, §2.3, §2.4).
@@ -110,8 +111,28 @@ dans la première version de la revue.
 
 ### 2.2 La référence nue refusée par la barrière 2
 
-- [ ] **Expliciter la question transmise au rédacteur quand elle est réduite à une
-  référence** — ~3 lignes dans `answer_question`.
+- [x] **Expliciter la question transmise au rédacteur quand elle est réduite à une
+  référence.** *Fait le 2026-09-07* — `question_for_writer()` dans
+  `packages/rag_machines/tools.py`, appelée au seul bord de `writer.write()`.
+  `check-rag-tools` **62 → 67** contrôles, au vert. `make mesure-refus` rejoué :
+  faux refus **3–4/22 → 3/22**, et **la plage disparaît**.
+
+  **Le critère de succès n'est atteint qu'à moitié, et l'autre moitié était mal posée.**
+  Le « 5/22 → 2/22 » ci-dessous vient d'un relevé jetable ; le chiffre *commité* était
+  `3–4/22`, et il tombe à `3/22`. Les trois qui restent sont RAG-19 (barrière 1, sujet
+  absent du corpus), RAG-18 et RAG-20 (barrière 2, le corpus ne porte pas la réponse) —
+  soit **exactement les trois que ce fichier annonçait comme devant rester refusées**. Zéro
+  défaut résiduel, et non « 2/22 ».
+
+  **L'effet qu'on n'avait pas prévu, et qui vaut plus que le chiffre** : les deux questions
+  qui changeaient de verdict d'une passe à l'autre — RAG-05 et RAG-08 — ne bougent plus.
+  Sur trois passes, **aucune question ne change de verdict**. C'était la référence nue qui
+  rendait la barrière 2 instable : sur un énoncé qui n'en est pas un, le modèle n'avait rien
+  de stable à juger. Le rapport publie donc trois colonnes fermes là où il publiait une plage.
+
+  **Reste un choix d'écriture** : le rapport excuse RAG-19 et RAG-20 en citant le protocole
+  §9, qui ne nomme pas RAG-18. Le motif de RAG-18 est établi (mesuré ici), il n'est écrit
+  nulle part dans le rapport. À porter au générateur, ou à laisser au journal.
 
 RAG-03 « REF-5313 » et RAG-05 « REF-5719 » : retrieval **parfait** (score 1,0000, Hit@1
 8/8) et pourtant `contexte_insuffisant`. Cause : une référence nue n'est pas une question,
@@ -231,7 +252,13 @@ Deux issues, et la seconde est défendable :
 
 ### 2.6 `make lint` est rouge
 
-- [ ] **Corriger l'erreur qui nous appartient, neutraliser les deux autres.**
+- [x] **Corriger l'erreur qui nous appartient, neutraliser les deux autres.** *Fait le
+  2026-09-07* — `make lint` **au vert** : `IncludeEnum.metadatas` dans `check_index.py`,
+  et deux `# type: ignore[arg-type]` sur les décorateurs Chainlit, motif écrit au-dessus.
+  À noter : mypy **refuse tout texte après le code d'erreur** sur la ligne du `ignore`
+  (`Invalid "type: ignore" comment`) — le motif va sur la ligne précédente, pas à la
+  suite. `make check-index` rejoué au vert : l'`IncludeEnum` n'est pas qu'une annotation,
+  c'est l'argument réellement passé au SDK.
 
 Vérifié le 2026-09-07 : `ruff` passe, `mypy` rend **3 erreurs** — celles que `CLAUDE.md`
 annonce, ni plus ni moins.

@@ -24,6 +24,7 @@ transformait le refus en oracle sur la matrice.
 
 from __future__ import annotations
 
+import re
 from time import perf_counter
 from typing import Any
 
@@ -47,7 +48,7 @@ from packages.rag_machines.structured_answer import (
 from packages.rag_machines.writer import AnswerWriter, build_writer
 
 __all__ = ["answer_question", "search_docs", "get_document", "list_sources",
-           "threshold_for"]
+           "question_for_writer", "threshold_for"]
 
 #: L'étage de recherche servi par les tools. La configuration C est celle que la mesure E6
 #: retient — Hit@1 8/8 contre 2/8 en dense seul (``eval/rapport_gain.md``). Les autres
@@ -56,6 +57,11 @@ __all__ = ["answer_question", "search_docs", "get_document", "list_sources",
 DEFAULT_STRATEGY: Strategy = "hybrid"
 
 _FORBIDDEN_PERIMETER = "perimetre_interdit"
+
+#: Une question réduite à une référence produit, et rien d'autre : « REF-5313 ». Le motif
+#: est **ancré sur toute la chaîne** exprès — une référence citée au milieu d'une phrase
+#: est déjà une question, et la compléter la déformerait.
+_RE_BARE_REFERENCE = re.compile(r"^\s*(REF-\d{4})\s*\??\s*$", re.IGNORECASE)
 
 
 def threshold_for(strategy: Strategy, settings: Settings) -> float | None:
@@ -134,6 +140,27 @@ def _read_collection(settings: Settings):  # type: ignore[no-untyped-def]
     return connect(settings).get_collection(name=collection_name(settings))
 
 
+def question_for_writer(question: str) -> str:
+    """La question telle que le **rédacteur** la reçoit. Identique, sauf référence nue.
+
+    « REF-5313 » n'est pas une question : le retrieval est parfait — score 1,0000, la bonne
+    fiche au premier rang — et le rédacteur cherche pourtant un énoncé, n'en trouve pas, et
+    déclare l'insuffisance. Le refus vient alors de la forme de la demande, pas du corpus.
+
+    **La recherche garde la référence nue** : c'est cette forme-là que BM25 attrape. Seul
+    l'énoncé passé au modèle est complété, et il l'est **ici** plutôt que dans le
+    ``_SYSTEM_PROMPT`` du rédacteur. Mesuré, les deux corrigent RAG-03 et RAG-05 ; la règle
+    écrite au prompt desserre en plus la barrière 2 au-delà du cas visé — RAG-18 et RAG-20,
+    stables en ``contexte_insuffisant`` sur trois passes, basculent en ``ok`` alors que le
+    corpus ne porte pas leur réponse, ce qui est un recul d'E1. Une règle générale dans un
+    prompt ne sait pas rester locale ; un cas nommé dans le code, si.
+    """
+    match = _RE_BARE_REFERENCE.match(question)
+    if match is None:
+        return question
+    return f"Quelles sont les caractéristiques de la référence {match.group(1).upper()} ?"
+
+
 def _elapsed(started: float) -> int:
     """La latence en millisecondes, arrondie. Diagnostic : elle ne part qu'au journal."""
     return round((perf_counter() - started) * 1000)
@@ -207,6 +234,10 @@ def answer_question(
     de ``PAYLOAD_KEPT``. C'est ce qui empêche un client de rendre une non-réponse comme une
     réponse : il n'y a rien à afficher.
 
+    La question part **telle quelle** à la recherche, et passe par
+    :func:`question_for_writer` avant d'atteindre le rédacteur : une référence nue n'est pas
+    un énoncé, et la barrière 2 la refusait sur un retrieval parfait.
+
     Les ``sources`` sont construites en Python depuis les métadonnées. Le modèle ne rend que
     les *numéros* des extraits qu'il a utilisés ; ceux qui sortent des bornes sont ignorés.
     Il ne peut donc pas citer un document qu'on ne lui a pas montré, ni inventer une
@@ -231,7 +262,8 @@ def answer_question(
 
     try:
         writer = writer or build_writer(settings)
-        answer = writer.write(question, [hit.text for hit in result.hits])
+        answer = writer.write(question_for_writer(question),
+                              [hit.text for hit in result.hits])
     except Exception as error:  # noqa: BLE001 - toute panne du fournisseur est la même ici
         return build_rag_structured_answer(
             "erreur_execution",

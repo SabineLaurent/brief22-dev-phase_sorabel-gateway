@@ -49,7 +49,11 @@ from packages.rag_machines.structured_answer import (
     build_rag_structured_answer,
     rag_client_view,
 )
-from packages.rag_machines.tools import answer_question, threshold_for
+from packages.rag_machines.tools import (
+    answer_question,
+    question_for_writer,
+    threshold_for,
+)
 from packages.rag_machines.writer import Answer, AnswerWriter
 
 #: Le texte que la doublure « écrit ». Reconnaissable exprès : on le cherche ensuite dans
@@ -101,6 +105,23 @@ class _ExplodingWriter(AnswerWriter):
 
     def write(self, question: str, excerpts: list[str]) -> Answer:  # type: ignore[override]
         raise RuntimeError(MODEL_TEXT)
+
+
+class _CapturingWriter(AnswerWriter):
+    """**Doublure de test.** Un rédacteur qui répond, et retient l'énoncé qu'on lui a passé.
+
+    C'est le seul moyen de contrôler la réécriture de la référence nue sans appeler de
+    modèle : ce qui est vérifié n'est pas ce que le modèle en fait, c'est ce que la gateway
+    lui donne à lire.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("", "", "scripté")
+        self.asked: list[str] = []
+
+    def write(self, question: str, excerpts: list[str]) -> Answer:  # type: ignore[override]
+        self.asked.append(question)
+        return Answer("Réponse scriptée.", "", (1,))
 
 
 def main() -> int:
@@ -252,6 +273,26 @@ def _run(settings: Settings, check, verdict) -> int:  # noqa: ANN001 - deux ferm
     # repli sur `doc_key`, qui identifie le document exactement.
     check("la référence n'est jamais vide",
           bool(served["payload"]["sources"][0]["reference"].strip()), True)
+
+    print("\nRéférence nue — l'énoncé complété pour le rédacteur, la recherche intacte")
+    # La forme de RAG-03 et RAG-05 : une référence et rien d'autre. Le retrieval était
+    # parfait et la barrière 2 refusait quand même, faute d'énoncé à satisfaire.
+    check("une référence nue devient une question",
+          question_for_writer("REF-8842"),
+          "Quelles sont les caractéristiques de la référence REF-8842 ?")
+    # L'ancrage est la moitié qui compte : une règle qui déborderait toucherait les 22
+    # questions couvertes, dont RAG-18 et RAG-20 que la barrière 2 doit continuer de refuser.
+    check("une référence dans une phrase n'est pas touchée",
+          question_for_writer("que vaut REF-8842 ?"), "que vaut REF-8842 ?")
+    scribe = _CapturingWriter()
+    answer = answer_question("REF-8842", "commercial", settings=settings, writer=scribe)
+    check("elle ne produit plus contexte_insuffisant", answer.code, "ok")
+    check("le rédacteur a reçu l'énoncé complété", scribe.asked,
+          ["Quelles sont les caractéristiques de la référence REF-8842 ?"])
+    # Et la recherche, elle, a bien vu la référence nue : c'est ce que BM25 attrape, et
+    # c'est ce qui met la bonne édition au premier rang.
+    check("la recherche a retrouvé la bonne référence",
+          rag_client_view(answer)["payload"]["sources"][0]["reference"], "REF-8842")
 
     print("\nFilet de dernier recours")
     answer = answer_question("délai d'un échange standard ?", "support", settings=settings,

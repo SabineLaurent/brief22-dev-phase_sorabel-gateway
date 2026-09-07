@@ -50,11 +50,11 @@ passer : RAG-23, RAG-24 et RAG-29. La barrière 1 en tranche
 
 | | Barrière 1 seule | Les deux barrières |
 |---|---|---|
-| Faux refus | 1 / 22 | **3–4 / 22** |
-| Réponses servies | 21 | 18–19 |
+| Faux refus | 1 / 22 | **3 / 22** |
+| Réponses servies | 21 | 19 |
 
 La barrière 1 en refuse 1 : RAG-19.
-La barrière 2 en refuse 2–3 de plus : RAG-05, RAG-08, RAG-18 et RAG-20.
+La barrière 2 en refuse 2 de plus : RAG-18 et RAG-20.
 
 **Un faux refus n'est pas toujours un défaut.** Le protocole (§9) signale déjà deux
 questions en tension avec le corpus — RAG-19 porte sur un sujet absent, RAG-20
@@ -69,7 +69,7 @@ construite en Python depuis les métadonnées. Il n'y a donc rien à mesurer sur
 moitié d'E1 — elle est vraie par construction, pas par statistique. Le décompte
 ci-dessous l'atteste sans le démontrer :
 
-- réponses servies avec au moins une source : 55 / 55.
+- réponses servies avec au moins une source : 57 / 57.
 
 ## Les trois plages de score se recouvrent
 
@@ -98,11 +98,8 @@ ce qu'elle fait comporte un appel de modèle. La conséquence est qu'un chiffre 
 colonne « les deux barrières » peut bouger d'une exécution à l'autre, là où celui de
 la barrière 1 ne bouge pas.
 
-Sur 3 passes, **2 question(s) changent de verdict** : RAG-05 et RAG-08.
-Ce sont elles, et elles seules, qui font les plages du tableau ci-dessus. Elles
-sont **nommées plutôt que moyennées** : une moyenne dirait « 3,3 faux refus » et
-cacherait laquelle des 22 questions bouge — or c'est la seule information
-sur laquelle on puisse agir.
+Sur 3 passes, **aucune question ne change de verdict**. C'est un
+constat de stabilité sur ce jeu, pas une garantie de déterminisme.
 
 **Huit questions par sous-ensemble**, comme partout dans ce protocole (§9) : un
 écart d'une question vaut 12,5 points. Ces chiffres détectent une régression, ils

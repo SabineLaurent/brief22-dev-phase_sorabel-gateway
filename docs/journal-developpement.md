@@ -3026,3 +3026,96 @@ ni les 278 contrôles déterministes ne la regarde.
 Contrôles après coup : `make test` 12/12, check-sql **83**, check-feedback 103,
 check-rag-tools 62, check-perimetre 31, ruff au vert, les **trois mêmes** erreurs mypy
 préexistantes.
+
+## 2026-09-07 — Fin de la vague 1 : un énoncé complété, et le lint qui redevient une question à réponse
+
+Les deux derniers items de la vague 1 du TODO post-revue. Petits en lignes, et l'un des deux
+a produit un effet qu'on n'avait pas cherché.
+
+### La référence nue : le refus venait de la forme de la demande, pas du corpus
+
+RAG-03 « REF-5313 » et RAG-05 « REF-5719 » sortaient en `contexte_insuffisant` sur un
+retrieval **parfait** — score 1,0000, la bonne fiche au premier rang. Le diagnostic n'est pas
+un défaut de recherche : une référence nue n'est pas une question. Le rédacteur cherche un
+énoncé à satisfaire, n'en trouve pas, et déclare l'insuffisance. La barrière 2 faisait
+exactement son travail sur une demande qui n'en formulait aucune.
+
+`question_for_writer()` complète l'énoncé, et **elle est appelée au seul bord de
+`writer.write()`**. La recherche, elle, reçoit toujours la référence nue : c'est cette forme-là
+que BM25 attrape, et la déformer avant l'index remplacerait un problème par un autre. Un seul
+appel change dans `answer_question`, le reste de la chaîne ne sait pas que la question a été
+réécrite.
+
+**Le motif du placement vaut plus que le placement.** La même règle écrite dans le
+`_SYSTEM_PROMPT` du rédacteur corrige aussi RAG-03 et RAG-05 — mesuré. Mais elle desserre en
+plus la barrière 2 **au-delà du cas visé** : RAG-18 et RAG-20, stables en
+`contexte_insuffisant` sur trois passes, basculent en `ok` alors que le corpus ne porte pas
+leur réponse. Sur RAG-18 c'est un recul d'E1. Une règle générale dans un prompt ne sait pas
+rester locale ; un cas nommé dans le code, si. Le motif est écrit dans la docstring, avec les
+deux questions nommées — sans quoi la prochaine relecture rangerait la règle « au bon endroit »,
+c'est-à-dire au prompt.
+
+Le motif est **ancré sur toute la chaîne**, et c'est la moitié qui protège : « que vaut
+REF-8842 ? » est déjà une question, la compléter la déformerait.
+
+### L'effet qu'on n'avait pas cherché : la mesure devient déterministe
+
+`make mesure-refus` rejoué : faux refus **3–4/22 → 3/22**. Le chiffre est le moindre des deux
+résultats.
+
+**Les deux questions qui changeaient de verdict d'une passe à l'autre ne bougent plus.** RAG-05
+et RAG-08 faisaient les plages du rapport ; sur trois passes, **aucune question ne change de
+verdict**. La cause est la même que celle du faux refus : sur un énoncé qui n'en est pas un, le
+modèle n'a rien de stable à juger, et son verdict devient un tirage. Ce n'est pas la barrière 2
+qui était instable — c'est ce qu'on lui donnait à lire.
+
+Conséquence sur le rapport, qui est un gain de lisibilité et pas seulement de chiffre : trois
+colonnes fermes remplacent une plage, et le paragraphe « n question(s) changent de verdict »
+devient « aucune ». Le générateur produit les deux formes selon ce qu'il mesure — il n'a pas
+été touché.
+
+**Le critère de succès n'est atteint qu'à moitié, et l'autre moitié était mal posée.** Le TODO
+écrivait « de 5/22 à 2/22 ». Le 5/22 venait d'un relevé jetable ; le chiffre *commité* était
+`3–4/22`. Il tombe à `3/22`, et les trois qui restent sont RAG-19 (barrière 1, sujet absent du
+corpus), RAG-18 et RAG-20 (barrière 2, le corpus ne porte pas la réponse) — **exactement les
+trois que le TODO annonçait comme devant rester refusées**. Le résidu de défauts est donc nul,
+et « 2/22 » était un objectif faux : il aurait fallu qu'une des trois cède.
+
+**Point laissé ouvert, volontairement.** Le rapport excuse RAG-19 et RAG-20 en citant le
+protocole §9, qui ne nomme pas RAG-18. Le motif de RAG-18 est établi et mesuré, il n'est écrit
+nulle part dans le rapport. Le porter au générateur ou le laisser ici est un choix d'écriture,
+pas un correctif — il attend une décision.
+
+### `make lint` au vert, et un `ignore` qui dit pourquoi
+
+Trois erreurs mypy, ni plus ni moins que ce que `CLAUDE.md` annonçait. Une nous appartient,
+deux non, et les deux moitiés ne se traitent pas pareil.
+
+`check_index.py` passait la chaîne `"metadatas"` là où le SDK typé attend
+`IncludeEnum.metadatas`. Ce n'est **pas** qu'une annotation : c'est l'argument réellement passé
+à Chroma, donc `make check-index` a été rejoué — au vert. À noter que le même appel existe
+ailleurs dans le dépôt sans être signalé : les collections y passent par un `get_collection`
+non annoté, ce qui masque l'écart au lieu de le corriger. Le contrôle d'index est le seul
+endroit où la collection est typée, donc le seul où mypy pouvait le voir.
+
+Les deux autres sont des stubs Chainlit qui déclarent un rappel prenant un `User | None` que le
+décorateur n'envoie pas. Annoter la signature pour plaire au typeur la rendrait **fausse à
+l'exécution** : deux `# type: ignore[arg-type]`, avec le motif écrit au-dessus. Un `ignore`
+motivé est une décision ; un lint rouge est une question sans réponse, et une question sans
+réponse en soutenance se lit comme une dette même quand deux erreurs sur trois sont en amont.
+
+**Détail d'outil qui coûte une passe** : mypy refuse tout texte après le code d'erreur sur la
+ligne du `ignore` — `Invalid "type: ignore" comment`, et l'erreur d'origine revient par-dessus.
+Le motif va sur la ligne précédente, jamais à la suite.
+
+### Observation ponctuelle, non reproduite
+
+La première exécution de `check-rag-tools` après l'ajout des cinq contrôles a rendu 134 après
+avoir affiché « Tous les contrôles passent » : `libc++abi … recursive_mutex lock failed`, un
+teardown natif de torch à la sortie du processus. Trois exécutions suivantes : 0. Consigné
+parce qu'un `make` rouge sur une suite verte est exactement le genre de chose qu'on croit avoir
+imaginée — pas traité, faute de reproduction.
+
+Contrôles après coup : check-rag-tools **62 → 67**, check-sql 83, check-feedback 103,
+check-perimetre 31, `make check-index` au vert, **`make lint` au vert pour la première fois du
+projet**.

@@ -61,7 +61,11 @@ def _load_eval_questions() -> dict[str, str]:
 _EVAL_QUESTIONS = _load_eval_questions()
 
 
-@cl.set_chat_profiles
+# `type: ignore[arg-type]` — dette amont, pas la nôtre : les stubs de Chainlit déclarent
+# un rappel prenant un `User | None`, que le décorateur n'envoie pas. La signature sans
+# argument est celle de la documentation et celle qui fonctionne ; l'annoter avec un
+# paramètre jamais fourni la rendrait fausse à l'exécution pour plaire au typeur.
+@cl.set_chat_profiles  # type: ignore[arg-type]
 async def chat_profiles() -> list[cl.ChatProfile]:
     # `name` est l'identifiant du rôle : c'est lui qui part vers l'API et que
     # `profile_for_role()` convertit. `display_name` est ce que le sélecteur montre — la
@@ -80,7 +84,8 @@ async def chat_profiles() -> list[cl.ChatProfile]:
     ]
 
 
-@cl.set_starters
+# Même stub Chainlit, même motif qu'au-dessus.
+@cl.set_starters  # type: ignore[arg-type]
 async def starters() -> list[cl.Starter]:
     return [
         cl.Starter(label=f"{qid} — {question[:60]}", message=question)

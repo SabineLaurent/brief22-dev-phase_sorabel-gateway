@@ -82,7 +82,7 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   de dict** — la garantie est structurelle, pas conventionnelle.
   Le journal est lisible par le seul profil `admin` (`read_feedback()`, garde-fou par
   `authorize()` + `read_journal` dans `matrice.yaml`), entrées **entières** : sa protection
-  est son droit d'accès, pas son contenu. `make check-feedback` : 102 contrôles
+  est son droit d'accès, pas son contenu. `make check-feedback` : 103 contrôles
   déterministes, tous au vert ; `make check-sql` 81/81 et `make eval-sql` 24/24 inchangés.
   Schéma des deux voies : `docs/archives/schema-feedback.html` (à ouvrir dans un navigateur).
   **Écart corrigé** : `get_schema` retiré à `support` dans `matrice.yaml` — arbitrage déjà
@@ -111,7 +111,7 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   chargerait l'embedder avant la poignée de main. Premier appel de recherche : 8,2 s.
   **`make test` passe : 12/12, pour la première fois du projet.** T2 est satisfait.
   `make check-rag-tools` : 62 contrôles déterministes au vert ; `make check-sql` 81,
-  `make check-feedback` 102, `make check-perimetre` 31 inchangés.
+  `make check-feedback` 103, `make check-perimetre` 31 inchangés.
   **Écart décidé** : les noms d'arguments suivent la suite d'acceptance —
   `search_docs(query)`, `get_document(doc_id)` — et non `question` / `doc_key` de
   `03-catalogue-tools.md`. Le test fait foi.
@@ -139,21 +139,40 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   pour comparer les étages.
   `make test` 12/12 ; check-sql 81, check-feedback 102, check-rag-tools 62,
   check-perimetre 31 inchangés.
+- **Vague 1 du TODO post-revue : faite.** `docs/2026-09-07-todo-post-revue.md`.
+  Deux mesures publiées de plus — `make mesure-refus` → `eval/rapport_refus.md` (axe 4) et
+  `make mesure-acces` → `eval/rapport_acces.md` (axe 5, **E5 chiffrée** : 50/50 appels
+  journalisés, 0 fuite des trois colonnes sensibles) ; `collections` exposé sans `enum` sur
+  les trois tools ; les motifs d'écart au cadrage écrits dans `mcp_server/matrice.yaml`.
+  **Deux correctifs de garantie.** `check_sql.py` contrôle le **réarmement de `query_only`
+  sur connexion neuve** — le seul invariant qui tienne la lecture seule, et il n'était
+  vérifié que par ses charges (81 → **83**). Et `question_for_writer()` dans
+  `rag_machines/tools.py` complète l'énoncé quand la question est réduite à une référence
+  nue : « REF-5313 » n'est pas une question, et la barrière 2 la refusait sur un retrieval
+  parfait. La réécriture est **au seul bord de `writer.write()`** — la recherche garde la
+  référence nue, c'est cette forme que BM25 attrape — et **pas dans le `_SYSTEM_PROMPT`** :
+  mesuré, la règle au prompt desserre la barrière 2 au-delà du cas visé (RAG-18 et RAG-20
+  basculent en `ok` alors que le corpus ne porte pas leur réponse). Faux refus 3–4/22 →
+  **3/22**, et **la plage disparaît** : les trois passes sont identiques.
+  **`make lint` est au vert** — `IncludeEnum.metadatas` dans `check_index.py`, et deux
+  `# type: ignore[arg-type]` motivés sur les décorateurs Chainlit.
+  `make test` 12/12 ; check-rag-tools **67**, check-sql **83**, check-feedback 103,
+  check-perimetre 31.
 - **Reste du chantier 3.** Par ordre d'exigence du brief :
   1. **Le mini guide d'accès** — *livrable exigé*, au même titre que `mcp_server/` : « Le
      serveur MCP (mcp_server/) exposant le catalogue complet **ainsi qu'un mini guide
      d'accès** ». Il n'existe pas encore. C'est aussi l'endroit où mettre le bloc de
      configuration stdio pour un client externe, donc la réponse à « essai du service » ;
-  2. **la mesure de `blocked_at`** — cible `make mesure-acces` → `eval/rapport_acces.md`.
-     **E5 est la seule des six exigences sans preuve chiffrée publiée** ; les cinq autres ont
-     `rapport_gain.md`, `rapport_sql.md` ou `rapport_perimetre.md`. La réserve « nommer, pas
-     numéroter » se tranche à cette occasion ;
-  3. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
+  2. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
      chaque colonne adossée à son propre processus MCP (custom element React, exécution en
      `asyncio.gather`). Le registre de sessions par profil (`GatewayRegistry`) est déjà en
      place pour ça. C'est aussi elle qui porte le livrable « un lien d'une interface graphique
      du produit fonctionnel » — **l'URL exigée porte sur l'IGU, pas sur le serveur MCP** :
      stdio tient le livrable serveur (arbitrage consigné au journal le 2026-09-06).
+
+  Le reste vit dans `docs/2026-09-07-todo-post-revue.md` — deux décisions ouvertes
+  (`citations` au journal, `search_for_profile()`), l'écriture du contrat de réponse, les
+  écarts au dossier de conception, et le contournement `literalai` à rendre durable.
 
   Hors périmètre du brief, instruit et journalisé mais **non ouvert** : le passage à un
   service partagé (transport HTTP, annuaire et secrets), et la chaîne de délégation
@@ -245,5 +264,5 @@ make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM c
 make serve         # serveur MCP stdio, les huit tools (profil dans SORABEL_PROFILE)
 make client        # client de test : catalogue et appel d'un tool (PROFILE=support|commercial)
 make test          # suite d'acceptance — 12/12
-make lint          # ruff + mypy — rouge sur 3 erreurs préexistantes (Chainlit, IncludeEnum)
+make lint          # ruff + mypy — au vert
 ```
