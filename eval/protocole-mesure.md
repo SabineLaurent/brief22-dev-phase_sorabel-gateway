@@ -87,7 +87,7 @@ indexées dans les deux collections, `is_current` étant une métadonnée
 ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5). Le désactiver ne demande donc pas un
 second index — c'est ce qui rend l'axe 2 bon marché.
 
-## 3. Les trois axes de mesure
+## 3. Les cinq axes de mesure
 
 ### Axe 1 — la recherche, à ingestion constante
 
@@ -187,6 +187,70 @@ rendue inatteignable** et Hit@1 ne doit pas bouger. S'il bougeait, ce serait le 
 filtre écarte autre chose que ce qu'il doit écarter.
 
 Publié dans [`rapport_perimetre.md`](rapport_perimetre.md), cible `make mesure-perimetre`.
+
+### Axe 4 — le refus tel qu'il est servi, à recherche constante
+
+**Ajouté le 2026-09-07**, à la revue de fin de chantier. Comme l'axe 3, *ajouter* un axe
+n'est pas *ajuster* une mesure existante : les sept mesures des axes 1 et 2 sont inchangées.
+
+Il répond à : **combien de barrières le client rencontre-t-il réellement ?**
+
+| | Constant | Varie |
+|---|---|---|
+| | `--config C` · `--text clean` · `--version-filter on` · profil `commercial` | **le nombre de barrières prises en compte** |
+
+`answer_question` a **deux** barrières, et l'axe 1 n'en mesure qu'une :
+
+| | Où | Ce qu'elle lit | Nature |
+|---|---|---|---|
+| **barrière 1** `hors_corpus` | `search(threshold=…)` | le score du premier résultat | déterministe, avant tout appel au modèle |
+| **barrière 2** `contexte_insuffisant` | la garde de suffisance du rédacteur ([`Q4`](../docs/conception/1-rag-avance/Q4.md) §5) | les extraits eux-mêmes | jugement du modèle, **non déterministe** |
+
+La ligne « refus corrects » de l'axe 1 porte sur la barrière 1 seule — c'est le bon périmètre
+pour comparer trois étages de recherche, et c'est un chiffre de recherche, **pas une mesure
+d'E1**. Publier les deux colonnes est la seule manière d'empêcher cette lecture.
+
+**Une exception assumée au §11.** Ce protocole refuse tout juge probabiliste *dans la
+mesure*. Ici le juge est dans le **produit** : mesurer ce que la gateway fait suppose de
+faire ce qu'elle fait, appel de modèle compris. La conséquence est publiée plutôt que
+masquée — la cible joue **trois passes**, et le rapport donne une plage `n–m` sur toute
+métrique qui bouge, avec le nom des questions qui bougent. Jamais une moyenne : elle
+cacherait laquelle.
+
+`search_docs` n'entre pas dans cet axe. Il n'a aucune barrière et n'en aura pas
+([`03-catalogue-tools.md`](../docs/conception/LIVRABLES_CONCEPTION/03-catalogue-tools.md)) :
+c'est le tool sur lequel E6 se mesure, et un seuil qui masque les résultats sous la barre
+rend le rang inobservable.
+
+Publié dans [`rapport_refus.md`](rapport_refus.md), cible `make mesure-refus`.
+
+### Axe 5 — les étages d'accès, à corpus et base constants
+
+**Ajouté le 2026-09-07**, même revue. C'est **E5**, la seule des six exigences qui n'avait
+pas de preuve chiffrée publiée.
+
+Il répond à : **qui est arrêté, par quel étage, et qu'est-ce qui ne sort jamais ?**
+
+| | Constant | Varie |
+|---|---|---|
+| | dix scénarios d'appel, un par tool plus deux qui visent l'étage 3 | **le profil** — les cinq de la matrice |
+
+E5 porte deux obligations qui ne se prouvent pas de la même façon, et l'axe fait les deux :
+*tout appel est journalisé* se **compte** (autant d'entrées que d'appels), *les colonnes
+sensibles ne sortent jamais pour `support`* se **cherche** — dans la vue client sérialisée,
+qui est la seule chaîne qui parte vraiment.
+
+**Deux sources, parce que les trois étages ne se lisent pas au même endroit.** L'étage 1 se
+lit dans `tools/list` ; les étages 2 et 3 dans le champ `blocked_at` du journal. L'étage 1 ne
+peut **pas** apparaître dans `blocked_at` : il filtre une liste, il n'arrête aucun appel — un
+client qui appelle un tool non listé est refusé à l'étage 2. Mesurer E5 sur le seul journal
+manquerait donc un étage entier.
+
+Aucun refus ne coûte un appel de modèle : les étages 2 et 3 tranchent avant la génération.
+La mesure écrit son journal dans un répertoire temporaire — elle ne pollue pas
+`logs/journal.jsonl`.
+
+Publié dans [`rapport_acces.md`](rapport_acces.md), cible `make mesure-acces`.
 
 ## 4. Le « RAG simple » est un coin de l'espace, pas un second projet
 
@@ -328,7 +392,9 @@ un module importable, pour ne pas nommer un paquet `eval`.
 
 ### Une cible Make par mesure publiée
 
-Les quatre drapeaux forment 24 combinaisons, mais **on n'en publie que sept**. À ce
+Les quatre drapeaux forment 24 combinaisons, mais **on n'en publie que sept** — auxquelles
+s'ajoutent les trois axes qui ne se règlent pas par un drapeau de recherche (périmètre, refus,
+accès), une cible chacun. À ce
 nombre-là, une cible nommée par mesure vaut mieux qu'une chaîne de drapeaux : c'est la
 convention du dépôt — tous les flux passent par `make` —, c'est ce qui rend un chiffre
 rejouable tel quel, et c'est le seul endroit où le protocole se lit d'un coup d'œil.
@@ -346,6 +412,12 @@ mesure-hybride           # C · clean · filtre on   — l'« après »
 # — axe 2 : l'ingestion, à recherche constante —
 mesure-sans-nettoyage    # C · raw   · filtre on   — ce que vaut le nettoyage
 mesure-sans-versions     # C · clean · filtre off  — ce que vaut le versionnement
+
+# — axe 4 : le refus servi, à recherche constante —
+mesure-refus             # C · clean · filtre on   — les deux barrières, 3 passes
+
+# — axe 5 : les étages d'accès —
+mesure-acces             # E5 : dix scénarios × cinq profils, journal + colonnes fermées
 
 # — la ligne parlante —
 mesure-rag-simple        # A · raw   · filtre off · départage off
@@ -381,7 +453,12 @@ pose plus.
 eval/resultats/mesure-dense.csv            une ligne par question
 eval/resultats/mesure-sans-nettoyage.csv
 eval/resultats/…                           un fichier par cible
+eval/resultats/mesure-refus.csv            axe 4 — une ligne par (question, passe)
+eval/resultats/mesure-acces.csv            axe 5 — une ligne par (profil, scénario)
 eval/rapport_gain.md                       le tableau de synthèse publié
+eval/rapport_perimetre.md                  axe 3
+eval/rapport_refus.md                      axe 4
+eval/rapport_acces.md                      axe 5
 ```
 
 **Le CSV porte le nom de la cible qui l'a produit**, et son en-tête rappelle les quatre

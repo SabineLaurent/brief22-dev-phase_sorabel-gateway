@@ -1,5 +1,5 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
-	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-sans-nettoyage mesure-sans-versions \
+	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback eval-sql test fmt lint serve client \
 	journal api web
 
@@ -44,6 +44,14 @@ mesure-hybride:
 
 mesure-perimetre:
 	uv run python -m packages.rag_machines.evals_and_controls.eval_perimeter
+
+# Trois passes, et c'est le prix de l'honnêteté : la barrière 2 est un jugement de modèle.
+# Une passe publierait un chiffre sans dire s'il tient.
+mesure-refus:
+	uv run python -m packages.rag_machines.evals_and_controls.eval_refusal --passes 3
+
+mesure-acces:
+	uv run python -m packages.evals_and_controls.eval_access
 
 mesure-sans-nettoyage:
 	uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config C --text raw --version-filter on --out mesure-sans-nettoyage

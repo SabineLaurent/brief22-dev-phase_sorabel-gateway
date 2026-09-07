@@ -343,6 +343,13 @@ def build_report() -> str:
         "`B` n'a pas de seuil de refus praticable (aucune échelle bornée sur un score BM25 "
         "— Q4 §3) : la case vide est un résultat, pas un trou.",
         "",
+        "> **La ligne « refus corrects » n'est pas la mesure d'E1, et ne doit pas être lue "
+        "comme telle.** Elle porte sur `search()` suivi d'une comparaison au seuil — la "
+        "**barrière 1 seule**, qui est le bon périmètre pour comparer trois étages de "
+        "recherche. Mais E1 vit dans `answer_question`, qui a une **seconde** barrière : la "
+        "garde de suffisance du rédacteur, qui lit les extraits au lieu du score. Mesuré à "
+        "travers les deux, le refus servi est de **8/8** et non de 5/8 — voir "
+        "[`rapport_refus.md`](rapport_refus.md), axe 4.",
         "",
         "## Effet de la règle de départage — avec / sans, sur les trois sous-ensembles",
         "",
