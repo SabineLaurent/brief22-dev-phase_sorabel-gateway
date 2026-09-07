@@ -158,6 +158,34 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `# type: ignore[arg-type]` motivés sur les décorateurs Chainlit.
   `make test` 12/12 ; check-rag-tools **67**, check-sql **83**, check-feedback 103,
   check-perimetre 31.
+- **La frontière du serveur : posée et mesurée.** `SorabelMCP.call_tool` — surcharge
+  symétrique de `list_tools` : **la liste décide ce qui est visible, l'appel garantit ce qui
+  en sort.**
+  **Le défaut fermé.** FastMCP valide les arguments contre l'`inputSchema` **avant** la
+  fonction de tool, et un tool hors catalogue ne l'atteint jamais : argument hors format,
+  argument requis absent, mauvais type et tool inconnu court-circuitaient handler, étage 2 et
+  journal. Le SDK rendait à leur place la trace pydantique brute, **qui n'est pas du JSON** —
+  or les trois clients du dépôt font `json.loads`. Mesuré sur neuf appels : **6 exceptions sur
+  9 → 0**, et **3 lignes de journal sur 9 → 9**. E5 était entamée sur un chemin qu'aucune
+  mesure ne regardait.
+  **`isError` : tranché sur `erreur_execution` seul** — tout statut `error`, et rien d'autre.
+  La spec en fait un **canal de correction** que le client remonte au modèle pour qu'il
+  réessaie ; un refus de droits n'a rien à corriger, et le marquer inviterait à réessayer à
+  l'identique — la différence entre un `500` et un `403`. Motif technique concordant :
+  `mcp/client/session.py:411` ne valide le `structuredContent` **que si `isError` est faux**,
+  donc marquer un refus supprimerait la vérification du schéma là où il déclare l'absence de
+  la clé de charge utile. Sur `erreur_execution` le coût est nul, le payload étant réduit à
+  `{"code": …}`. Le tableau §5 de la conception en marquait cinq — **écart décidé, motivé**.
+  **MCP n'a pas d'équivalent de `403` ni de `404`** : le protocole n'offre qu'un booléen et
+  des codes JSON-RPC de structure. C'est le trou que les douze codes comblent, et la raison de
+  « le discriminant du client est `code`, pas `isError` ».
+  Mesure : `rapport_acces.md` gagne une section et `mesure-acces-frontiere.csv` —
+  **5/5 journalisés, 5/5 enveloppes conformes, 0 fuite**, témoin valide compris, et **mesurée
+  à travers un vrai processus serveur** : un handler ne connaît pas l'`inputSchema`, il
+  rendrait `aucune_ligne` sur une référence mal formée. Les 50 appels d'E5 passaient tous des
+  arguments valides — la limite n'était écrite nulle part.
+  `make lint` vert ; check-contrat 121 → **145** ; check-sql 83, check-feedback 103,
+  check-rag-tools 67, check-perimetre 31 inchangés ; `make test` 12/12.
 - **Le contrat de réponse est déclaré au protocole : fait.** `mcp_server/output_schemas.py`
   (les huit `outputSchema`), `mcp_server/server.py` (les huit tools rendent l'enveloppe,
   `list_tools` publie le schéma), `packages/evals_and_controls/check_mcp_contract.py`.
@@ -291,9 +319,10 @@ make check-rag-tools # contrôles des quatre tools RAG et de leur journal (sans 
 make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
 make check-feedback # contrôles de la réponse structurée et du journal (sans appel de modèle)
-make check-contrat # contrôles de l'outputSchema publié par les huit tools (121)
+make check-contrat # contrôles du contrat publié et de la frontière du serveur (145)
 make mesure-refus  # axe 4 : le refus servi sur les deux barrières -> eval/rapport_refus.md
-make mesure-acces  # axe 5 : E5 chiffrée, étages d'arrêt et colonnes fermées -> eval/rapport_acces.md
+make mesure-acces  # axe 5 : E5 chiffrée, étages d'arrêt, colonnes fermées et la
+                   #          frontière du serveur -> eval/rapport_acces.md
 make journal       # les 20 dernières entrées de logs/journal.jsonl
 make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM chacune)
 make serve         # serveur MCP stdio, les huit tools (profil dans SORABEL_PROFILE)

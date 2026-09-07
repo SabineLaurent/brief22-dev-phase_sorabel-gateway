@@ -47,6 +47,7 @@ import asyncio
 import csv
 import json
 import os
+import sys
 import textwrap
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -58,6 +59,7 @@ from packages.access import load_matrix
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_PATH = REPO_ROOT / "eval" / "resultats" / "mesure-acces.csv"
+FRONTIER_PATH = REPO_ROOT / "eval" / "resultats" / "mesure-acces-frontiere.csv"
 REPORT_PATH = REPO_ROOT / "eval" / "rapport_acces.md"
 
 #: Les cinq profils de la matrice, du plus fermé au plus ouvert. `default` est un profil et
@@ -111,6 +113,38 @@ SCENARIOS: tuple[tuple[str, str, dict[str, Any], str], ...] = (
 
 _CSV_FIELDS = ("profile", "scenario", "tool", "status", "code", "decision",
                "etage", "blocked_at", "journal_entries", "sensitive_in_view")
+
+#: Les appels que le SDK écarte **avant** la fonction de tool : argument hors format,
+#: argument requis absent, mauvais type, tool hors catalogue. Ils ne traversent ni l'étage 2
+#: ni le handler, donc personne en aval ne peut les journaliser — c'est la frontière du
+#: serveur qui s'en charge (``SorabelMCP.call_tool``).
+#:
+#: **Ils se mesurent à travers le serveur, pas par les handlers**, et c'est le motif de la
+#: seconde moitié de ce script : un handler ne connaît pas l'``inputSchema``, donc
+#: ``check_stock("clou à béton")`` lui rendrait ``aucune_ligne`` au lieu du refus de format.
+#: Mesurer ce chemin par les handlers dirait le contraire de la vérité.
+#:
+#: Le dernier est un témoin : sans lui, un serveur qui refuserait *tout* rendrait les mêmes
+#: chiffres qu'un serveur correct.
+FRONTIER_CALLS: tuple[tuple[str, str, dict[str, Any], str], ...] = (
+    ("arg-hors-format", "check_stock", {"reference": "clou à béton"},
+     "un nom de produit là où le motif exige `REF-NNNN` — l'erreur qu'un LLM commet"),
+    ("arg-manquant", "check_stock", {},
+     "argument requis absent"),
+    ("arg-mauvais-type", "check_stock", {"reference": 8842},
+     "un entier là où le schéma attend une chaîne"),
+    ("tool-inconnu", "outil_inconnu", {},
+     "un tool hors catalogue : il n'atteint jamais l'étage 2"),
+    ("temoin-valide", "check_stock", {"reference": "REF-8842"},
+     "**témoin** : le même tool, appelé correctement"),
+)
+
+_FRONTIER_FIELDS = ("scenario", "tool", "is_error", "status", "code", "journal_entries",
+                    "envelope_ok", "internals_in_view")
+
+#: Ce qu'un client ne doit jamais lire : le vocabulaire du validateur. La trace part en
+#: ``cause``, vers le journal — la chercher dans la vue est ce qui atteste la séparation.
+VALIDATOR_WORDS = ("pattern", "ValidationError", "ToolError", "Arguments", "pydantic")
 
 
 def _handle(tool: str, arguments: dict[str, Any], profile: str,
@@ -208,6 +242,68 @@ def run(settings: Settings) -> tuple[list[dict], dict[str, int]]:
     return rows, _catalogue_sizes()
 
 
+async def _frontier_session(settings: Settings) -> list[dict[str, Any]]:
+    """Joue les appels de frontière **à travers un vrai processus serveur**.
+
+    Un sous-processus stdio et non un appel en mémoire : la frontière est censée protéger un
+    *client*, et c'est donc du côté client qu'il faut se placer pour l'attester. Le journal
+    est détourné vers celui de la mesure, comme pour les cinquante appels.
+
+    Une seule session pour les cinq appels : le coût est le démarrage du serveur, pas
+    l'appel, et le rejouer cinq fois ne prouverait rien de plus.
+    """
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    journal_path = Path(settings.gateway_journal)
+
+    def journal_length() -> int:
+        if not journal_path.exists():
+            return 0
+        return len([line for line in journal_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()])
+
+    env = {**os.environ, "SORABEL_PROFILE": "commercial",
+           "GATEWAY_JOURNAL": str(journal_path), "TOKENIZERS_PARALLELISM": "false"}
+    params = StdioServerParameters(command=sys.executable,
+                                   args=["-m", "mcp_server.server"], env=env,
+                                   cwd=str(REPO_ROOT))
+    rows: list[dict[str, Any]] = []
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            for scenario, tool, arguments, _motive in FRONTIER_CALLS:
+                before = journal_length()
+                result = await session.call_tool(tool, arguments)
+                written = journal_length() - before
+                served = "".join(getattr(b, "text", "") for b in result.content)
+                # `envelope_ok` porte les deux moitiés de l'invariant : le bloc texte est du
+                # JSON aux trois clés du contrat, **et** il est égal au champ structuré.
+                try:
+                    view = json.loads(served)
+                    envelope_ok = (set(view) == {"status", "payload", "message"}
+                                   and view == result.structuredContent)
+                except json.JSONDecodeError:
+                    view, envelope_ok = {}, False
+                rows.append({
+                    "scenario": scenario,
+                    "tool": tool,
+                    "is_error": bool(result.isError),
+                    "status": view.get("status", ""),
+                    "code": (view.get("payload") or {}).get("code", ""),
+                    "journal_entries": written,
+                    "envelope_ok": envelope_ok,
+                    "internals_in_view": "|".join(
+                        word for word in VALIDATOR_WORDS if word in served),
+                })
+    return rows
+
+
+def measure_frontier(settings: Settings) -> list[dict[str, Any]]:
+    """La mesure de la frontière, en synchrone — pendant de ``_catalogue_sizes``."""
+    return asyncio.run(_frontier_session(settings))
+
+
 def _paragraph(text: str) -> list[str]:
     """Une phrase repliée à 88 colonnes, rendue en lignes.
 
@@ -236,7 +332,8 @@ def _ids(rows: list[dict], **criteria: Any) -> list[str]:
     return [r["scenario"] for r in rows if all(r.get(k) == v for k, v in criteria.items())]
 
 
-def write_report(rows: list[dict], sizes: dict[str, int]) -> None:
+def write_report(rows: list[dict], sizes: dict[str, int],
+                 frontier: list[dict]) -> None:
     matrix = load_matrix(base_settings)
     total = len(SCENARIOS)
     # `load_matrix` rend des `Scope`, pas les dictionnaires bruts du YAML : c'est le même
@@ -408,7 +505,69 @@ def write_report(rows: list[dict], sizes: dict[str, int]) -> None:
             "",
         ]
 
+    ecartes = [r for r in frontier if r["scenario"] != "temoin-valide"]
+    non_journalises = [r for r in frontier if r["journal_entries"] != 1]
+    hors_enveloppe = [r for r in frontier if not r["envelope_ok"]]
+    fuites_internes = [r for r in frontier if r["internals_in_view"]]
     lines += [
+        "## La frontière du serveur — ce qui n'atteint jamais les trois étages",
+        "",
+    ]
+    lines += _paragraph(
+        f"Les {len(rows)} appels ci-dessus passent tous des arguments valides, et c'est la "
+        "limite de leur échantillon : ils ne disent rien du chemin qu'un argument mal formé "
+        "emprunte. Or ce chemin existe, et il est **en amont des trois étages** — le SDK "
+        "valide les arguments contre l'`inputSchema` avant d'appeler la fonction de tool, et "
+        "un tool hors catalogue ne l'atteint jamais. Ni le handler, ni l'étage 2, ni le "
+        "journal ne voient ces appels."
+    )
+    lines += [""]
+    lines += _paragraph(
+        "**Cette section se mesure à travers un vrai processus serveur, pas par les "
+        "handlers**, et c'est une nécessité et non un raffinement : un handler ne connaît pas "
+        "l'`inputSchema`, donc il rendrait `aucune_ligne` sur une référence mal formée au "
+        "lieu du refus de format. Mesurer ce chemin par les handlers dirait le contraire de "
+        "la vérité."
+    )
+    lines += [
+        "",
+        "| Appel | `isError` | `status` | `code` | journal | enveloppe |",
+        "|---|:--:|---|---|:--:|:--:|",
+    ]
+    for row in frontier:
+        lines += [
+            f"| `{row['tool']}` — {row['scenario']} | "
+            f"{'✔' if row['is_error'] else '—'} | "
+            f"`{row['status']}` | `{row['code']}` | "
+            f"{row['journal_entries']} | {'✔' if row['envelope_ok'] else '**✘**'} |"
+        ]
+    lines += [""]
+    lines += _paragraph(
+        f"**{len(frontier) - len(non_journalises)} / {len(frontier)} appels journalisés**, "
+        f"**{len(frontier) - len(hors_enveloppe)} / {len(frontier)} enveloppes conformes** — "
+        "trois clés du contrat, et le bloc texte égal au champ structuré. "
+        f"{_bold(len(fuites_internes))} occurrence du vocabulaire du validateur dans ce que "
+        "le client reçoit : la trace part en `cause`, vers le journal."
+    )
+    lines += [""]
+    lines += _paragraph(
+        f"`isError` est posé sur les {len(ecartes)} appels écartés et sur aucun autre — pas "
+        "sur les refus de droits mesurés plus haut. La spécification en fait un canal de "
+        "correction, que le client remonte au modèle pour qu'il réessaie ; un refus de droits "
+        "n'a rien à corriger, et le marquer inviterait à réessayer à l'identique. C'est la "
+        "différence entre un 500 et un 403, qu'un booléen seul ne sait pas dire — d'où le "
+        "discriminant réel : `status`, puis `payload.code`."
+    )
+    lines += [
+        "",
+        "Le dernier appel est un **témoin** : sans lui, un serveur qui refuserait tout",
+        "rendrait les mêmes chiffres qu'un serveur correct.",
+        "",
+        "> Mesuré avant que cette frontière existe, sur les mêmes appels : **six exceptions",
+        "> sur neuf** dans le client (`json.loads` sur une trace pydantique), et **trois",
+        "> lignes de journal sur neuf**. E5 était entamée sur un chemin qu'aucune mesure ne",
+        "> regardait.",
+        "",
         "## « Nommer, pas numéroter » — tranché : on numérote",
         "",
         "La réserve laissée ouverte au journal de développement se tranche ici, puisque c'est",
@@ -439,15 +598,21 @@ def main() -> int:
             update={"gateway_journal": Path(tmp) / "journal.jsonl"}
         )
         rows, sizes = run(settings)
+        frontier = measure_frontier(settings)
 
     RESULTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with RESULTS_PATH.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=_CSV_FIELDS)
         writer.writeheader()
         writer.writerows(rows)
-    write_report(rows, sizes)
+    with FRONTIER_PATH.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=_FRONTIER_FIELDS)
+        writer.writeheader()
+        writer.writerows(frontier)
+    write_report(rows, sizes, frontier)
 
     print(f"écrit : {RESULTS_PATH.relative_to(REPO_ROOT)} ({len(rows)} lignes)")
+    print(f"écrit : {FRONTIER_PATH.relative_to(REPO_ROOT)} ({len(frontier)} lignes)")
     print(f"écrit : {REPORT_PATH.relative_to(REPO_ROOT)}")
     for profile in PROFILES:
         subset = _by(rows, profile)
@@ -460,7 +625,14 @@ def main() -> int:
     unjournalised = [r for r in rows if r["journal_entries"] != 1]
     print(f"  E5 — appels journalisés {len(rows) - len(unjournalised)}/{len(rows)} · "
           f"fuites de colonne sensible {len(leaks)}")
-    return 1 if (leaks or unjournalised) else 0
+    faux = [r for r in frontier if r["journal_entries"] != 1 or not r["envelope_ok"]
+            or r["internals_in_view"]]
+    print(f"  frontière — journalisés "
+          f"{len([r for r in frontier if r['journal_entries'] == 1])}/{len(frontier)} · "
+          f"enveloppes conformes "
+          f"{len([r for r in frontier if r['envelope_ok']])}/{len(frontier)} · "
+          f"fuites d'interne {len([r for r in frontier if r['internals_in_view']])}")
+    return 1 if (leaks or unjournalised or faux) else 0
 
 
 if __name__ == "__main__":

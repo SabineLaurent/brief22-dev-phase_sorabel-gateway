@@ -51,6 +51,7 @@ import jsonschema
 from config import Settings
 from config import settings as base_settings
 from mcp_server.output_schemas import OUTPUT_SCHEMAS, status_enum
+from packages import journal
 from packages.access import load_matrix
 from packages.rag_machines.structured_answer import (
     RAG_CLIENT_MESSAGES,
@@ -207,6 +208,83 @@ def _run(settings: Settings, check, verdict) -> int:  # noqa: ANN001 - deux ferm
             except jsonschema.ValidationError as error:
                 valid = str(error).splitlines()[0]
             check(f"{label} {code} — valide pour {name}", valid, True)
+
+    print("\nLa frontière : aucun appel ne sort sans enveloppe ni sans ligne")
+    # Ce que le SDK écarte avant la fonction de tool — patron violé, argument requis absent,
+    # mauvais type, tool hors catalogue — ne traversait ni l'étage 2 ni le journal, et
+    # rendait une trace pydantique non-JSON que les trois clients passent à `json.loads`.
+    # Mesuré avant correctif : six appels sur neuf levaient, trois lignes de journal sur neuf.
+    server = importlib.import_module("mcp_server.server")
+    # `journal.record` est détourné : ce qui est contrôlé ici est que la frontière journalise,
+    # pas ce que le journal écrit — `check_feedback` et `check_rag_tools` s'en chargent.
+    recorded: list[tuple[str, object]] = []
+    original = journal.record
+    journal.record = lambda tool, profile, args, answer, s=None: recorded.append(  # type: ignore[assignment]
+        (tool, answer))
+    try:
+        faute = ValueError("String should match pattern '^REF-\\d{4}$'")
+        vues = {name: server._rejected(name, {"x": 1}, faute)
+                for name in ("check_stock", "answer_question", "outil_inconnu")}
+    finally:
+        journal.record = original  # type: ignore[assignment]
+
+    check("les quatre tools documentaires sont nommés",
+          sorted(server._RAG_TOOL_NAMES), sorted(RAG_TOOLS))
+    check("un appel écarté, une ligne de journal", len(recorded), 3)
+    check("le journal reçoit le nom appelé, tool inconnu compris",
+          [tool for tool, _ in recorded], ["check_stock", "answer_question", "outil_inconnu"])
+    for name, vue in vues.items():
+        check(f"{name} — trois clés du DSI", sorted(vue), DSI_KEYS)
+        check(f"{name} — le code est erreur_execution", vue["payload"]["code"],
+              "erreur_execution")
+        check(f"{name} — la phrase dit le format attendu", vue["message"],
+              RAG_CLIENT_MESSAGES[MESSAGE_ONLY])
+    # L'étanchéité : la trace du validateur va au journal, jamais au client. La recherche
+    # porte sur la sous-chaîne — une fuite par concaténation serait invisible à un test de clés.
+    servi = json.dumps(vues, ensure_ascii=False)
+    check("la trace du validateur ne part pas au client",
+          [motif for motif in ("pattern", "REF-", "ValueError") if motif in servi], [])
+    check("mais elle est dans la cause journalisée",
+          all("pattern" in answer.cause for _, answer in recorded), True)  # type: ignore[attr-defined]
+    # Le routage d'un tool inconnu est indécidable : ce contrôle établit qu'il est aussi sans
+    # effet observable, au lieu de le supposer.
+    check("les deux domaines rendent la même enveloppe",
+          vues["check_stock"] == vues["answer_question"] == vues["outil_inconnu"], True)
+    # Et cette enveloppe doit valider contre le schéma publié, sans quoi le serveur la
+    # refuserait et rendrait à sa place un texte non-JSON — le défaut qu'on vient de fermer.
+    for name in ("check_stock", "answer_question"):
+        try:
+            jsonschema.validate(instance=vues[name], schema=listed[name].outputSchema)
+            conforme: object = True
+        except jsonschema.ValidationError as error:
+            conforme = str(error).splitlines()[0]
+        check(f"{name} — l'enveloppe de rejet valide", conforme, True)
+
+    print("\nisError : sur l'échec d'exécution, et sur rien d'autre")
+    # `isError` est un canal de correction, pas une catégorie de panne : la spécification
+    # demande aux clients de le remonter au modèle pour qu'il réessaie. Il convient donc à
+    # `erreur_execution` et pas à un refus de droits, où le modèle n'a rien à corriger.
+    # Ce que ce bloc contrôle, c'est que la frontière ne déborde pas de ce périmètre.
+    from mcp.types import TextContent
+
+    rendu = client_view(build_db_structured_answer("ok", sql="SELECT 1", columns=[], rows=[]))
+    refus = client_view(build_db_structured_answer("tool_interdit", etage=2))
+    panne = client_view(build_db_structured_answer("erreur_execution", cause="X"))
+    absent = client_view(build_db_structured_answer("aucune_ligne", rows=[]))
+    for label, vue in (("un résultat servi", rendu), ("un refus de droits", refus),
+                       ("une absence de donnée", absent)):
+        check(f"{label} n'est pas marqué", server._marked(vue) is vue, True)
+    marque = server._marked(panne)
+    check("une erreur d'exécution est marquée", getattr(marque, "isError", None), True)
+    check("et son enveloppe reste entière", getattr(marque, "structuredContent", None), panne)
+    # Le bloc texte est réutilisé quand le SDK l'a déjà produit : le refabriquer ferait
+    # diverger le texte du champ structuré, ce que tout ce contrat empêche.
+    bloc = [TextContent(type="text", text="déjà sérialisé")]
+    reutilise = server._marked((bloc, panne))
+    check("le bloc texte existant est réutilisé",
+          getattr(reutilise, "content", None), bloc)
+    check("un couple servi traverse inchangé",
+          isinstance(server._marked((bloc, rendu)), tuple), True)
 
     print("\nCe que le schéma refuse, et ce qu'il doit laisser passer")
     schema = listed["answer_question"].outputSchema

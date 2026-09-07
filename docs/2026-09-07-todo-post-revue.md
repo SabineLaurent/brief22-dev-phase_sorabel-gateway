@@ -8,7 +8,9 @@ sait pas quand la barrer.
 État de départ, mesuré le 2026-09-07 : `make test` 12/12 (48,46 s) · `check-sql` 81 ·
 `check-feedback` 103 · `check-rag-tools` 62 · `check-perimetre` 31.
 Après la vague 1 : `check-sql` **83** · `check-rag-tools` **67** · `make lint` **au vert**.
-Après §3.5 : `check-contrat` **121** — cible neuve, premier contrôle du serveur MCP.
+Après §3.5 : `check-contrat` **145** — cible neuve, premier contrôle du serveur MCP, et la
+frontière `call_tool` qu'il a fait apparaître (6 exceptions client sur 9 → 0, 3 lignes de
+journal sur 9 → 9).
 
 **Les mesures citées ici ont été relevées par des scripts jetables**, hors dépôt et non
 conservés : refaire la mesure fait partie de la tâche qui la cite (§2.1, §2.2, §2.3, §2.4).

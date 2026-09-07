@@ -34,19 +34,30 @@ du module ferait charger l'embedder et le reranker avant la première poignée d
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from config import settings
 from mcp_server.output_schemas import OUTPUT_SCHEMAS
+from packages import journal
 from packages.access import authorize
+from packages.rag_machines.structured_answer import (
+    MALFORMED_ARGUMENT,
+    build_rag_structured_answer,
+    rag_client_view,
+)
 from packages.text_to_sql_factory.handler import SQL_TOOLS, handle_request
 from packages.text_to_sql_factory.models import SqlToolRequest
 from packages.text_to_sql_factory.sql_tool_launcher import SqlToolLauncher
+from packages.text_to_sql_factory.structured_answer import (
+    build_db_structured_answer,
+    client_view,
+)
 
 PROFILE = os.environ.get("SORABEL_PROFILE", "support")
 
@@ -63,6 +74,73 @@ _COLLECTIONS = Annotated[
         ),
     ),
 ]
+
+
+#: Les quatre tools documentaires, nommés ici et pas importés de leur handler : le module de
+#: ce handler charge l'index et l'embedder, et l'import doit rester local aux fonctions de
+#: tool (``initialize`` a trente secondes). Quatre chaînes ne dérivent pas — ``list_tools``
+#: les confronte au catalogue à chaque appel, et le contrôle de contrat les recompte.
+_RAG_TOOL_NAMES = frozenset({"answer_question", "search_docs", "get_document",
+                             "list_sources"})
+
+
+def _marked(result: Any) -> Any:
+    """Marque ``isError`` sur les seules enveloppes de statut ``error``, et sur rien d'autre.
+
+    ``isError`` n'est pas une catégorie de panne : la spécification en fait un **canal de
+    correction** — « the tool failed, voici de quoi réessayer » — et demande aux clients de
+    le remonter au modèle. Il convient donc à ``erreur_execution``, seul des douze codes où
+    l'exécution a réellement échoué : argument hors format, tool inconnu, fournisseur
+    injoignable. Un refus de droits ne s'y met pas — le modèle n'a rien à corriger, et
+    réessayer serait faux. C'est la différence entre un 500 et un 403, que ``isError`` seul
+    ne sait pas dire : le discriminant du client reste ``status``, puis ``payload.code``.
+
+    Le coût est nul ici, et c'est ce qui rend le choix sûr : le payload d'``erreur_execution``
+    est réduit à ``{"code": …}`` par la liste blanche, donc la validation d'``outputSchema``
+    que le SDK client saute sur un résultat marqué ne portait sur rien. Sur un refus, elle
+    aurait porté sur l'absence de la clé de charge utile — la garantie qu'on ne veut pas
+    perdre.
+
+    Le bloc texte est **réutilisé** quand il existe : le refabriquer ferait diverger le texte
+    du champ structuré, ce que tout ce contrat s'emploie à empêcher.
+    """
+    view = result[1] if isinstance(result, tuple) and len(result) == 2 else result
+    if not isinstance(view, dict) or view.get("status") != "error":
+        return result
+    content = (list(result[0]) if isinstance(result, tuple)
+               else [TextContent(type="text", text=json.dumps(view, ensure_ascii=False))])
+    return CallToolResult(content=content, structuredContent=view, isError=True)
+
+
+def _rejected(tool: str, arguments: dict[str, Any], error: Exception) -> dict[str, Any]:
+    """L'enveloppe d'un appel que le SDK a refusé **avant** d'atteindre la chaîne.
+
+    Le SDK valide les arguments contre l'``inputSchema`` avant d'appeler la fonction de
+    tool, et un tool absent du catalogue n'y arrive jamais. Ces appels ne traversaient donc
+    ni l'étage 2, ni le journal — et le SDK rendait à leur place la trace pydantique brute,
+    qui n'est pas du JSON. Deux invariants tombaient d'un coup : *toute réponse est une
+    enveloppe*, et *tout appel est journalisé* (E5).
+
+    C'est pourquoi cette frontière existe, et pourquoi elle journalise elle-même : personne
+    d'autre ne peut le faire, puisque le handler n'est pas atteint. La trace du validateur
+    part en ``cause``, comme partout ailleurs — le client lit la phrase figée.
+
+    Le domaine ne sert qu'à choisir le constructeur. Pour un tool inconnu il est
+    **indécidable, et sans effet observable** : ``argument_malforme`` porte le même code, le
+    même statut et la même phrase dans les deux domaines. Le repli sur le domaine SQL est
+    donc un choix d'écriture, pas de comportement, et le contrôle de contrat le vérifie au
+    lieu de le supposer.
+    """
+    cause = f"{type(error).__name__}: {error}"
+    if tool in _RAG_TOOL_NAMES:
+        answer = build_rag_structured_answer(
+            "erreur_execution", client_key=MALFORMED_ARGUMENT, cause=cause)
+        journal.record(tool, PROFILE, arguments, answer, settings)
+        return rag_client_view(answer)
+    db_answer = build_db_structured_answer(
+        "erreur_execution", client_key=MALFORMED_ARGUMENT, cause=cause)
+    journal.record(tool, PROFILE, arguments, db_answer, settings)
+    return client_view(db_answer)
 
 
 class SorabelMCP(FastMCP):
@@ -88,6 +166,26 @@ class SorabelMCP(FastMCP):
             # droit d'accès sont donc posés au même endroit, sur la même liste.
             tool.outputSchema = OUTPUT_SCHEMAS[tool.name]
         return listed
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+        """La frontière du serveur : **aucun appel n'en sort sans enveloppe ni sans ligne.**
+
+        Le filet ne double pas celui des handlers, il couvre ce qu'ils ne voient pas. Un
+        argument qui viole l'``inputSchema`` — patron de référence, argument requis absent,
+        mauvais type — et un tool hors catalogue sont écartés par le SDK **avant** la
+        fonction de tool. Mesuré : six appels sur neuf rendaient alors une trace pydantique
+        non-JSON, que les trois clients du dépôt passent à ``json.loads``, et aucun n'était
+        journalisé.
+
+        Attraper ici est sans risque de masquer autre chose : les tools ne lèvent pas — les
+        deux handlers ont leur propre filet et rendent ``erreur_execution``. Ce qui remonte
+        jusqu'ici ne peut donc venir que de la couche de validation du SDK.
+        """
+        try:
+            result: Any = await super().call_tool(name, arguments)
+        except Exception as error:  # noqa: BLE001 - tout échec du SDK devient une enveloppe
+            result = _rejected(name, arguments, error)
+        return _marked(result)
 
 
 mcp = SorabelMCP(

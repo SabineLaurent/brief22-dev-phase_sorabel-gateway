@@ -3285,3 +3285,134 @@ ambiguë cette fois, un appel de modèle et non un effet du schéma — `decisio
 `blocked_at` et la colonne sensible sont inchangés sur cette ligne. Le noter plutôt que le
 lisser : une mesure qui contient un jugement de modèle bouge, et l'endroit où elle bouge est
 l'information.
+
+## 2026-09-07 — Une frontière qu'aucune mesure ne regardait
+
+Trouvé en instruisant une question qui semblait documentaire — « `isError` est-il en lien avec
+des codes HTTP ? » — et qui a fait apparaître un défaut de fonctionnement.
+
+### Ce que MCP n'a pas, et que les douze codes remplacent
+
+MCP est du **JSON-RPC 2.0**, pas du REST. Il offre deux mécanismes d'erreur, et **aucun n'est
+une taxonomie métier** :
+
+* les **erreurs de protocole** — codes JSON-RPC normalisés (`-32700` parse, `-32600` invalid
+  request, `-32601` method not found, `-32602` invalid params, `-32603` internal) : elles
+  parlent du protocole, pas du domaine ;
+* **`isError`** — un **booléen** dans le `CallToolResult`. Pas un code, pas une famille.
+
+| HTTP | MCP |
+|---|---|
+| `200` | `isError: false` |
+| `400` | `-32602 invalid params` |
+| **`401` / `403`** | **rien** |
+| **`404`** | **rien** |
+| `500` | `isError: true` |
+
+**Il n'existe aucun équivalent de 403 ni de 404 dans le protocole.** C'est exactement le trou
+que les douze codes comblent : ils jouent dans le `payload` le rôle que `403`/`404`/`409`
+jouent nativement en HTTP. Ça éclaire après coup la phrase de `03-catalogue-tools.md` §5 — « le
+discriminant du client est `code`, pas `isError` » : un booléen ne peut pas distinguer un refus
+de droits d'une panne.
+
+**Et la spécification corrige une idée fausse que j'avais avancée.** `isError` n'est pas
+l'équivalent d'un `5xx` : la spec en fait un **canal de correction**, qui couvre explicitement
+« input validation issues, and business logic errors », et elle demande aux clients de le
+remonter au modèle — *« provide actionable feedback that allows language models to self-correct
+and retry »*. Son exemple canonique est un `400`, pas un `500` :
+
+```json
+{"content": [{"type": "text",
+  "text": "Invalid departure date: must be in the future. Current date is 08/08/2025."}],
+ "isError": true}
+```
+
+### Le défaut : quatre familles d'appels ne traversaient rien
+
+En vérifiant si le code posait `isError` — il ne le posait nulle part —, j'ai découvert que
+**le SDK le posait déjà**, et sur des appels qui court-circuitaient toute la chaîne.
+
+FastMCP valide les arguments contre l'`inputSchema` **avant** d'appeler la fonction de tool, et
+un tool hors catalogue ne l'atteint jamais. Sur échec il rend `isError=True` et, en contenu, la
+trace pydantique brute :
+
+```
+Error executing tool check_stock: 1 validation error for check_stockArguments
+reference
+  String should match pattern '^REF-\d{4}$' [type=string_pattern_mismatch, …]
+```
+
+**Ce texte n'est pas du JSON.** Or les trois clients du dépôt font `json.loads(texts[0])`.
+Mesuré sur neuf appels à travers `Gateway.call` :
+
+| | avant | après |
+|---|---:|---:|
+| exceptions dans le client | **6 / 9** | **0 / 9** |
+| entrées de journal | **3 / 9** | **9 / 9** |
+
+Les quatre familles : argument hors format (patron `REF-NNNN`), argument requis absent, mauvais
+type, tool inconnu. Un argument **en trop** est toléré, lui, et c'est sans conséquence.
+
+**Trois conséquences, par gravité.** E5 était entamée — « tout appel, autorisé ou refusé, est
+journalisé », et ceux-là ne l'étaient pas. L'agent cassait sur une erreur qu'un modèle peut
+commettre : la description de `check_stock` dit « n'accepte pas un nom de produit », mais c'est
+une consigne, pas une contrainte. Et deux promesses du mini guide à venir auraient été fausses.
+
+### Le correctif : une frontière, au même endroit que l'étage 1
+
+`SorabelMCP.call_tool` surcharge la méthode du SDK, comme `list_tools` le faisait déjà pour
+l'étage 1. **La liste décide ce qui est visible, l'appel garantit ce qui en sort.** La symétrie
+n'est pas décorative : ce sont les deux seuls endroits où le serveur intervient dans le
+protocole, et ils sont désormais tous les deux gardés.
+
+Le filet ne double pas celui des handlers, il couvre ce qu'ils ne voient pas — et attraper
+large y est sans risque, précisément parce que les tools ne lèvent pas : les deux handlers ont
+leur propre filet. Ce qui remonte jusque-là ne peut venir que de la validation du SDK.
+
+**Un point indécidable, rendu inoffensif puis contrôlé.** Pour un tool inconnu, le domaine
+n'existe pas — ni SQL, ni documentaire — et il faut pourtant un constructeur d'enveloppe. Il se
+trouve qu'`argument_malforme` porte le même code, le même statut et **la même phrase** dans les
+deux domaines : le repli est donc un choix d'écriture, sans effet observable. Le contrôle
+l'atteste au lieu de le supposer — c'est la différence entre une coïncidence et une propriété.
+
+### `isError` : tranché, et sur un périmètre plus étroit que la conception
+
+Le tableau §5 de `03-catalogue-tools.md` marque **cinq** codes : les quatre refus plus
+`erreur_execution`. Le code n'en marquait aucun. Retenu : **`erreur_execution` seul**, c'est-à-dire
+tout statut `error`, et rien d'autre.
+
+Le motif tient à ce que `isError` *est* : un canal de correction. Sur `erreur_execution`,
+quelque chose a réellement échoué et un client a raison de réessayer. **Sur un refus de droits,
+le modèle n'a rien à corriger** — le marquer inviterait à réessayer à l'identique, ce qui est la
+différence entre un `500` et un `403`.
+
+Un second motif, technique, confirme le premier : `mcp/client/session.py:411` ne valide le
+`structuredContent` que si `isError` est faux. Marquer un refus supprimerait donc la
+vérification du schéma **précisément sur les refus**, là où il déclare que la clé de charge
+utile est absente. Sur `erreur_execution` le coût est nul : le payload est réduit à
+`{"code": …}` par la liste blanche, la validation ne portait sur rien.
+
+Le marquage vit dans `_marked()`, et il **réutilise le bloc texte** quand le SDK l'a déjà
+produit : le refabriquer ferait diverger le texte du champ structuré, ce que tout ce contrat
+s'emploie à empêcher.
+
+### La mesure, et l'aveu qu'elle porte
+
+`rapport_acces.md` gagne une section, et `eval/resultats/mesure-acces-frontiere.csv` avec elle :
+**5/5 journalisés, 5/5 enveloppes conformes, 0 fuite du vocabulaire du validateur**. Les cinq
+appels sont les quatre familles écartées plus un **témoin valide** — sans lui, un serveur qui
+refuserait tout rendrait les mêmes chiffres qu'un serveur correct.
+
+**Cette section se mesure à travers un vrai processus serveur, et c'est une nécessité.** Les
+cinquante appels d'E5 passent par les handlers ; or un handler ne connaît pas l'`inputSchema`,
+donc `check_stock("clou à béton")` lui rendrait `aucune_ligne` au lieu du refus de format.
+Mesurer ce chemin par les handlers dirait le contraire de la vérité.
+
+Le rapport publie aussi les chiffres d'avant correctif, en citation. C'est le point qui vaut
+d'être retenu : **les cinquante appels d'E5 passaient tous des arguments valides**, et cette
+limite d'échantillon n'était écrite nulle part. La mesure était juste ; elle regardait à côté.
+Un rapport qui dit 50/50 sans dire *sur quoi* laisse croire à une couverture qu'il n'a pas.
+
+Contrôles : `make lint` vert · `check-contrat` 121 → **145** · check-sql 83, check-feedback 103,
+check-rag-tools 67, check-perimetre 31 inchangés · `make test` 12/12 · E5 50/50 et 0 fuite,
+inchangée. `make client` affiche désormais une enveloppe là où il affichait une trace pydantique.

@@ -110,6 +110,46 @@ au modèle que les colonnes du périmètre, et le contrôle 5b de `validate()` r
 les autres sur l'arbre, alias résolus. Les 83 contrôles de `make check-sql` en
 tiennent le détail ; ce tableau atteste que la chaîne complète les respecte.
 
+## La frontière du serveur — ce qui n'atteint jamais les trois étages
+
+Les 50 appels ci-dessus passent tous des arguments valides, et c'est la limite de leur
+échantillon : ils ne disent rien du chemin qu'un argument mal formé emprunte. Or ce
+chemin existe, et il est **en amont des trois étages** — le SDK valide les arguments
+contre l'`inputSchema` avant d'appeler la fonction de tool, et un tool hors catalogue ne
+l'atteint jamais. Ni le handler, ni l'étage 2, ni le journal ne voient ces appels.
+
+**Cette section se mesure à travers un vrai processus serveur, pas par les handlers**,
+et c'est une nécessité et non un raffinement : un handler ne connaît pas
+l'`inputSchema`, donc il rendrait `aucune_ligne` sur une référence mal formée au lieu du
+refus de format. Mesurer ce chemin par les handlers dirait le contraire de la vérité.
+
+| Appel | `isError` | `status` | `code` | journal | enveloppe |
+|---|:--:|---|---|:--:|:--:|
+| `check_stock` — arg-hors-format | ✔ | `error` | `erreur_execution` | 1 | ✔ |
+| `check_stock` — arg-manquant | ✔ | `error` | `erreur_execution` | 1 | ✔ |
+| `check_stock` — arg-mauvais-type | ✔ | `error` | `erreur_execution` | 1 | ✔ |
+| `outil_inconnu` — tool-inconnu | ✔ | `error` | `erreur_execution` | 1 | ✔ |
+| `check_stock` — temoin-valide | — | `ok` | `ok` | 1 | ✔ |
+
+**5 / 5 appels journalisés**, **5 / 5 enveloppes conformes** — trois clés du contrat, et
+le bloc texte égal au champ structuré. 0 occurrence du vocabulaire du validateur dans ce
+que le client reçoit : la trace part en `cause`, vers le journal.
+
+`isError` est posé sur les 4 appels écartés et sur aucun autre — pas sur les refus de
+droits mesurés plus haut. La spécification en fait un canal de correction, que le client
+remonte au modèle pour qu'il réessaie ; un refus de droits n'a rien à corriger, et le
+marquer inviterait à réessayer à l'identique. C'est la différence entre un 500 et un
+403, qu'un booléen seul ne sait pas dire — d'où le discriminant réel : `status`, puis
+`payload.code`.
+
+Le dernier appel est un **témoin** : sans lui, un serveur qui refuserait tout
+rendrait les mêmes chiffres qu'un serveur correct.
+
+> Mesuré avant que cette frontière existe, sur les mêmes appels : **six exceptions
+> sur neuf** dans le client (`json.loads` sur une trace pydantique), et **trois
+> lignes de journal sur neuf**. E5 était entamée sur un chemin qu'aucune mesure ne
+> regardait.
+
 ## « Nommer, pas numéroter » — tranché : on numérote
 
 La réserve laissée ouverte au journal de développement se tranche ici, puisque c'est
