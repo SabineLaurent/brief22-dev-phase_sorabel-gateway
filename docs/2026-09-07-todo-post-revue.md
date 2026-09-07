@@ -570,7 +570,7 @@ sort du champ `hint`, abandonné sans remplaçant.
   client qui déclare son rôle […] Il disparaît avec le serveur MCP ». **L'écart est
   refermé** depuis l'étape C : le rôle choisit *quel processus* on interroge, jamais *quel
   argument* on passe.
-- [ ] `CLAUDE.md` annonce `make check-feedback` à 102 contrôles ; la cible en rend **103**.
+- [x] ~~`CLAUDE.md` annonce `make check-feedback` à 102 contrôles ; la cible en rend **103**.~~ *Fait le 2026-09-07* — les deux occurrences corrigées, et les décomptes de la vague 1 mis à jour dans la foulée (`check-sql` 83, `check-rag-tools` 67, `lint` au vert).
   Et `check-sql` y est annoncé à 81 : il en rend **83** depuis §2.3.
   Écart de décompte, pas de régression.
 
@@ -636,14 +636,20 @@ ce qui la raconte en dernier** — et rien de ce qui touche au code servi après
 | 1 | ~~**2.3** invariant `query_only`~~ **fait le 2026-09-07** | le seul de la liste dont l'absence peut faire **tomber une garantie en silence** | `check-sql` 81 → **83** |
 | 2 | ~~**2.1** `make mesure-refus`~~ | **fait le 2026-09-07** — axe 4, 3 passes, `rapport_refus.md` | 5/8 → **8/8** |
 | 3 | ~~**1.2** `make mesure-acces`~~ | **fait le 2026-09-07** — axe 5, `rapport_acces.md`, E5 sur ses deux moitiés | 50/50 · **0 fuite** |
-| 4 | **2.2** référence nue | effet mesuré, effet de bord vérifié absent | 3 lignes |
-| 5 | **2.6** `make lint` au vert | un rouge en soutenance est une question sans réponse | 3 lignes |
-| 6 | **2.8** republier `rapport_gain.md` | **décision** — le rapport et ses CSV ne s'accordent plus ; le correctif de chemin est déjà fait | `make mesure`, 49 s |
+| 4 | ~~**2.2** référence nue~~ | **fait le 2026-09-07** — faux refus 3–4/22 → **3/22**, et la plage disparaît | `check-rag-tools` 62 → **67** |
+| 5 | ~~**2.6** `make lint` au vert~~ | **fait le 2026-09-07** — un rouge en soutenance est une question sans réponse | `lint` **au vert** |
+| 6 | ~~**2.8** republier `rapport_gain.md`~~ | **fait le 2026-09-07** — décision prise, `make mesure` rejoué en entier | `mesure-hybride` identique |
+
+**La vague 1 est close.** Les six items sont faits, et les deux garanties qu'elle protégeait
+sont désormais contrôlées (`query_only` sur connexion neuve) ou mesurées (le refus servi sur
+ses deux barrières). Plus rien de ce qui change ce que le produit *fait* n'est en attente.
 
 ### Vague 2 — décider (rien à coder avant)
 
 Les trois qui bloquaient le mini guide sont **tranchées**. **6 et 7 sont appliquées** (2026-09-07) ;
 8 est de l'écriture, elle passe donc de fait en vague 3 avec le mini guide.
+
+**Il ne reste que 9 et 10** — deux décisions, aucune ne bloque le mini guide.
 
 | # | Tâche | État |
 |---|---|---|
