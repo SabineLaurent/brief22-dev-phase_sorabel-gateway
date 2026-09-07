@@ -3416,3 +3416,86 @@ Un rapport qui dit 50/50 sans dire *sur quoi* laisse croire à une couverture qu
 Contrôles : `make lint` vert · `check-contrat` 121 → **145** · check-sql 83, check-feedback 103,
 check-rag-tools 67, check-perimetre 31 inchangés · `make test` 12/12 · E5 50/50 et 0 fuite,
 inchangée. `make client` affiche désormais une enveloppe là où il affichait une trace pydantique.
+
+## 2026-09-07 — Le mini guide d'accès, et la moitié du livrable que personne n'avait lue
+
+Dernier livrable nommé du brief à manquer. `mcp_server/README.md`, dix sections.
+
+### Le brief en demandait deux choses, et on n'en avait lu qu'une
+
+La revue, le TODO et trois entrées de ce journal citent tous la même phrase — « le serveur MCP
+(`mcp_server/`) exposant le catalogue complet **ainsi qu'un mini guide d'accès** »
+(`brief22-updated.md:138`). Aucun n'avait relevé la ligne 130, dans le chantier MCP :
+
+> « documenter le catalogue pour les équipes clientes **et démontrer deux profils différents
+> avec `scripts/mcp_client.py` (support vs commercial)**. »
+
+**Le livrable comprend donc une démonstration scriptée**, et `scripts/mcp_client.py` en fait
+partie — il n'est pas qu'un confort de développement. D'où le §9 du guide, qui donne les
+commandes et la sortie attendue.
+
+Et un défaut trouvé en l'écrivant : `--profile` n'acceptait que `support` et `commercial`,
+alors que la matrice définit cinq profils. Conforme au brief à la lettre, mais **une liste en
+dur qui diverge de la matrice — dans l'outil dont le rôle est précisément de montrer la
+matrice.** Corrigé : `choices=sorted(load_matrix(settings))`. `PROFILE=dev` rend 5 tools,
+`PROFILE=default` en rend 0, et le tableau profil × tools du guide porte la boucle qui le
+régénère au lieu d'être recopié.
+
+### Ce que le guide pouvait enfin écrire, et ce qui avait changé d'état
+
+Le sommaire était arrêté depuis la conception (`Q5.md` §9, six points). Deux avaient bougé, et
+dans des directions opposées :
+
+* **point 2 — « lire `structuredContent.code`, pas `isError`, et surtout pas le bloc texte »
+  est devenu vrai le soir même.** Avant l'`outputSchema`, `structuredContent` ne contenait
+  qu'une chaîne opaque : l'écrire aurait été mentir. C'est le seul endroit où l'on voit
+  concrètement ce que le chantier du contrat a débloqué — un point de guide passé
+  d'inécrivable à recommandé en une soirée ;
+* **point 4 — « obligation d'afficher le `hint` » est périmé**, `hint` ayant été abandonné.
+
+Et une nuance qui n'est pas un détail : la table des douze codes de `Q4.md` §4 n'est pas
+périmée, elle est **trop large**. Sa colonne `isError` en marque cinq ; le code en marque un.
+Dire « périmée » aurait jeté une table juste à 90 % ; dire « trop large » dit quoi corriger.
+
+### Deux promesses qui n'auraient pas pu être écrites la veille
+
+Le guide affirme, dès son §1, que *toute réponse est une enveloppe à trois clés* et que *tout
+appel est journalisé*. **Ces deux phrases étaient fausses il y a deux heures** : un argument
+hors format rendait une trace pydantique non-JSON, et n'était pas journalisé. La frontière
+`call_tool` les a rendues vraies, `rapport_acces.md` les mesure (5/5) et `check-contrat` les
+contrôle.
+
+C'est l'ordre qui compte ici, et il n'était pas prévu : **écrire le guide en dernier a fonctionné
+parce que les deux chantiers de la soirée l'ont précédé.** Un guide écrit avant aurait promis ce
+que le serveur ne tenait pas — et personne ne l'aurait su, puisque aucune mesure ne regardait ce
+chemin. Un livrable de documentation est une **relecture du produit sous contrainte de
+promesse** : il force à ne rien affirmer qu'on ne sache tenir.
+
+### Le point le plus fin du guide est le seul que la conception avait vu
+
+`Q5.md` §9 point 6 : **`readOnlyHint` est une déclaration du serveur, pas une garantie
+vérifiable par le client.** L'annotation dit « ce tool ne modifie rien » ; rien dans le
+protocole ne l'atteste. Ce qui la tient, ce sont la matrice et les six contrôles SQL — du code
+que l'intégrateur ne voit pas.
+
+Le guide l'écrit, et en tire une consigne générale : un client ne devrait jamais faire reposer
+une décision de sécurité sur une annotation MCP, **d'aucun serveur**. C'est le genre de phrase
+qu'un guide d'accès est le seul endroit à pouvoir dire, parce qu'il parle au client et non de
+lui.
+
+### Ce que le guide ne contient pas, et pourquoi c'était la moitié du travail
+
+Ni architecture interne, ni fonctionnement du RAG hybride, ni arbitrages, ni histoire des
+décisions. Son lecteur veut brancher un client, pas comprendre le reranker. Tout ce qui est
+tentant de mettre est déjà ailleurs, et le guide y renvoie plutôt que de le recopier — chaque
+chiffre qu'il cite porte soit sa commande, soit son renvoi de rapport.
+
+La règle appliquée : **une seule source par sujet.** La section « Contrat d'intégration » du
+README racine disait déjà le lancement, `SORABEL_PROFILE`, `GATEWAY_JOURNAL` et l'enveloppe.
+Elle devient un renvoi. Deux textes sur le même contrat divergent, et le README en donnait déjà
+la démonstration : il publiait `Hit@1 2/8 → 8/8` là où `rapport_gain.md` publie 1/8 depuis la
+republication du matin. Corrigé, avec les deux rapports qui manquaient à son index.
+
+Contrôles : `make lint` vert · les cinq profils rendent 0 · 5 · 7 · 8 · 8 par
+`scripts/mcp_client.py` · l'exemple de refus du §9 vérifié (`support` sur les marges →
+`perimetre_interdit`, sans `rows`) · les sept liens du guide résolvent.

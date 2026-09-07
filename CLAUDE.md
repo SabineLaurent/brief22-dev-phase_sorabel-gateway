@@ -215,22 +215,34 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `isError` tranché code par code sont **abandonnés**, décidé et consigné.
   `make test` 12/12 ; check-sql 83, check-feedback 103, check-rag-tools 67,
   check-perimetre 31 inchangés ; `make lint` au vert ; E5 rejouée identique.
+- **Le mini guide d'accès : écrit.** `mcp_server/README.md` — *livrable exigé du brief*, au
+  même titre que `mcp_server/` lui-même. Dix sections, écrites **pour un intégrateur** qui
+  branche son propre client : bloc de configuration prêt à coller, tableau profil × tools avec
+  sa commande de régénération, les huit tools et vers quoi renvoyer quand ce n'est pas eux, les
+  cinq statuts, les douze codes avec la colonne « ce qu'il ne faut **jamais** faire », la
+  clause de prompt système, les citations, les garanties, les limites chiffrées, la
+  démonstration de deux profils, et les six écarts assumés.
+  `docs/mini-guide-acces.md` est un renvoi pour qui parcourt `docs/`, et la section « Contrat
+  d'intégration » du README racine devient un renvoi elle aussi — **une seule source pour le
+  contrat**, faute de quoi les deux divergent.
+  **Le brief exigeait une seconde chose sur le même sujet, que ni la revue ni le TODO n'avaient
+  relevée** : « documenter le catalogue […] **et démontrer deux profils différents avec
+  `scripts/mcp_client.py`** ». D'où le §9 du guide, et l'ouverture de `--profile` **aux cinq
+  profils lus dans la matrice** — une liste en dur y divergeait.
+  **Écart refermé au passage** : le guide recommande `structuredContent` comme chemin de
+  lecture, ce que `03-catalogue-tools.md` §4 défendait comme « le chemin correct sans avoir à y
+  penser ». Avant ce soir, l'écrire aurait été mentir.
+  **Le point le plus fin du guide** est le seul que la conception avait vu : `readOnlyHint` est
+  une **déclaration du serveur**, qu'un client ne peut pas vérifier — ce qui la tient est la
+  matrice et les contrôles SQL, donc du code invisible pour lui.
 - **Reste du chantier 3.** Par ordre d'exigence du brief :
-  1. **Le mini guide d'accès** — *livrable exigé*, au même titre que `mcp_server/` : « Le
-     serveur MCP (mcp_server/) exposant le catalogue complet **ainsi qu'un mini guide
-     d'accès** ». Il n'existe pas encore. C'est aussi l'endroit où mettre le bloc de
-     configuration stdio pour un client externe, donc la réponse à « essai du service ».
-     Il peut désormais recommander **`structuredContent`** comme chemin de lecture — les huit
-     tools le rendent et l'`outputSchema` le décrit ; hier, l'écrire aurait été mentir. Et le
-     tableau profil × tools devient reproductible plutôt que recopié :
-     `npx @modelcontextprotocol/inspector --cli uv run python -m mcp_server.server
-     --method tools/list` ;
-  2. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
+  1. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
      chaque colonne adossée à son propre processus MCP (custom element React, exécution en
      `asyncio.gather`). Le registre de sessions par profil (`GatewayRegistry`) est déjà en
      place pour ça. C'est aussi elle qui porte le livrable « un lien d'une interface graphique
      du produit fonctionnel » — **l'URL exigée porte sur l'IGU, pas sur le serveur MCP** :
-     stdio tient le livrable serveur (arbitrage consigné au journal le 2026-09-06).
+     stdio tient le livrable serveur (arbitrage consigné au journal le 2026-09-06). C'est le
+     **dernier livrable nommé** qui manque.
 
   Le reste vit dans `docs/2026-09-07-todo-post-revue.md` — deux décisions ouvertes
   (`citations` au journal, `search_for_profile()`), l'écriture du contrat de réponse, les

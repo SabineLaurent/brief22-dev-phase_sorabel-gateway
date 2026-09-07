@@ -7,7 +7,7 @@ Point d'accès unique aux données de **Sorabel**, distributeur B2B de matériel
 - **Recherche documentaire avancée** : dense + lexicale (BM25), fusion RRF, reranking
   (cross-encoder local ou LLM Azure, commutables), réponses sourcées (titre + référence +
   date), refus explicite hors corpus sur seuil calibré. Gain mesuré et publié
-  (`eval/rapport_gain.md`) : Hit@1 **2/8 → 8/8**, MRR 1,000 en hybride
+  (`eval/rapport_gain.md`) : Hit@1 **1/8 → 8/8**, MRR 1,000 en hybride
 - **Accès aux données en langage naturel** : génération SQL une passe, validation en six
   contrôles (sqlglot puis `EXPLAIN`), exécution `mode=ro` bornée, requête toujours renvoyée
   avec le résultat. `make eval-sql` : **24/24** conformes (`eval/rapport_sql.md`)
@@ -26,12 +26,16 @@ Point d'accès unique aux données de **Sorabel**, distributeur B2B de matériel
 
 ## Contrat d'intégration
 
-La note de cadrage de la DSI (`docs/cadrage_dsi.md`) fait foi : exigences E1–E6,
-matrice d'accès, et **contrat d'intégration** — commande de lancement du serveur
-(`python -m mcp_server.server`, profil via `SORABEL_PROFILE`, journal via
-`GATEWAY_JOURNAL`), catalogue de tools, enveloppe de réponse JSON
-`{status, payload, message}` et format du journal. La suite `tests/acceptance/`
-consomme la gateway en boîte noire, exactement comme un client interne :
+Le serveur se lance en stdio et sert les huit tools sous le profil de son environnement.
+Toute réponse est une enveloppe `{status, payload, message}`, refus compris, et tout appel
+est journalisé.
+
+> **[`mcp_server/README.md`](mcp_server/README.md) — le mini guide d'accès** : bloc de
+> configuration prêt à coller, tableau profil × tools, les douze codes et ce qu'un client
+> doit en faire, les limites et les écarts assumés.
+
+La note de cadrage de la DSI (`docs/cadrage_dsi.md`) **fait foi** sur ce contrat. La suite
+`tests/acceptance/` consomme la gateway en boîte noire, exactement comme un client interne :
 elle est rouge tant que le serveur et ses tools ne tiennent pas ce contrat — elle est
 aujourd'hui verte, 12/12.
 
@@ -89,7 +93,9 @@ packages/
   agent/              # banc d'essai : gateway.py (client MCP), cli.py, api.py (FastAPI)
   web_client/         # interface Chainlit
 mcp_server/
-  server.py           # le serveur : les huit tools, étage 1 sur tools/list
+  README.md           # LE MINI GUIDE D'ACCÈS — pour qui branche un client
+  server.py           # le serveur : les huit tools, étage 1 sur tools/list, frontière call_tool
+  output_schemas.py   # l'outputSchema des huit tools : le contrat, déclaré au protocole
   matrice.yaml        # matrice d'accès — donnée de configuration versionnée, jamais du code
 data/
   corpus/             # ~400 documents : fiches/ notices/ (PDF), sav/ (HTML), notes/ (Markdown)
@@ -102,7 +108,10 @@ docs/
 eval/
   protocole-mesure.md # ce qui varie et ce qui ne varie pas dans toute comparaison
   rapport_gain.md     # E6 : gain de l'hybride sur le dense
-  rapport_sql.md      # les 24 questions SQL      rapport_perimetre.md  # axe 3 du protocole
+  rapport_sql.md      # les 24 questions SQL
+  rapport_refus.md    # le refus documentaire sur ses deux barrières
+  rapport_perimetre.md # ce que coûte un filtre appliqué après la troncature
+  rapport_acces.md    # E5 : journalisation, étages d'arrêt, colonnes fermées
 scripts/
   seed.py             # génère et peuple data/sorabel.db
   mcp_client.py       # client MCP de test (profils support / commercial)
@@ -112,6 +121,7 @@ tests/acceptance/     # suite d'acceptance boîte noire, adossée aux exigences 
 ## Où en est le projet
 
 Les trois chantiers du brief sont livrés et vérifiés ; `CLAUDE.md` en tient l'état détaillé
-et `docs/journal-developpement.md` les décisions. Reste, côté phase de développement :
-l'interface graphique splittée par rôle, la mesure de `blocked_at`, et le mini guide d'accès
-destiné aux équipes clientes.
+et `docs/journal-developpement.md` les décisions. Le mini guide d'accès est écrit
+([`mcp_server/README.md`](mcp_server/README.md)) et E5 est chiffrée
+([`eval/rapport_acces.md`](eval/rapport_acces.md)). Reste, côté phase de développement :
+**l'interface graphique splittée par rôle**, et le lien public qui va avec.

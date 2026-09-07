@@ -22,7 +22,27 @@ Les chiffres, eux, sont dans ce fichier — ils servent de valeur attendue, pas 
 
 ### 1.1 Le mini guide d'accès
 
-- [ ] **Écrire le mini guide d'accès des équipes clientes.**
+- [x] **Écrire le mini guide d'accès des équipes clientes.** *Fait le 2026-09-07* —
+  `mcp_server/README.md`, dix sections, écrites pour un intégrateur.
+  `docs/mini-guide-acces.md` est un renvoi ; la section « Contrat d'intégration » du README
+  racine en devient un aussi — **une seule source pour le contrat**.
+
+  **Le brief exigeait une seconde chose sur le même sujet, que cette liste avait manquée** :
+  `brief22-updated.md:130` — « documenter le catalogue pour les équipes clientes **et
+  démontrer deux profils différents avec `scripts/mcp_client.py` (support vs commercial)** ».
+  Le livrable comprend donc une démonstration scriptée. D'où le §9 du guide, et l'ouverture de
+  `--profile` **aux cinq profils lus dans la matrice** : une liste en dur (`support`,
+  `commercial`) divergeait de la matrice, et c'est justement ce que ce client sert à montrer.
+
+  **Deux points du sommaire de `Q5.md` §9 avaient changé d'état** : « lire
+  `structuredContent.code`, pas `isError` » est **devenu vrai** dans la soirée, et
+  l'obligation d'afficher le `hint` est **périmée**. La table des douze codes de `Q4.md` §4
+  n'est pas périmée mais **trop large** : sa colonne `isError` en marque cinq, le code en
+  marque un.
+
+  **Écarts repris au guide**, comme §3.4 et §3.5 le demandaient : les deux de `matrice.yaml`,
+  les noms de champs, `hint`, `isError` réduit à un code, et le payload servi qui est un
+  surensemble du cadrage — six lignes avec leur raison.
 
 Livrable nommé au même titre que `mcp_server/` : « Le serveur MCP (mcp_server/) exposant le
 catalogue complet **ainsi qu'un mini guide d'accès** ». Il n'existe aucun fichier qui le
@@ -482,7 +502,8 @@ Constat, pas action. Ni bug ni dette, mais ce ne sont pas des garanties vérifi�
 
 ### 3.4 Matrice vs cadrage DSI — **tranché le 2026-09-07 : ne rien changer, et écrire le motif**
 
-- [x] **Écrire les deux motifs dans `mcp_server/matrice.yaml`.** *Fait le 2026-09-07* —
+- [x] **Écrire les deux motifs dans `mcp_server/matrice.yaml`, puis les reprendre au mini
+  guide.** *Les deux faits le 2026-09-07* — §10 du guide les porte en tableau —
   écrits **au ras des lignes concernées** plutôt qu'en tête : chacun ouvre par
   « ÉCART AU CADRAGE, ASSUMÉ » et cite le cadrage, dans le bloc `support`, à côté de
   `themes_notes` pour les notes et de `ventes` pour la table. **Matrice inchangée** :
@@ -665,6 +686,7 @@ choix d'architecture seront « justifiés ». Voici ce qui répond, et ce qui ma
 | « Le support voit-il une marge ? » | non — trois colonnes fermées **ensemble** (fermeture par dérivation), contrôlé sur la projection, le `WHERE`, l'`ORDER BY` et les alias résolus par scope |
 | « Montrez le journal » | `make journal`, et T12 vérifie une ligne par appel, servi comme refusé |
 | « Et E5, chiffrée ? » | **rien à montrer aujourd'hui** — c'est §1.2, le trou le plus visible du dossier |
+| « Où est le mini guide d'accès ? » | **`mcp_server/README.md`** — et `make client PROFILE=…` démontre les cinq profils |
 | « Votre catalogue conçu ne ressemble pas à votre serveur » | **§3.5, fait** — l'`outputSchema` du §4 est publié (`mcp_server/output_schemas.py`) ; reste l'écart de **noms de champs**, à écrire au mini guide |
 | « Le cadrage dit `ventes` non accessible au support » | §3.4, à écrire avant |
 | « Un lien vers l'interface ? » | §1.3 |
@@ -709,7 +731,7 @@ Les trois qui bloquaient le mini guide sont **tranchées**. **6 et 7 sont appliq
 
 | # | Tâche | Dépend de |
 |---|---|---|
-| 11 | **1.1** mini guide d'accès | 3.1 · 3.4 · 3.5 |
+| 11 | ~~**1.1** mini guide d'accès~~ | **fait le 2026-09-07** — `mcp_server/README.md`, et la seconde exigence du brief (démonstration scriptée) relevée à cette occasion |
 | 12 | **5** aligner le dossier ou tenir le tableau d'écarts | 3.5 |
 | 13 | **2.4** réserve sur le seuil au protocole | — |
 | 14 | **4** + **2.7** en-têtes, docstrings, contournement `literalai` | — |
