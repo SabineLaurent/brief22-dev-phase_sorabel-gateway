@@ -452,7 +452,7 @@ uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --
 
 ## 2 bis. Trouvé par le front de comparaison — 2026-09-08
 
-Le front multirôle (`make web-compare`) a fait apparaître huit défauts en une soirée, tous
+Le front multirôle (`make web-compare`) a fait apparaître neuf défauts en une soirée, tous
 **antérieurs à lui** — sauf **2bis.9**, qui est le sien : côte à côte, on voit un profil renoncer là où son voisin répond. En
 mono-rôle il fallait penser à comparer. Détail et mesures : journal du 2026-09-08.
 
@@ -723,6 +723,50 @@ client, un texte figé d'un texte rédigé. `frozen_text` le sait — il le jett
 
 > **Succès** : aucune colonne n'est verte quand l'utilisateur n'a pas obtenu de réponse, et
 > le front n'a pas eu à juger le contenu pour le savoir.
+
+### 2bis.10 La non-réponse d'un profil partiel n'a ni phrase ni chemin stables
+
+- [ ] **Donner une phrase figée au renoncement, ou un verdict qui la porte.**
+
+Question de l'utilisatrice le 2026-09-08 : « la formulation de l'agent `dev` est-elle celle
+attendue ? » Non. Mesuré, quatre appels — même profil, même question (`SQL-01`) :
+
+| | tool appelé | texte rendu |
+|---|---|---|
+| 1 | `get_schema·ok` | « …à partir du schéma seul. » |
+| 2 | `get_schema·ok` | « …à partir du seul schéma disponible. La période couverte… » |
+| 3 | **`answer_question·hors_corpus`** | **« Le corpus documentaire ne couvre pas cette question. »** — phrase figée |
+| 4 | `get_schema·ok` | « …à partir du seul schéma de la base. » |
+
+Trois défauts distincts, et le deuxième est le plus gênant :
+
+1. **le texte varie** — trois tournures sur quatre, là où tout le dispositif du projet vise
+   une non-réponse constante ;
+2. **le chemin varie aussi.** Le tool appelé change, donc le **code journalisé** change :
+   même profil, même question, deux lignes de journal différentes. Une mesure d'E5 sur ce cas
+   serait instable, et une fois sur quatre le hasard fait sortir une **vraie phrase figée** —
+   le même cas rend tantôt du figé, tantôt du rédigé ;
+3. **l'allusion subsiste.** « à partir du seul schéma », « avec les outils accessibles » : le
+   correctif de 2bis.3 a supprimé la *nomination* d'un tool absent, pas l'*allusion* à son
+   absence. Le lexique de la mesure ne l'attrape pas — **limite à écrire dans le rapport**
+   quand 2bis.5 sera fait.
+
+**Il n'existe aucune phrase attendue pour ce cas**, et c'est la racine commune avec 2bis.3 et
+2bis.9 : un renoncement du modèle n'a pas de verdict, donc rien ne peut le figer. Candidat
+naturel — la phrase de `tool_interdit`, « Cette information n'est pas accessible avec votre
+profil. » : elle est **vraie du point de vue de l'utilisateur** même si aucun refus technique
+n'a eu lieu, et elle est déjà celle que `sans_role` reçoit.
+
+Mais la poser côté client demanderait de savoir *quand* le modèle renonce — ce que le front ne
+peut pas juger sans lire le contenu (cf. 2bis.9). Deux voies :
+
+| voie | ce qu'elle implique |
+|---|---|
+| **côté serveur** : un tool refuse au lieu d'être absent — l'étage 1 laisse voir, l'étage 2 refuse | rend un verdict, donc une phrase figée **et** une ligne de journal ; mais c'est revenir sur l'étage 1, dont l'absence de journalisation est un écart **déjà décidé** le 2026-09-06 |
+| **côté client** : `ChatResponse` dit d'où vient son texte, et une rédaction libre sur une question de domaine est remplacée par la phrase figée | ne touche pas la gateway ; demande de distinguer « question de domaine » d'une salutation, que rien ne fait aujourd'hui |
+
+> **Succès** : trois appels identiques sous `dev` sur une question hors de ses droits rendent
+> **la même phrase** et **la même ligne de journal**.
 
 ---
 
@@ -1069,6 +1113,7 @@ item est fait, et c'est celui qui fermait une fuite.
 | 7b | **2bis.4** requête SQL sans table | ni fuite ni reproductible, mais un trou de contrôle nommé | **ouvert** |
 | 8b | **2bis.6** consigne au guide | un intégrateur peut refaire 2bis.3 chez lui | **ouvert**, écriture |
 | 9b | **2bis.9** colonne verte sur un renoncement | le seul défaut **du front lui-même** ; trompeur en démonstration | **ouvert** |
+| 10b | **2bis.10** la non-réponse n'a ni phrase ni chemin stables | même racine que 1b et 9b : un renoncement n'a pas de verdict, donc rien ne le fige | **ouvert** |
 
 **Ordre de sacrifice** : 7b, puis 8b, puis 6b. Ne pas sacrifier 2b à 5b — ce sont les quatre
 seuls de cette liste qui changent ce que le produit **répond**.
