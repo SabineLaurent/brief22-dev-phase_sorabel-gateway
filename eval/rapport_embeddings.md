@@ -73,6 +73,30 @@ configuration servie est hybride.
 `RAG-19` bascule aussi mais ne compte pas : le protocole la signale « en tension avec le
 corpus » (§9).
 
+### Contre-vérification : le MRR de 0,000 n'est pas un échec muet
+
+Question de l'utilisatrice en lisant ce chiffre — *« t'es sûr qu'il n'y a pas eu de gag
+quelque part ? »*. Un zéro parfait est exactement la forme qu'aurait une erreur avalée en
+silence. Trois vérifications indépendantes, toutes hors du harnais de mesure :
+
+| ce qu'on craint | ce qui a été vérifié | résultat |
+|---|---|---|
+| le harnais écrit `0` sur une erreur | la colonne rang des 8 questions `reference_exacte` dans le CSV | **vide**, pas `0` — le harnais dit « absent du top-5 », il n'invente pas un zéro |
+| le bon document est là, mais plus bas | recherche à `top_k=50` sur 350 éditions courantes | 50 résultats rendus, **le bon document absent du top 50** |
+| l'index Azure est incomplet ou corrompu | le **texte du document lui-même** passé en requête | **rang 1, score 0,9572** — les vecteurs sont sains, la collection est complète (647 caractères, identiques à ceux de l'index `e5`) |
+
+Le résultat tient donc, et il s'explique. Le document contient en clair
+`Référence produit : REF-8842` — le modèle le **voit**, il ne le **pondère** pas. Une requête
+de huit caractères contre un document de 647 produit un vecteur dominé par la sémantique
+générique (« une référence produit »), dont les 400 éditions du corpus parlent toutes.
+
+C'est la démonstration par l'absurde de ce que
+[`Q3`](../docs/conception/1-rag-avance/Q3.md) §2 posait : pour BM25 une référence est un
+terme à IDF très élevé, donc décisif ; pour un embedding ce n'est qu'un motif parmi d'autres.
+**Ce n'est pas une faiblesse d'OpenAI en particulier** — `e5` place la même notice au rang 3,
+ce qui n'est pas bon non plus (1/8). C'est la raison d'être de la recherche hybride, et la
+configuration C le confirme : les deux modèles y font 8/8.
+
 ## Le renversement entre le jeu de réglage et le jeu de mesure — deuxième occurrence
 
 Sur `questions_calibration.jsonl` (14 questions), la conclusion était **l'inverse** :
