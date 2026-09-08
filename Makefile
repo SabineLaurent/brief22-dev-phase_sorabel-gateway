@@ -1,7 +1,7 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat check-client eval-sql test fmt lint serve client \
-	ingest-azure-small calibrer-azure-small calibrer-cohere mesure-rerank mesure-embeddings \
+	ingest-azure-small calibrer-azure-small calibrer-cohere mesure-rerank mesure-embeddings calibrer-distant mesure-distant \
 	journal api web web-compare
 
 install:
@@ -86,6 +86,20 @@ SEUIL_AZURE_C ?= 0.0153
 RERANK_LOCAL   = AZURE_RERANK_DEPLOYMENT=
 EVAL_RAG       = uv run python -m packages.rag_machines.evals_and_controls.eval_rag \
                  --text clean --version-filter on
+
+# La cellule 4 : les DEUX modèles en distant. C'est la seule combinaison qui retire
+# PyTorch du processus, donc la seule qui réponde à la contrainte de déploiement — et
+# elle ne se déduit pas des axes 6 et 7, les deux effets portant sur un seuil qu'il faut
+# calibrer pour elle.
+SEUIL_DISTANT ?= 0.6203
+DISTANT_ENV    = $(AZURE_ENV) $(COHERE_ENV)
+
+calibrer-distant:
+	$(DISTANT_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config C
+
+mesure-distant:
+	$(DISTANT_ENV) RERANK_THRESHOLD=$(SEUIL_DISTANT) \
+	  $(EVAL_RAG) --config C --out mesure-emb-azure-C-cohere
 
 mesure-embeddings:
 	$(RERANK_LOCAL) REFUSAL_THRESHOLD=$(SEUIL_LOCAL_A) \
