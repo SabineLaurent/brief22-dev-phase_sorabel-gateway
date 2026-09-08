@@ -80,8 +80,15 @@ class CohereReranker:
     """Reranker Cohere déployé sur Azure AI Foundry — un vrai reranker, pas un chat détourné.
 
     Son API n'est **pas** OpenAI-compatible, contrairement à l'inférence de chat et aux
-    embeddings : ``POST {endpoint}/v2/rerank``, et non ``/chat/completions``. Il ne partage
-    donc rien avec ``azure_client.py`` — ni le client, ni l'endpoint, ni la clé.
+    embeddings — un rerank n'a pas d'équivalent dans l'API OpenAI. Il ne partage donc rien
+    avec ``azure_client.py`` : ni le client, ni l'endpoint, ni la clé.
+
+    ``azure_rerank_endpoint`` est **l'URL complète de l'appel**, pas une base : Azure AI
+    Foundry sert les modèles partenaires sous ``services.ai.azure.com/providers/<nom>/…``,
+    et le chemin dépend du fournisseur. Le composer ici lierait ce module à Cohere ; le
+    lire tel quel le rend indifférent au fournisseur. L'URL se trouve dans le **détail** du
+    déploiement, pas dans le champ « point de terminaison » du panneau, qui affiche
+    l'endpoint générique de la ressource.
 
     Deux détails du contrat, qui sont la raison d'être de cette classe :
 
@@ -94,7 +101,7 @@ class CohereReranker:
 
     def __init__(self, endpoint: str, api_key: str, deployment: str) -> None:
         self.name = deployment
-        self._endpoint = endpoint.rstrip("/")
+        self._endpoint = endpoint.rstrip("/")   # l'URL de rerank, telle quelle
         self._api_key = api_key
         self._client: httpx.Client | None = None
 
@@ -113,7 +120,7 @@ class CohereReranker:
         if not documents:
             return []
         response = self._get_client().post(
-            f"{self._endpoint}/v2/rerank",
+            self._endpoint,
             json={
                 "model": self.name,
                 "query": query,

@@ -80,8 +80,11 @@ class Settings(BaseSettings):
     #: ``azure_rerank_*`` sont nécessaires ensemble : un reranker à moitié configuré
     #: retombe sur le cross-encoder local plutôt que d'échouer à la première question.
     azure_rerank_deployment: str = ""
-    #: Endpoint propre au déploiement de rerank — il n'est PAS OpenAI-compatible
-    #: (``POST {endpoint}/v2/rerank``), donc il ne réutilise rien d'``azure_ai_endpoint``.
+    #: **URL complète** de l'appel de rerank, pas une base : Azure AI Foundry sert les
+    #: modèles partenaires sous ``services.ai.azure.com/providers/<nom>/…``, et le chemin
+    #: dépend du fournisseur. Elle se lit dans le *détail* du déploiement — le champ
+    #: « point de terminaison » du panneau affiche l'endpoint générique de la ressource,
+    #: qui rend 404 sur le rerank. Rien de commun avec ``azure_ai_endpoint``.
     azure_rerank_endpoint: str = ""
     #: Clé propre au déploiement de rerank, pour la même raison.
     azure_rerank_api_key: str = ""
