@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import math
 import sys
+import time
 from functools import lru_cache
 from typing import Any, Protocol, cast
 
@@ -38,6 +39,13 @@ from config import settings as default_settings
 
 #: Délai d'un appel de rerank. Un seul appel par question, sur 20 candidats.
 _HTTP_TIMEOUT = 30.0
+
+#: Reprises sur 429. Un déploiement Foundry a un quota par minute, et une mesure enchaîne
+#: 30 questions sans respirer — ce que le service applicatif ne fait jamais. La reprise
+#: existe donc pour le harnais de mesure d'abord ; elle ne masque pas une panne, un 429
+#: n'étant pas une erreur mais une cadence.
+_MAX_TENTATIVES = 5
+_ATTENTE_BASE = 2.0
 
 
 class Reranker(Protocol):
@@ -119,15 +127,25 @@ class CohereReranker:
     def score(self, query: str, documents: list[str]) -> list[float]:
         if not documents:
             return []
-        response = self._get_client().post(
-            self._endpoint,
-            json={
-                "model": self.name,
-                "query": query,
-                "documents": documents,
-                "top_n": len(documents),
-            },
-        )
+        charge = {
+            "model": self.name,
+            "query": query,
+            "documents": documents,
+            "top_n": len(documents),
+        }
+        client = self._get_client()
+        for tentative in range(_MAX_TENTATIVES):
+            response = client.post(self._endpoint, json=charge)
+            if response.status_code != 429:
+                break
+            # `Retry-After` quand le service le donne, sinon un recul qui double.
+            attente = float(response.headers.get("Retry-After", _ATTENTE_BASE * 2**tentative))
+            print(
+                f"rerank : 429 du service, reprise dans {attente:.0f} s "
+                f"({tentative + 1}/{_MAX_TENTATIVES})",
+                file=sys.stderr,
+            )
+            time.sleep(attente)
         response.raise_for_status()
         payload: dict[str, Any] = response.json()
         by_index = {
