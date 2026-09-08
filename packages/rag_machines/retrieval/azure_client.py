@@ -1,9 +1,13 @@
 """Client OpenAI partagé pour Azure AI Foundry, **API v1**.
 
-``AzureEmbedder`` (``retrieval/embedder.py``) et ``AzureReranker`` (``retrieval/reranker.py``)
-parlent tous deux à Azure AI Foundry en OpenAI-compatible de la même façon — même
-``base_url``, même import paresseux, même message d'erreur si ``openai`` n'est pas installé.
-Ce module porte cette seule construction pour que les deux ne divergent pas.
+``AzureEmbedder`` (``retrieval/embedder.py``) et l'agent conversationnel parlent à Azure AI
+Foundry en OpenAI-compatible de la même façon — même ``base_url``, même import paresseux,
+même message d'erreur si ``openai`` n'est pas installé. Ce module porte cette seule
+construction pour qu'ils ne divergent pas.
+
+Le rerank n'en fait **pas** partie : le déploiement Cohere de ``retrieval/reranker.py``
+n'est pas OpenAI-compatible (``POST {endpoint}/v2/rerank``) et a son endpoint et sa clé
+propres. Il parle donc en ``httpx``, sans passer par ici.
 """
 
 from __future__ import annotations

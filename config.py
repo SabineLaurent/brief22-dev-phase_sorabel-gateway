@@ -68,8 +68,15 @@ class Settings(BaseSettings):
     # --- Reranker --------------------------------------------------------------
     #: Cross-encoder local, utilisé quand aucun déploiement Azure n'est renseigné.
     reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
-    #: Renseigné ⇒ le rerank part sur Azure AI Foundry (API v1), en LLM-juge.
+    #: Déploiement de rerank sur Azure AI Foundry (Cohere). Les TROIS champs
+    #: ``azure_rerank_*`` sont nécessaires ensemble : un reranker à moitié configuré
+    #: retombe sur le cross-encoder local plutôt que d'échouer à la première question.
     azure_rerank_deployment: str = ""
+    #: Endpoint propre au déploiement de rerank — il n'est PAS OpenAI-compatible
+    #: (``POST {endpoint}/v2/rerank``), donc il ne réutilise rien d'``azure_ai_endpoint``.
+    azure_rerank_endpoint: str = ""
+    #: Clé propre au déploiement de rerank, pour la même raison.
+    azure_rerank_api_key: str = ""
     #: Modèle de chat (API v1), utilisé par l'agent conversationnel de
     #: packages/agent/cli.py — aucune fonction du RAG lui-même n'en dépend.
     llm_chat_model: str = ""
@@ -112,7 +119,12 @@ class Settings(BaseSettings):
 
     @property
     def uses_azure_rerank(self) -> bool:
-        return bool(self.azure_rerank_deployment and self.azure_ai_endpoint)
+        """Tout ou rien : les trois, ou le cross-encoder local."""
+        return bool(
+            self.azure_rerank_deployment
+            and self.azure_rerank_endpoint
+            and self.azure_rerank_api_key
+        )
 
 
 settings = Settings()
