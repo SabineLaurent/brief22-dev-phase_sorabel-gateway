@@ -29,6 +29,15 @@ lui-même :
    fermé refuserait ``conventions`` et ``truncated``, que le payload sert et que le schéma ne
    nomme pas tous.
 
+S'y sont ajoutés depuis deux objets que ``tools/list`` publie et qu'aucun schéma ne décrit :
+la **frontière** du serveur — aucun appel n'en sort sans enveloppe ni sans ligne de journal —
+et les **descriptions servies**. Ces dernières se renvoient les unes aux autres par leur nom
+de tool, et ``list_tools`` filtre les tools, jamais le contenu de leurs descriptions : un nom
+servi à qui ne l'a pas en publie l'existence. La propriété contrôlée ici est donc « aucune
+description servie ne nomme un tool absent du catalogue de son profil », sur les cinq profils,
+doublée d'un décompte en or des renvois qui **survivent** au filtrage — sans quoi vider les
+tables suffirait à passer.
+
 **Aucun appel de modèle, aucun accès à Chroma, à SQLite ou au journal du dépôt.** Tout est de
 la construction et de la sérialisation ; le seul contact avec le serveur est ``tools/list``,
 qui ne touche à rien.
@@ -185,6 +194,73 @@ def _run(settings: Settings, check, verdict) -> int:  # noqa: ANN001 - deux ferm
           "hors_corpus" in status_enum(DB_STATUS_BY_CODE), False)
     check("clarification n'est promise que côté SQL",
           "clarification" in status_enum(RAG_STATUS_BY_CODE), False)
+
+    print("\nLes descriptions servies ne nomment que des tools servis")
+    # Le pendant de l'étage 1 sur le **contenu** de ce qu'il publie. `list_tools` filtre les
+    # tools ; les descriptions, elles, se renvoient les unes aux autres par leur nom, et un
+    # nom servi à qui n'a pas le tool en publie l'existence — exactement ce que la matrice
+    # invoque pour fermer `get_schema` au support. Mesuré avant correctif : la description de
+    # `get_schema` recommandait `ask_database` à `dev`, qui ne l'a pas ; le modèle lisait le
+    # renvoi, cherchait le tool, et renonçait sans rien essayer d'autre.
+    #
+    # Trois contrôles de forme d'abord, sans quoi le contrôle par profil serait vide de sens :
+    # un corps par tool, aucun nom de tool dans les corps (c'est ce qui rend la garantie
+    # structurelle : un renvoi ne peut pas contourner la table), et chaque phrase de renvoi
+    # nomme bien la cible sous laquelle elle est rangée.
+    # Les deux tables sont les seules choses de ce module qui ne dépendent pas du profil :
+    # elles sont lisibles sur n'importe quel chargement, là où le catalogue, lui, se relit
+    # par `_catalogue`.
+    tables = importlib.import_module("mcp_server.server")
+    bodies, referrals = tables._DESCRIPTIONS, tables._REFERRALS
+    tool_names = set(RAG_TOOLS + SQL_TOOLS)
+    check("un corps de description par tool", sorted(bodies), sorted(tool_names))
+    # Les cinq rubriques, dans l'ordre, sur les huit. Ce n'est pas de la mise en forme : ce
+    # sont les cinq choses qu'un modèle doit savoir pour ne pas se tromper de tool, et la
+    # cinquième — quand NE PAS l'utiliser — n'était écrite nulle part. Elle est aussi celle
+    # à laquelle les renvois se collent, d'où le contrôle qu'elle vient bien en dernier.
+    check("les cinq rubriques, dans l'ordre, sur les huit",
+          sorted(name for name, body in bodies.items()
+                 if [section for section in tables._SECTIONS if section in body]
+                 != list(tables._SECTIONS)
+                 or sorted(body.index(section) for section in tables._SECTIONS)
+                 != [body.index(section) for section in tables._SECTIONS]), [])
+    check("« ne pas utiliser » ferme la description, là où les renvois se collent",
+          sorted(name for name, body in bodies.items()
+                 if body.index(tables._SECTIONS[-1]) != max(
+                     body.index(section) for section in tables._SECTIONS)), [])
+    check("aucun corps ne nomme un tool",
+          sorted(name for name, body in bodies.items()
+                 if any(cited in body for cited in tool_names)), [])
+    check("toute cible de renvoi est un tool du catalogue",
+          sorted({target for entries in referrals.values()
+                  for target, _ in entries} - tool_names), [])
+    check("chaque phrase de renvoi nomme sa cible",
+          [f"{source} -> {target}" for source, entries in referrals.items()
+           for target, phrase in entries if target not in phrase], [])
+
+    # Puis la propriété elle-même, sur les cinq profils — `default` compris, dont le
+    # catalogue vide ne peut par construction rien citer.
+    for profile in sorted(matrix):
+        published = _catalogue(profile)
+        catalogue = {tool.name for tool in published}
+        check(f"{profile} — aucun renvoi vers un tool absent",
+              sorted({cited for tool in published for cited in tool_names
+                      if cited in tool.description} - catalogue), [])
+        # Contrôle positif, et il n'est pas décoratif : vider les deux tables ferait passer
+        # le contrôle ci-dessus sur les cinq profils. Les renvois utiles doivent survivre au
+        # filtrage, et le décompte est en or — un renvoi ajouté ou retiré le fait bouger.
+        check(f"{profile} — renvois servis",
+              sum(1 for tool in published for target, _ in referrals.get(tool.name, ())
+                  if target in catalogue),
+              {"default": 0, "dev": 8, "support": 15, "commercial": 16, "admin": 16}[profile])
+
+    # Le cas mesuré, nommé : le même tool, deux profils, et le renvoi ne survit qu'à celui
+    # qui peut le suivre.
+    dev_schema = {tool.name: tool.description for tool in _catalogue("dev")}["get_schema"]
+    check("dev ne s'entend pas recommander ask_database",
+          "ask_database" in dev_schema, False)
+    check("commercial, si",
+          "ask_database" in listed["get_schema"].description, True)
 
     print("\nLes enveloppes réelles des dix-sept codes, contre le schéma publié")
     # Les deux domaines sont parcourus séparément : leurs constructeurs et leurs

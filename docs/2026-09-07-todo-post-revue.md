@@ -15,6 +15,8 @@ journal sur 9 → 9).
 Après §2 bis (2026-09-08) : **tous les décomptes inchangés** — 83 · 103 · 67 · 31 · 145,
 `make test` 12/12, `lint` vert. Le correctif du prompt ne touche aucune couche contrôlée ;
 sa mesure propre est la fuite d'existence, **4 cellules sur 20 → 1**.
+Après 2bis.11 (2026-09-08) : `check-contrat` 145 → **163** — les descriptions servies, que
+rien ne contrôlait. Les quatre autres suites inchangées, `make test` 12/12, `lint` vert.
 
 **Les mesures citées ici ont été relevées par des scripts jetables**, hors dépôt et non
 conservés : refaire la mesure fait partie de la tâche qui la cite (§2.1, §2.2, §2.3, §2.4,
@@ -466,6 +468,12 @@ définitivement acquise une fois portée dans `check-contrat`.
 
 Ordre de reprise : **2bis.11**, puis rejouer 2bis.7 · 2bis.8 · 2bis.10 pour voir ce qui reste.
 
+**Fait le 2026-09-08, et le pari tient à trois quarts** : 2bis.8 est fermée, 2bis.7 est
+tranchée de fait (les quatre profils sur la fiche), et 2bis.10 perd son défaut « le plus
+gênant » — le chemin, donc la ligne de journal, est devenu stable. Ce qui reste de 2bis.10 est
+le texte lui-même, et il fallait s'y attendre : un aiguillage ne fabrique pas un verdict.
+**Prochain point de reprise : 2bis.1** (la saturation par redondance), 4b au tableau.
+
 ### 2bis.1 La redondance du corpus sature les candidats avant rerank
 
 - [ ] **Donner au rerank de quoi trancher, sur un périmètre large.**
@@ -609,9 +617,17 @@ conserver tel quel, sa valeur étant d'être **identique avant et après**.
 > **Succès** : `make mesure-prompt` rejoue les 20 cellules et publie un rapport, comme les cinq
 > autres axes.
 
-### 2bis.6 Le guide doit dire à l'intégrateur de ne pas énumérer le catalogue
+### 2bis.6 Le guide doit dire à l'intégrateur de ne pas énumérer le catalogue — **faite le 2026-09-08**
 
-- [ ] **Ajouter la consigne à `mcp_server/README.md`.**
+- [x] **Ajouter la consigne à `mcp_server/README.md`.** *Fait le 2026-09-08*, en deux endroits
+  parce que la consigne et sa limite ne se lisent pas au même moment : la **consigne** ouvre la
+  clause de prompt du §5 (« n'énumère jamais de noms d'outils dans ton prompt système »), avec
+  le défaut mesuré cité en dessous ; la **limite** est au §7, à côté de `readOnlyHint` et
+  nommée comme la même asymétrie dans l'autre sens — « ce que le serveur vous dit de faire, il
+  ne peut pas vous le faire faire », le `may` de la spec, les 4 cellules sur 20, et ce qui est
+  garanti sans coopération du client. Le §4 ajoute la moitié qui manquait au constat :
+  **les descriptions servies ne sont pas les mêmes pour tous**, donc ni à recopier ni à mettre
+  en cache d'un profil à l'autre.
 
 Un intégrateur externe peut refaire **exactement** l'erreur de 2bis.3 : énumérer les huit tools
 dans son prompt système parce que le guide les documente tous. Il publierait alors à son modèle
@@ -626,9 +642,27 @@ voyagent dans l'enveloppe.
 > **Succès** : le guide dit ce qu'un client ne doit pas faire de son côté, et pourquoi le
 > serveur ne peut pas l'en empêcher.
 
-### 2bis.7 Une référence nue : le stock ou la fiche ? — **par là qu'on reprend**
+### 2bis.7 Une référence nue : le stock ou la fiche ? — **décidé le 2026-09-08 : LES DEUX**
 
-- [ ] **Décider ce que le produit répond à une référence nue.**
+- [x] **Décision de l'utilisatrice : les deux.** La troisième colonne du tableau ci-dessous,
+  celle qui était « objectivement la meilleure réponse » et dont le contre était « demande une
+  consigne au serveur ». La consigne est écrite, et elle est **bornée à ce cas** — un renvoi
+  cumulatif dans `_REFERRALS`, donc filtré par la matrice comme les autres. Mesuré, 3 passes ×
+  2 profils : **cumul 1/6 → 6/6**, texte portant la fiche ET le stock, le SQL montré et la
+  source citée dans la même réponse ; **0 régression** sur une question SQL pure et une
+  question documentaire pure, et le témoin `dev` (qui n'a pas `check_stock`) est inchangé —
+  il ne reçoit pas la consigne.
+  **Ce que le cumul a fait apparaître** : `frozen_text` traitait une non-réponse comme un
+  refus, donc une non-réponse documentaire **jetait** le résultat SQL obtenu à côté. Corrigé
+  et contrôlé — voir 2bis.12 ci-dessous. Détail : journal du 2026-09-08 (3e entrée).
+- [x] ~~**Confirmer le choix que 2bis.11 a rendu, ou le renverser.**~~ Le rejeu du 2026-09-08
+  montre les **quatre profils sur la fiche** (`answer_question·ok`, 3 passes chacun) : la
+  colonne « le stock seul » du tableau ci-dessous n'est plus l'état du produit. La cause est
+  la rubrique `Ne pas utiliser quand` de `check_stock` — « ce tool ne rend que des quantités,
+  jamais une caractéristique » — plus le pont vers `answer_question`. **C'est la deuxième
+  ligne du tableau qui est désormais servie**, celle qui aligne le produit sur `RAG-03`.
+  Reste à décider si « les deux » vaut mieux, ce qui demanderait une consigne — donc reste un
+  choix produit, pas un réglage.
 
 Sur `RAG-03` (« REF-5313 »), les quatre colonnes ne divergent pas par droits mais par
 **aiguillage** :
@@ -663,9 +697,14 @@ appellent `answer_question` en direct. Le changer n'invalide aucun rapport.
 > **Succès** : ce que rend une référence nue est écrit quelque part, et la démonstration de
 > soutenance ne laisse plus croire à un effet de droits là où il n'y en a pas.
 
-### 2bis.8 `dev` est instable sur une référence nue
+### 2bis.8 `dev` est instable sur une référence nue — **faite le 2026-09-08**
 
-- [ ] **Dissuader `get_document` d'accepter une référence produit.**
+- [x] **Dissuader `get_document` d'accepter une référence produit.** *Fait par 2bis.11* — sa
+  rubrique `Ne pas utiliser quand` oppose désormais explicitement l'identifiant d'édition
+  (`notices/notice-REF-1589-v1.0`, donné en `Entrée`) à une référence produit `REF-NNNN`, et
+  la rubrique renvoie vers `answer_question` pour ce cas. Rejeu : **`answer_question·ok` sur
+  trois passes**, aucune ne rend `introuvable`, aucune n'appelle `get_document`. Le critère de
+  succès ci-dessous est atteint.
 
 Deux passes consécutives, même question, même profil :
 
@@ -730,9 +769,20 @@ client, un texte figé d'un texte rédigé. `frozen_text` le sait — il le jett
 > **Succès** : aucune colonne n'est verte quand l'utilisateur n'a pas obtenu de réponse, et
 > le front n'a pas eu à juger le contenu pour le savoir.
 
-### 2bis.10 La non-réponse d'un profil partiel n'a ni phrase ni chemin stables
+### 2bis.10 La non-réponse d'un profil partiel n'a ni phrase ni chemin stables — **moitié faite le 2026-09-08**
 
-- [ ] **Donner une phrase figée au renoncement, ou un verdict qui la porte.**
+- [ ] **Donner une phrase figée au renoncement, ou un verdict qui la porte.** Reste ouvert :
+  c'est le défaut n°1 ci-dessous (le texte varie), et 2bis.11 ne pouvait pas le fermer — un
+  aiguillage ne fabrique pas un verdict.
+- [x] **Le défaut n°2 — « le chemin varie aussi » — est fermé par 2bis.11.** C'était « le plus
+  gênant » des trois, et pour la raison écrite ici : le tool appelé changeait, donc la ligne de
+  journal aussi. Rejeu du 2026-09-08 : **`get_schema·ok` sur trois passes**, une seule ligne de
+  journal, plus de bascule aléatoire vers `answer_question·hors_corpus`.
+  **Ce que la bascule disparue emporte avec elle**, et c'est un gain et non une perte : cette
+  phrase figée était la seule des quatre passes, mais elle était **fausse sur le fond** — la
+  question n'est pas hors corpus, elle est hors droits. Le journal ne porte plus un
+  `hors_corpus` trompeur sur ce cas. Le défaut n°3 (l'allusion « à partir du seul schéma »)
+  subsiste tel quel, mesuré 3/3.
 
 Question de l'utilisatrice le 2026-09-08 : « la formulation de l'agent `dev` est-elle celle
 attendue ? » Non. Mesuré, quatre appels — même profil, même question (`SQL-01`) :
@@ -774,10 +824,19 @@ peut pas juger sans lire le contenu (cf. 2bis.9). Deux voies :
 > **Succès** : trois appels identiques sous `dev` sur une question hors de ses droits rendent
 > **la même phrase** et **la même ligne de journal**.
 
-### 2bis.11 Les descriptions de tools nomment des tools que la matrice ferme
+### 2bis.11 Les descriptions de tools nomment des tools que la matrice ferme — **faite le 2026-09-08**
 
-- [ ] **Revoir les descriptions : les renvois, les ponts entre domaines, et l'interdit de
-  `get_document`.**
+- [x] **Revoir les descriptions : les renvois, les ponts entre domaines, et l'interdit de
+  `get_document`.** *Fait le 2026-09-08*, et avec une quatrième chose demandée en cours de
+  route par l'utilisatrice : les descriptions suivent désormais **cinq rubriques** — `Objet`,
+  `Entrée`, `Sortie`, `Utiliser quand`, `Ne pas utiliser quand`. Les quatre premières étaient
+  tenues implicitement ; la cinquième ne l'était nulle part, et c'est celle où (a), (b) et (c)
+  se logent tous les trois.
+  Deux tables dans `mcp_server/server.py` : `_DESCRIPTIONS` (les corps, **aucun nom de tool
+  n'y paraît**) et `_REFERRALS` (les renvois, chacun rattaché à sa cible). `list_tools`
+  recompose la description servie comme il réécrit déjà l'`outputSchema` — le droit d'accès et
+  le texte publié sont posés au même endroit. Rejeu et mesures : journal du 2026-09-08 (2e
+  entrée). `check-contrat` 145 → **163**.
 
 Question de l'utilisatrice le 2026-09-08 : « les docstrings d'outils seraient à revoir ? »
 **Oui, et c'est le levier** — les descriptions sont le *seul* aiguillage du système, et les
@@ -824,6 +883,70 @@ lui passe une référence produit : `introuvable`, alors que le corpus porte la 
 > **Succès** : aucune description servie ne nomme un tool absent du catalogue de son profil
 > (contrôlable, donc à porter dans `check-contrat`), et 2bis.7 · 2bis.8 · 2bis.10 sont
 > rejoués sur trois passes sans changer de verdict.
+
+**Atteint, et vérifié dans les deux sens.** Les cinq profils : 0 renvoi vers un tool absent,
+et le décompte de renvois qui **survivent** au filtrage est en or (0 · 8 · 14 · 15 · 15) —
+sans lui, vider les deux tables suffirait à passer. Les deux régressions ont été rejouées
+pour vérifier que le contrôle mord : réintroduire le renvoi en dur dans un corps fait tomber
+**3** contrôles, vider les tables en fait tomber **5**.
+
+Rejeu LLM, trois passes par cellule, 12 cellules, **0 fuite par nom de tool** :
+
+| | avant | après |
+|---|---|---|
+| **2bis.8** — `dev` sur « REF-5313 » | `search_docs·ok` / `get_document·introuvable` selon la passe | **`answer_question·ok` 3/3**, plus aucun `introuvable` |
+| **2bis.7** — `support` · `commercial` | `check_stock` (le stock) | **`answer_question` 3/3** (la fiche) — les trois profils convergent |
+| **2bis.10** — `dev` sur `SQL-01` | chemin variable (`get_schema·ok` ×3, `answer_question·hors_corpus` ×1) | **chemin stable `get_schema·ok` 3/3**, donc **une seule ligne de journal** ; texte toujours rédigé |
+
+---
+
+### 2bis.12 Une non-réponse écrasait une réponse servie — **faite le 2026-09-08**
+
+- [x] **Borner la règle de `frozen_text` : substituer quand rien n'a été servi, compléter
+  sinon.** *Trouvé en faisant 2bis.7*, et c'est ce qui rendait le cumul contre-productif.
+
+`frozen_text` décide si l'écran affiche une phrase du serveur ou le texte du modèle, et sa
+règle était « le premier verdict non-`ok` gagne, sur tout ». **Juste tant qu'un tour n'avait
+qu'un appel** : il n'y avait rien à écraser. Dès que deux domaines répondent, elle devient
+fausse — mesuré 3/3 sur `REF-9999` sous `support` :
+
+```
+answer_question·contexte_insuffisant(hors_corpus)  →  écrase
+check_stock·aucune_ligne(ok)                       →  jeté, jamais affiché
+```
+
+**La racine est une asymétrie entre les deux domaines** : les deux ont un code « je n'ai rien
+trouvé », et ils ne portent pas le même statut — SQL `aucune_ligne` vaut **`ok`** (donc n'écrase
+rien), RAG `hors_corpus` et `contexte_insuffisant` valent `hors_corpus` (donc écrasent tout).
+Et le projet distingue déjà les deux notions, écrites : `RAG REFUSAL_CODES` **exclut** ces deux
+codes, « ni l'un ni l'autre n'est un refus ». La distinction existait dans les domaines, elle
+n'était pas appliquée au dernier mètre.
+
+La règle est donc bornée, et la coupure n'est pas « masquer ou non » mais **substituer** contre
+**compléter** : `refused`, `error` et `clarification` substituent comme avant ; une non-réponse
+survenue pendant qu'autre chose aboutissait est **dite à côté**, avec sa phrase. Ce qui est
+`ok` a franchi les étages 2 et 3, donc le retenir à l'écran ne protège rien.
+
+**Un second défaut, trouvé en mesurant le premier** : le modèle recopie lui-même la phrase
+figée, la consigne du serveur le lui demandant — donc elle sortait **deux fois** (2 passes sur
+3). Une phrase déjà présente dans le texte rédigé n'est plus ajoutée ; l'égalité est stricte,
+de sorte qu'une *paraphrase* du modèle ne dispense pas de servir la phrase exacte.
+
+`compose_answer()` est le **point d'assemblage unique** de la CLI et de l'API — les deux
+appliquaient la même décision par deux chemins parallèles, libres de diverger au prochain
+changement. Celui-ci en était un.
+
+**Écart assumé, et documenté au code** : le badge de colonne du comparateur (`_statut`) reste
+**plus strict** que le texte — un incident survenu dans le tour garde la colonne non verte même
+quand la réponse a été servie. Les deux ne répondent pas à la même question : le texte dit à
+l'utilisateur ce qu'il obtient, le badge dit à l'observateur ce qui s'est passé. À relire quand
+2bis.9 sera traité.
+
+> **Succès** : atteint. `make check-client` — **39 contrôles**, la **première suite du client**
+> du projet — ancre la table de vérité complète : ce qui est `ok` est toujours servi, ce qui n'a
+> pas abouti est toujours dit et dit avec SA phrase, les deux fonctions sont exclusives, et
+> aucune colonne fermée ne traverse le dernier mètre. Rejeu : 3/3 identiques, chaque phrase une
+> seule fois, le stock n'est plus jeté ; le refus substitue toujours 3/3.
 
 ---
 
@@ -1162,16 +1285,17 @@ item est fait, et c'est celui qui fermait une fuite.
 | # | Tâche | Pourquoi à ce rang | État |
 |---|---|---|---|
 | 1b | ~~**2bis.3** le prompt publiait l'étage 1~~ | une **fuite** d'existence, et la cause des faux refus non journalisés | **fait le 2026-09-08** — fuites 4/20 → 1/20 |
-| 2b | **2bis.7** référence nue : stock ou fiche | décide ce qu'affiche la colonne sur la question la plus simple qu'on puisse taper — **à rejouer après 11b** | **ouvert** |
-| 3b | **2bis.8** `dev` instable sur une référence nue | même cause visible, et `introuvable` là où le corpus porte la fiche | **ouvert** |
+| 2b | ~~**2bis.7** référence nue : stock ou fiche~~ | décide ce qu'affiche la colonne sur la question la plus simple qu'on puisse taper | **décidé le 2026-09-08 : LES DEUX** — cumul 1/6 → 6/6, 0 régression |
+| 12b | ~~**2bis.12** une non-réponse écrasait une réponse servie~~ | **trouvé en faisant 2b**, et il rendait le cumul contre-productif : l'utilisateur perdait une donnée à laquelle il avait droit | **fait le 2026-09-08** — `check-client`, première suite du client, **39** contrôles |
+| 3b | **2bis.8** `dev` instable sur une référence nue | même cause visible, et `introuvable` là où le corpus porte la fiche | **fait le 2026-09-08** par 11b — `answer_question·ok` 3/3 |
 | 4b | **2bis.1** saturation par redondance | un profil à **plus** de droits obtient **moins** de réponses : c'est E1 qui recule là où la matrice s'élargit | **ouvert** |
 | 5b | **2bis.2** le seuil coupe dans le couvert | refuse une question dont le corpus porte la réponse, **sans que le juge la voie** | **ouvert**, à trancher avec §2.4 |
 | 6b | **2bis.5** cible Make de la mesure | sans elle, le chiffre de 1b n'est pas rejouable | **ouvert** |
 | 7b | **2bis.4** requête SQL sans table | ni fuite ni reproductible, mais un trou de contrôle nommé | **ouvert** |
-| 8b | **2bis.6** consigne au guide | un intégrateur peut refaire 2bis.3 chez lui | **ouvert**, écriture |
+| 8b | ~~**2bis.6** consigne au guide~~ | un intégrateur peut refaire 2bis.3 chez lui | **faite le 2026-09-08** — §5 la consigne, §7 la limite, §4 les descriptions filtrées |
 | 9b | **2bis.9** colonne verte sur un renoncement | le seul défaut **du front lui-même** ; trompeur en démonstration | **ouvert** |
-| 10b | **2bis.10** la non-réponse n'a ni phrase ni chemin stables | même racine que 1b et 9b : un renoncement n'a pas de verdict, donc rien ne le fige | **ouvert** |
-| 11b | **2bis.11** les descriptions nomment des tools fermés | **PAR LÀ QU'ON REPREND** — la cause commune de 2b, 3b et 10b, le seul aiguillage du système, et la seule des onze dont le résultat soit **contrôlable** | **ouvert** |
+| 10b | **2bis.10** la non-réponse n'a ni phrase ni chemin stables | même racine que 1b et 9b : un renoncement n'a pas de verdict, donc rien ne le fige | **moitié faite** — le chemin est stable (11b), la phrase ne l'est pas |
+| 11b | ~~**2bis.11** les descriptions nomment des tools fermés~~ | la cause commune de 2b, 3b et 10b, le seul aiguillage du système, et la seule des onze dont le résultat soit **contrôlable** | **faite le 2026-09-08** — 3b fermée, 2b tranchée de fait, 10b à moitié ; `check-contrat` 145 → 163 |
 
 **Ordre de sacrifice** : 7b, puis 8b, puis 6b. Ne pas sacrifier 2b à 5b — ce sont les quatre
 seuls de cette liste qui changent ce que le produit **répond**.

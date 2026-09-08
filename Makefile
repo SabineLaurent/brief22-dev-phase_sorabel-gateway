@@ -1,6 +1,6 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
-	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat eval-sql test fmt lint serve client \
+	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat check-client eval-sql test fmt lint serve client \
 	journal api web web-compare
 
 install:
@@ -73,6 +73,9 @@ check-sql:
 
 check-feedback:
 	uv run python -m packages.text_to_sql_factory.evals_and_controls.check_feedback
+
+check-client:
+	uv run python -m packages.evals_and_controls.check_client
 
 eval-sql:
 	uv run python -m packages.text_to_sql_factory.evals_and_controls.eval_sql

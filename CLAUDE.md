@@ -235,6 +235,61 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   **Le point le plus fin du guide** est le seul que la conception avait vu : `readOnlyHint` est
   une **déclaration du serveur**, qu'un client ne peut pas vérifier — ce qui la tient est la
   matrice et les contrôles SQL, donc du code invisible pour lui.
+- **Les descriptions de tools : le seul aiguillage, et il nommait des tools fermés (2bis.11).**
+  `mcp_server/server.py` — deux tables, `_DESCRIPTIONS` (les corps) et `_REFERRALS` (les
+  renvois, chacun rattaché à sa **cible**), recomposées par `_served_description` dans
+  `list_tools`, là où l'`outputSchema` est déjà réécrit : **le droit d'accès et le texte publié
+  sont posés au même endroit.**
+  **Le défaut : `list_tools` filtre les tools, jamais le contenu de leurs descriptions.** Or
+  une description nomme d'autres tools — et `get_schema` recommandait `ask_database` à `dev`,
+  qui ne l'a pas. Même défaut que le prompt système corrigé le matin, mais **dans le
+  protocole**. Le modèle lisait le renvoi, cherchait le tool, et renonçait.
+  **Les huit descriptions suivent cinq rubriques** — `Objet`, `Entrée`, `Sortie`,
+  `Utiliser quand`, `Ne pas utiliser quand` — demandées par l'utilisatrice en cours de route.
+  La cinquième vient **en dernier** parce que les renvois s'y collent, et c'est là que les trois
+  volets se logent : renvoi conditionnel, ponts entre domaines (dans les **deux** sens : la
+  fiche depuis `check_stock`, la base depuis `answer_question`), et l'interdit de
+  `get_document` qui oppose l'identifiant d'édition à une référence `REF-NNNN`.
+  **Aucun nom de tool ne paraît dans un corps** : la garantie est structurelle, pas
+  conventionnelle. `check-contrat` 145 → **163**, dont le **décompte en or des renvois qui
+  survivent** au filtrage (0 · 8 · 14 · 15 · 15) — sans lui, vider les tables passerait.
+  Régressions rejouées : renvoi remis en dur → 3 contrôles tombent ; tables vidées → 5.
+  **Rejeu LLM, 3 passes, 12 cellules, 0 fuite** : 2bis.8 **fermée** (`answer_question·ok` 3/3,
+  plus d'`introuvable`) ; **2bis.7 tranchée de fait vers la fiche**, uniforme sur les quatre
+  profils (c'était un choix produit — écrit et assumé) ; 2bis.10 **à moitié** — le chemin est
+  stable donc la ligne de journal l'est, le texte varie toujours : un aiguillage ne fabrique
+  pas un verdict.
+  Guide mis à jour (§4 « les descriptions ne sont pas les mêmes pour tous », et la clause de
+  prompt du §5 — **moitié de 2bis.6**).
+- **Le cumul fiche + stock, et la non-réponse qui écrasait une réponse servie (2bis.7 · 2bis.12).**
+  **2bis.7 est décidée : LES DEUX.** Sur une référence nue, la réponse porte la fiche *et* le
+  stock — un renvoi **cumulatif** dans `_REFERRALS`, donc filtré par la matrice comme les
+  autres (`dev`, qui n'a pas `check_stock`, ne reçoit pas la consigne). L'exemple est **nommé et
+  borné** — « un seul cas demande DEUX appels, et c'est le seul » — parce qu'une règle générale
+  de prompt ne reste pas locale, mesuré deux fois dans ce projet. Cumul **1/6 → 6/6**, texte
+  portant les deux avec le SQL montré et la source citée ; **0 régression** (SQL pur,
+  documentaire pur, témoin `dev`).
+  **Le cumul a rendu atteignable un défaut qui existait** : `frozen_text` traitait une
+  **non-réponse** comme un **refus**, donc `answer_question·contexte_insuffisant` **jetait** le
+  résultat de `check_stock·aucune_ligne(ok)` — mesuré 3/3. Racine : les deux domaines ont un
+  code « rien trouvé » et **pas le même statut** — SQL `aucune_ligne` vaut `ok`, RAG
+  `hors_corpus` non — alors que `REFUSAL_CODES` exclut déjà ces codes (« ni l'un ni l'autre
+  n'est un refus »). La distinction existait dans les domaines, pas au dernier mètre.
+  **La règle, reformulée par l'utilisatrice : on substitue quand rien n'a été servi, on
+  complète sinon.** Ce qui est `ok` a franchi les étages 2 et 3 ; le retenir à l'écran ne
+  protège rien. Ce qui n'a pas abouti est dit **avec SA phrase**. `compose_answer()` est le
+  **point d'assemblage unique** de la CLI et de l'API. Second défaut trouvé en mesurant le
+  premier : le modèle recopie la phrase figée lui-même, donc elle sortait deux fois — une phrase
+  déjà présente n'est plus ajoutée, et l'égalité est **stricte** pour qu'une paraphrase ne
+  dispense pas de la phrase exacte.
+  `make check-client` : **39 contrôles, la première suite du client** — les cinq autres portent
+  sur les couches en dessous, et `frozen_text` n'était couvert par rien. Elle vit dans
+  `packages/evals_and_controls/`, pas sous un domaine : le dernier mètre mêle les deux.
+  **Limite qui compte** : le cas « un domaine réussit, l'autre échoue » n'est **pas produisible**
+  avec une référence réelle — correspondance **120/120** base ↔ corpus. Le jeu de données cache
+  le défaut ; les contrôles déterministes comptent donc plus que le rejeu.
+  **Écart assumé** : le badge de colonne du comparateur (`_statut`) reste plus strict que le
+  texte — à relire avec 2bis.9.
 - **Reste du chantier 3.** Par ordre d'exigence du brief :
   1. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
      chaque colonne adossée à son propre processus MCP (custom element React, exécution en
@@ -331,7 +386,8 @@ make check-rag-tools # contrôles des quatre tools RAG et de leur journal (sans 
 make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
 make check-feedback # contrôles de la réponse structurée et du journal (sans appel de modèle)
-make check-contrat # contrôles du contrat publié et de la frontière du serveur (145)
+make check-contrat # contrôles du contrat publié, de la frontière et des descriptions (163)
+make check-client  # contrôles du dernier mètre : substituer ou compléter la réponse (39)
 make mesure-refus  # axe 4 : le refus servi sur les deux barrières -> eval/rapport_refus.md
 make mesure-acces  # axe 5 : E5 chiffrée, étages d'arrêt, colonnes fermées et la
                    #          frontière du serveur -> eval/rapport_acces.md

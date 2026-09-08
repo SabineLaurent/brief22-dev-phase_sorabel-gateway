@@ -112,9 +112,16 @@ def _colonnes_initiales(question: str) -> list[dict[str, Any]]:
 def _statut(data: dict[str, Any]) -> str:
     """Le statut de la colonne, dérivé des appels de tools — jamais du texte rendu.
 
-    Même règle que ``cli.frozen_text`` : le **premier** verdict non-``ok`` gagne, et il
-    gagne sur une réponse par ailleurs réussie. Une colonne verte alors qu'un refus a eu
-    lieu en chemin serait exactement le contresens que cette interface doit empêcher.
+    **Le premier verdict non-``ok`` gagne, et il gagne sur une réponse par ailleurs
+    réussie.** Une colonne verte alors qu'un refus a eu lieu en chemin serait exactement le
+    contresens que cette interface doit empêcher.
+
+    **C'est volontairement plus strict que ``cli.compose_answer``**, qui depuis le
+    2026-09-08 sert la réponse et *complète* par les phrases figées de ce qui n'a pas abouti.
+    Les deux ne répondent pas à la même question : le texte dit à l'utilisateur ce qu'il
+    obtient, le badge dit à l'observateur ce qui s'est passé. Un incident survenu dans le
+    tour doit rester lisible ici même quand la réponse, elle, a été servie — et le badge
+    ``tool · code`` de chaque appel le détaille au-dessous.
     """
     if data.get("error"):
         return "error"

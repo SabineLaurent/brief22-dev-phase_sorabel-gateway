@@ -42,7 +42,7 @@ from packages.text_to_sql_factory.structured_answer import (
     build_db_structured_answer,
 )
 
-from .cli import EMPTY_CATALOGUE, CallNote, build_agent, call_record, frozen_text
+from .cli import EMPTY_CATALOGUE, CallNote, build_agent, call_record, compose_answer
 from .gateway import GatewayRegistry
 
 ROLES = ["support", "dev", "commerciale", "sans_role", "admin"]
@@ -203,11 +203,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
             return ChatResponse(answer="", error=CLIENT_MESSAGES["erreur_execution"])
 
         # Une phrase figée gagne sur le texte rédigé : le refus ne se renégocie pas au
-        # dernier mètre.
-        frozen = frozen_text(book)
-        if frozen is not None:
-            return ChatResponse(answer=frozen, calls=_calls_of(book))
-        return ChatResponse(answer=response["messages"][-1].content,
+        # dernier mètre. Mais il ne se substitue à la réponse que si **rien** n'a été servi
+        # — sinon il la complète, et `compose_answer` tranche pour la CLI comme pour ici.
+        return ChatResponse(answer=compose_answer(book, response["messages"][-1].content),
                             calls=_calls_of(book))
 
 

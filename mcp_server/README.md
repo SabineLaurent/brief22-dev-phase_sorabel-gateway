@@ -157,13 +157,15 @@ enveloppe.
 
 | Tool | Arguments | Rend | Quand ce n'est pas lui |
 |---|---|---|---|
-| `answer_question` | `question` (requis), `collections` | une réponse rédigée et ses sources | pour les extraits bruts : `search_docs` |
+| `answer_question` | `question` (requis), `collections` | une réponse rédigée et ses sources | pour les extraits bruts : `search_docs` ; pour un chiffre ou un état : `ask_database` |
 | `search_docs` | `query` (requis), `collections` | les extraits classés, avec métadonnées, **sans rédaction** | pour une réponse rédigée : `answer_question` ; pour un texte intégral : `get_document` |
-| `get_document` | `doc_id` (requis), `version` | le texte complet et les métadonnées d'une édition | n'accepte **pas** une question en langage naturel |
+| `get_document` | `doc_id` (requis), `version` | le texte complet et les métadonnées d'une édition | n'accepte **ni** une question en langage naturel **ni** une référence produit `REF-NNNN` |
 | `list_sources` | `collections` | l'inventaire de ce qui est accessible, sans recherche | pour chercher : `search_docs` ou `answer_question` |
 
 `doc_id` est celui que rendent `search_docs` et `list_sources` (par exemple
-`fiches/REF-8842-v2.1`). Sans `version`, c'est l'édition courante.
+`fiches/REF-8842-v2.1`). Sans `version`, c'est l'édition courante. Une référence produit
+`REF-NNNN` n'en est **pas** un : `get_document` répond alors `introuvable`, ce qui est une
+non-réponse et non un refus.
 
 ### Base métier
 
@@ -171,12 +173,30 @@ enveloppe.
 |---|---|---|---|
 | `ask_database` | `question` (requis) | le résultat **et la requête SQL exécutée** | stock d'une référence : `check_stock` ; une commande : `order_status` |
 | `get_schema` | — | le schéma lisible par ce profil, sans lire de données | pour un résultat : `ask_database` |
-| `check_stock` | `reference` (requis, `REF-NNNN`) | le stock par entrepôt, avec le seuil de réapprovisionnement | n'accepte **pas** un nom de produit |
+| `check_stock` | `reference` (requis, `REF-NNNN`) | le stock par entrepôt, avec le seuil de réapprovisionnement | n'accepte **pas** un nom de produit ; pour les caractéristiques d'une référence : `answer_question` |
 | `order_status` | `order_id` (requis, `CMD-AAAA-NNNN`) | l'en-tête d'une commande | plusieurs commandes ou un agrégat : `ask_database` |
 
 `get_schema` est **filtré par le profil** : les colonnes fermées n'y figurent pas. C'est le
 moyen de connaître son périmètre avant de poser une question — le pendant SQL de
 `list_sources`.
+
+### Les descriptions servies, et pourquoi elles ne sont pas les mêmes pour tous
+
+La description que `tools/list` rend pour chaque tool suit **cinq rubriques**, dans cet
+ordre : `Objet`, `Entrée`, `Sortie`, `Utiliser quand`, `Ne pas utiliser quand`. Les quatre
+premières sont constantes. **La cinquième dépend du profil**, et c'est délibéré : les renvois
+qu'elle porte — la colonne « quand ce n'est pas lui » du tableau ci-dessus — ne sont servis
+que si leur cible est dans votre catalogue.
+
+Un exemple, sur le même tool : à `commercial`, `get_schema` se termine par « Pour obtenir un
+résultat, utiliser `ask_database` » ; à `dev`, qui n'a pas `ask_database`, cette phrase
+**n'apparaît pas**. Le motif est le même que pour le catalogue lui-même — nommer un tool à qui
+ne l'a pas en publie l'existence, et invite un modèle à renoncer en cherchant un outil qu'il ne
+trouvera jamais.
+
+**Conséquence pour vous** : ne recopiez pas ces descriptions dans votre prompt système, et ne
+les mettez pas en cache d'un profil à l'autre. Lisez-les de `tools/list`, à chaque session, et
+passez-les telles quelles à votre modèle.
 
 ### L'argument `collections`
 
@@ -251,16 +271,48 @@ un résultat abouti, et le marquer inviterait à réessayer à l'identique.
 **Branchez donc sur `status`, puis sur `payload.code`. Jamais sur `isError` seul** : il ne
 distingue pas un refus d'une réponse.
 
+### Plusieurs appels dans un même tour : ce qui est `ok` se rend
+
+Un tour peut appeler plusieurs tools — c'est même recommandé sur une référence produit donnée
+seule, qui a une fiche *et* un stock. Vous obtenez alors plusieurs enveloppes, et la règle
+d'affichage n'est pas évidente :
+
+> **Une enveloppe non-`ok` ne doit pas effacer une enveloppe `ok` obtenue dans le même tour.**
+
+Un `status` `ok` signifie que l'appel a franchi les trois étages : la donnée est autorisée. La
+retenir à l'écran ne protège rien — ça prive votre utilisateur de ce à quoi il a droit. Ce qui
+n'a pas abouti se dit **à côté**, avec son `message` tel quel.
+
+La substitution reste la bonne réponse quand **rien** n'a été servi : le tour n'a alors qu'une
+chose à dire, et c'est la phrase figée.
+
+C'est un défaut que ce dépôt a commis puis mesuré chez lui, 3 fois sur 3 : sur une référence
+inexistante, une non-réponse documentaire écrasait le résultat de la base, qui disait pourtant
+quelque chose de juste. Attention en particulier à l'asymétrie des deux domaines — côté SQL,
+« aucune ligne » porte le statut **`ok`** ; côté documentaire, « rien trouvé » porte
+`hors_corpus`. Deux non-réponses, deux statuts.
+
 ### La clause à mettre dans votre prompt système
 
 Si votre client est un agent LLM, cette clause suffit :
 
 ```
+Les outils dont tu disposes sont ceux que `tools/list` te rend, et ils sont déjà
+filtrés : n'en évoque aucun autre, et n'énumère jamais de noms d'outils dans ton
+prompt système — le catalogue est décidé par la connexion, pas par toi.
+
 Quand un tool rend un `status` autre que `ok` :
   - ne complète jamais avec tes propres connaissances ;
   - rends le `message` tel quel, sans le reformuler ni l'adoucir ;
   - ne présente pas un refus comme une absence de donnée.
 ```
+
+La première clause n'est pas de la prudence rhétorique : c'est le défaut que ce dépôt a
+commis puis mesuré chez lui. Un prompt qui énumérait les huit tools apprenait au modèle
+l'existence de ceux qu'il n'avait pas, et il le disait à l'utilisateur — « je n'ai pas accès à
+l'outil de consultation de stock ». Le serveur vous sert la même consigne dans le champ
+`instructions` de `initialize` ; la reprendre ici vous évite d'avoir à la lire pour en
+bénéficier.
 
 ---
 
@@ -310,7 +362,21 @@ En revanche :
   d'aucun modèle ;
 - le périmètre est celui de la **matrice au moment de l'appel** (`mcp_server/matrice.yaml`).
   C'est un fichier de configuration versionné : il peut changer sans que le protocole en
-  informe votre client.
+  informe votre client ;
+- **ce que le serveur vous dit de faire, il ne peut pas vous le faire faire.** Les
+  `instructions` de l'`initialize` et les descriptions des tools sont des *recommandations* —
+  la spec le dit d'ailleurs mot pour mot pour les premières, « clients **may** use this
+  information ». Même asymétrie que `readOnlyHint`, dans l'autre sens : là c'était nous qui
+  déclarions sans preuve, ici c'est vous qui appliquez sans contrainte.
+  Concrètement, si votre prompt système énumère les huit tools de ce guide, votre modèle
+  apprendra l'existence de ceux que votre profil n'a pas, et il en parlera à vos utilisateurs
+  — **c'est arrivé dans le client de ce dépôt, et c'est ce qui a été mesuré : 4 cellules sur 20
+  annonçaient un outil absent**. Le serveur ne peut pas l'empêcher.
+  Ce qui est garanti **quel que soit votre client** est ailleurs, et n'a besoin d'aucune
+  coopération de votre part : les trois étages, le journal, et les phrases figées qui voyagent
+  **dans l'enveloppe** — vous pouvez les reformuler, vous ne pouvez pas les fabriquer. Le pire
+  qu'un client négligent obtienne est de mal *raconter* un refus, jamais d'obtenir une donnée
+  fermée.
 
 Les preuves chiffrées de ces garanties sont publiées, chacune avec la commande qui la refait :
 [gain de la recherche](../eval/rapport_gain.md) ·

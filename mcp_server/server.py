@@ -165,6 +165,14 @@ class SorabelMCP(FastMCP):
             # cache dont le serveur se sert pour valider la sortie. Le schéma servi et le
             # droit d'accès sont donc posés au même endroit, sur la même liste.
             tool.outputSchema = OUTPUT_SCHEMAS[tool.name]
+            # La description l'est aussi, et pour la même raison : **filtrer les tools ne
+            # filtre pas le contenu de leurs descriptions.** Un renvoi nomme un tool, et
+            # un nom servi à qui ne l'a pas publie son existence — mesuré sur ``dev``, à
+            # qui ``get_schema`` recommandait ``ask_database``, absent de son catalogue.
+            # ``_served_description`` recompose depuis les tables (``_DESCRIPTIONS`` et
+            # ``_REFERRALS``), donc l'appel est idempotent sur des objets que FastMCP
+            # garde d'un ``tools/list`` à l'autre.
+            tool.description = _served_description(tool.name, PROFILE)
         return listed
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
@@ -277,16 +285,214 @@ def _rag_result(tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
     return handle(tool, arguments, PROFILE, settings)
 
 
-#: Les huit tools lisent, aucun n'écrit — la gateway est en lecture seule de bout en bout.
-_READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
-
-
-# --- Domaine documentaire -------------------------------------------------------------
+# --- Les descriptions servies ---------------------------------------------------------
 #
 # Les descriptions sont le **seul** aiguillage : aucun code ne choisit le tool, c'est le
 # modèle qui lit ces phrases et tranche. Elles disent donc ce que le tool fait *et* vers
 # quoi renvoyer quand ce n'est pas lui — un tool qui ne dit pas ce qu'il n'est pas se fait
 # appeler à tort.
+#
+# D'où la coupure en deux tables, et ce n'est pas un rangement : un renvoi nomme un tool,
+# et **un nom de tool servi à qui ne l'a pas publie son existence**. C'était mesuré — la
+# description de ``get_schema`` renvoyait vers ``ask_database``, que ``dev`` n'a pas :
+# le modèle lisait le renvoi, cherchait le tool, ne l'avait pas, et renonçait. C'est le
+# défaut du prompt système du 2026-09-08 à l'identique, mais dans le protocole, et
+# ``list_tools`` ne l'attrapait pas : il filtre les **tools**, jamais le **contenu de
+# leurs descriptions**.
+#
+# * ``_DESCRIPTIONS`` — le corps, servi à tout profil qui a le tool, en **cinq rubriques**
+#   fixes : à quoi ça sert, ce que ça prend, ce que ça rend, quand l'utiliser, quand ne pas
+#   l'utiliser. Les quatre premières étaient tenues implicitement ; la cinquième ne l'était
+#   nulle part, et c'est celle qui manquait le plus — un tool qui ne dit pas ce qu'il n'est
+#   pas se fait appeler à tort, et ``get_document`` recevait des références produit faute
+#   de l'exclure. **Aucun nom de tool n'y paraît**, et c'est ce qui rend la garantie
+#   structurelle plutôt que conventionnelle : un renvoi ne peut pas s'y glisser sans passer
+#   par la table d'à côté ;
+# * ``_REFERRALS`` — les renvois, chacun rattaché à sa **cible**, donc filtrables par la
+#   matrice comme les tools eux-mêmes.
+#
+# Les ponts traversent les deux domaines, dans les deux sens : une référence produit a une
+# fiche *et* un stock, et rien ne le disait au modèle. Ils sont conditionnels au même
+# titre — un pont vers un domaine fermé rejouerait exactement le défaut qu'on referme.
+
+#: Les cinq rubriques de toute description, dans cet ordre. Ce n'est pas une mise en forme :
+#: c'est ce qu'un modèle doit savoir pour ne pas se tromper de tool, et les quatre premières
+#: rubriques étaient tenues implicitement — la cinquième ne l'était nulle part.
+#:
+#: ``Ne pas utiliser quand`` vient en **dernier** parce que c'est là que les renvois se
+#: collent : un « ne pas utiliser » sans destination laisse le modèle sans issue, et c'est
+#: exactement ce qui le faisait renoncer.
+_SECTIONS = ("Objet :", "Entrée :", "Sortie :", "Utiliser quand :", "Ne pas utiliser quand :")
+
+_DESCRIPTIONS: dict[str, str] = {
+    "answer_question": (
+        "Objet : répondre à une question sur la documentation interne Sorabel, en citant "
+        "les documents utilisés.\n"
+        "Entrée : `question`, en langage naturel. `collections` restreint aux types de "
+        "documents voulus, et peut être omis.\n"
+        "Sortie : une réponse rédigée et la liste de ses sources (référence, titre) ; ou "
+        "une non-réponse quand le corpus ne porte pas de quoi répondre.\n"
+        "Utiliser quand : la question porte sur une procédure, une consigne interne, une "
+        "notice, ou une caractéristique de produit.\n"
+        "Ne pas utiliser quand : la question attend un chiffre ou un état tenu par la base "
+        "— la documentation décrit, elle ne compte pas."
+    ),
+    "search_docs": (
+        "Objet : rendre les extraits documentaires les plus pertinents pour une recherche, "
+        "sans rédiger de réponse.\n"
+        "Entrée : `query`, mots-clés ou question. `collections` restreint aux types de "
+        "documents voulus, et peut être omis.\n"
+        "Sortie : les extraits classés par pertinence, avec leurs métadonnées — identifiant "
+        "d'édition, titre, type, thème.\n"
+        "Utiliser quand : il faut lire le texte source lui-même, comparer plusieurs "
+        "passages, ou obtenir l'identifiant d'une édition.\n"
+        "Ne pas utiliser quand : une réponse formulée est attendue, plutôt que des extraits."
+    ),
+    "get_document": (
+        "Objet : rendre le texte intégral d'une édition documentaire déjà identifiée.\n"
+        "Entrée : `doc_id`, un identifiant d'édition de la forme "
+        "`notices/notice-REF-1589-v1.0`. `version` peut être omis.\n"
+        "Sortie : le texte complet et les métadonnées de l'édition ; ou une non-réponse "
+        "quand aucune édition ne porte cet identifiant.\n"
+        "Utiliser quand : l'identifiant d'édition est déjà connu, parce qu'un autre tool "
+        "documentaire vient de le rendre.\n"
+        "Ne pas utiliser quand : l'entrée est une question en langage naturel, ou une "
+        "référence produit de la forme REF-NNNN — une référence produit n'est pas un "
+        "identifiant d'édition, et ce tool ne la trouvera pas."
+    ),
+    "list_sources": (
+        "Objet : inventorier les documents accessibles, sans déclencher de recherche.\n"
+        "Entrée : `collections` restreint aux types de documents voulus, et peut être "
+        "omis.\n"
+        "Sortie : la liste des documents — identifiant, titre, type — et leur nombre "
+        "total.\n"
+        "Utiliser quand : il faut savoir ce que le corpus couvre avant de poser une "
+        "question, ou récupérer des identifiants d'éditions.\n"
+        "Ne pas utiliser quand : la question porte sur le contenu des documents et non sur "
+        "leur existence."
+    ),
+    "ask_database": (
+        "Objet : traduire une question chiffrée en une lecture SQL de la base commerciale, "
+        "et l'exécuter.\n"
+        "Entrée : `question`, en langage naturel.\n"
+        "Sortie : les colonnes et les lignes du résultat, la requête SQL exécutée et les "
+        "conventions métier appliquées ; ou un refus quand la question sort du périmètre "
+        "du profil.\n"
+        "Utiliser quand : la question demande un décompte, une somme, une moyenne, un "
+        "classement, un filtre ou une période sur les produits, stocks, commandes, clients "
+        "ou ventes.\n"
+        "Ne pas utiliser quand : la réponse attendue est une procédure ou une "
+        "caractéristique décrite dans un document."
+    ),
+    "get_schema": (
+        "Objet : rendre lisible la forme de la base — tables, colonnes, énumérations, "
+        "conventions métier.\n"
+        "Entrée : aucun argument.\n"
+        "Sortie : le schéma des seules tables et colonnes du périmètre, et la plage de "
+        "dates couverte.\n"
+        "Utiliser quand : il faut savoir ce que la base contient avant de formuler une "
+        "question, ou écrire du code contre elle.\n"
+        "Ne pas utiliser quand : la question attend une valeur, un décompte ou des lignes "
+        "— ce tool ne lit aucune donnée, et le schéma seul ne répond à aucune question "
+        "chiffrée."
+    ),
+    "check_stock": (
+        "Objet : rendre le stock d'une référence produit, entrepôt par entrepôt.\n"
+        "Entrée : `reference`, de la forme REF-NNNN exactement.\n"
+        "Sortie : une ligne par entrepôt — quantité et seuil de réapprovisionnement ; ou "
+        "une non-réponse quand la référence n'existe pas.\n"
+        "Utiliser quand : la question porte sur la disponibilité ou la quantité d'une "
+        "référence connue.\n"
+        "Ne pas utiliser quand : l'entrée est un nom de produit et non une référence, ou "
+        "la question porte sur ce qu'est le produit — ce tool ne rend que des quantités, "
+        "jamais une caractéristique."
+    ),
+    "order_status": (
+        "Objet : rendre l'en-tête d'une commande.\n"
+        "Entrée : `order_id`, de la forme CMD-AAAA-NNNN exactement.\n"
+        "Sortie : le client, la date, le statut et le montant HT de la commande ; ou une "
+        "non-réponse quand l'identifiant n'existe pas.\n"
+        "Utiliser quand : la question porte sur une commande unique et identifiée.\n"
+        "Ne pas utiliser quand : plusieurs commandes sont visées, ou un agrégat est "
+        "demandé."
+    ),
+}
+
+#: Les renvois, par tool source : ``(tool cible, phrase qui le nomme)``. La phrase n'est
+#: servie que si le profil a la cible — sinon elle disparaît, et le corps suffit.
+#:
+#: Un renvoi par phrase, jamais deux cibles dans la même : une phrase qui en nommerait deux
+#: deviendrait fausse le jour où l'une tombe (« celui que rend search_docs ou list_sources »
+#: sans ``list_sources``). Les quatre tools documentaires vont toujours ensemble dans la
+#: matrice d'aujourd'hui ; la forme ne parie pas là-dessus.
+_REFERRALS: dict[str, tuple[tuple[str, str], ...]] = {
+    "answer_question": (
+        ("search_docs",
+         "Pour les extraits bruts sans rédaction, utiliser search_docs."),
+        ("ask_database",
+         "Pour l'état d'un produit et non sa description — stock, chiffres, commandes —, "
+         "utiliser ask_database."),
+        ("check_stock",
+         "Un seul cas demande DEUX appels, et c'est le seul : une référence donnée SEULE, "
+         "sans question — « REF-5313 ». Appeler alors AUSSI check_stock, et rendre la fiche "
+         "ET le stock. Hors de ce cas, un seul tool suffit."),
+    ),
+    "search_docs": (
+        ("answer_question",
+         "Pour une réponse rédigée et sourcée, utiliser answer_question."),
+        ("get_document",
+         "Pour le texte intégral d'une édition identifiée, utiliser get_document."),
+    ),
+    "get_document": (
+        ("search_docs", "L'identifiant attendu est celui que rend search_docs."),
+        ("list_sources", "list_sources en donne l'inventaire."),
+        ("answer_question",
+         "Pour une question, ou pour une référence produit REF-NNNN, "
+         "utiliser answer_question."),
+    ),
+    "list_sources": (
+        ("search_docs", "Pour chercher, utiliser search_docs."),
+        ("answer_question", "Pour une réponse rédigée, utiliser answer_question."),
+    ),
+    "ask_database": (
+        ("check_stock", "Pour le stock d'une référence, utiliser check_stock."),
+        ("order_status", "Pour une commande précise, utiliser order_status."),
+    ),
+    "get_schema": (
+        ("ask_database", "Pour obtenir un résultat, utiliser ask_database."),
+    ),
+    "check_stock": (
+        ("answer_question",
+         "Pour les caractéristiques d'une référence — fiche technique, notice, "
+         "procédure —, utiliser answer_question. Un seul cas demande DEUX appels, et c'est "
+         "le seul : une référence donnée SEULE, sans question — « REF-5313 ». Appeler alors "
+         "AUSSI answer_question, et rendre la fiche ET le stock. Hors de ce cas, un seul "
+         "tool suffit."),
+        ("ask_database", "Pour une autre question chiffrée, utiliser ask_database."),
+    ),
+    "order_status": (
+        ("ask_database", "Pour plusieurs commandes ou un agrégat, utiliser ask_database."),
+    ),
+}
+
+
+def _served_description(name: str, profile: str) -> str:
+    """Le corps du tool, suivi des seuls renvois que ce profil peut suivre.
+
+    Recomposée **depuis les tables**, jamais depuis la description déjà posée sur l'objet :
+    ``list_tools`` mute les objets que FastMCP conserve d'un appel à l'autre, et concaténer
+    sur l'état muté empilerait les renvois à chaque ``tools/list``.
+    """
+    referrals = [phrase for target, phrase in _REFERRALS.get(name, ())
+                 if authorize(profile, target, settings)]
+    return " ".join([_DESCRIPTIONS[name], *referrals])
+
+
+#: Les huit tools lisent, aucun n'écrit — la gateway est en lecture seule de bout en bout.
+_READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=False)
+
+
+# --- Domaine documentaire -------------------------------------------------------------
 #
 # ``collections`` est exposé sur les trois tools qui le portent, et **sans ``enum``** — les
 # deux moitiés de l'arbitrage du 2026-09-07 :
@@ -302,12 +508,7 @@ _READ_ONLY = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHi
 
 @mcp.tool(
     title="Réponse documentaire sourcée",
-    description=(
-        "Documentation interne Sorabel. Rédige une réponse à une question et cite les "
-        "documents utilisés. À utiliser pour toute question de procédure, de "
-        "caractéristique produit ou de consigne interne. Pour obtenir les extraits bruts "
-        "sans rédaction, utiliser search_docs."
-    ),
+    description=_DESCRIPTIONS["answer_question"],
     annotations=_READ_ONLY,
 )
 def answer_question(question: str, collections: _COLLECTIONS = None) -> dict[str, Any]:
@@ -317,12 +518,7 @@ def answer_question(question: str, collections: _COLLECTIONS = None) -> dict[str
 
 @mcp.tool(
     title="Recherche d'extraits documentaires",
-    description=(
-        "Documentation interne Sorabel. Rend les extraits les plus pertinents pour une "
-        "recherche, classés, avec leurs métadonnées — sans rédiger de réponse. Pour une "
-        "réponse rédigée et sourcée, utiliser answer_question ; pour le texte intégral "
-        "d'un document identifié, utiliser get_document."
-    ),
+    description=_DESCRIPTIONS["search_docs"],
     annotations=_READ_ONLY,
 )
 def search_docs(query: str, collections: _COLLECTIONS = None) -> dict[str, Any]:
@@ -331,11 +527,7 @@ def search_docs(query: str, collections: _COLLECTIONS = None) -> dict[str, Any]:
 
 @mcp.tool(
     title="Texte intégral d'un document",
-    description=(
-        "Documentation interne Sorabel. Rend le texte complet et les métadonnées d'une "
-        "édition désignée par son identifiant, tel que rendu par search_docs ou "
-        "list_sources. N'accepte pas une question en langage naturel."
-    ),
+    description=_DESCRIPTIONS["get_document"],
     annotations=_READ_ONLY,
 )
 def get_document(doc_id: str, version: str | None = None) -> dict[str, Any]:
@@ -347,11 +539,7 @@ def get_document(doc_id: str, version: str | None = None) -> dict[str, Any]:
 
 @mcp.tool(
     title="Inventaire du corpus documentaire",
-    description=(
-        "Documentation interne Sorabel. Rend la liste des documents accessibles, sans "
-        "déclencher de recherche : utile pour savoir ce que le corpus couvre avant de "
-        "poser une question. Pour chercher, utiliser search_docs ou answer_question."
-    ),
+    description=_DESCRIPTIONS["list_sources"],
     annotations=_READ_ONLY,
 )
 def list_sources(collections: _COLLECTIONS = None) -> dict[str, Any]:
@@ -363,11 +551,7 @@ def list_sources(collections: _COLLECTIONS = None) -> dict[str, Any]:
 
 @mcp.tool(
     title="Interrogation de la base métier",
-    description=(
-        "Base de données commerciale. Traduit une question chiffrée en lecture SQL "
-        "et rend le résultat avec la requête exécutée. Pour le stock d'une référence, "
-        "utiliser check_stock ; pour une commande précise, utiliser order_status."
-    ),
+    description=_DESCRIPTIONS["ask_database"],
     annotations=_READ_ONLY,
 )
 def ask_database(question: str) -> dict[str, Any]:
@@ -376,11 +560,7 @@ def ask_database(question: str) -> dict[str, Any]:
 
 @mcp.tool(
     title="Schéma SQL autorisé",
-    description=(
-        "Base de données commerciale. Rend le schéma et le périmètre lisibles, sans "
-        "exécuter de question ni lire de données. Pour obtenir un résultat, utiliser "
-        "ask_database."
-    ),
+    description=_DESCRIPTIONS["get_schema"],
     annotations=_READ_ONLY,
 )
 def get_schema() -> dict[str, Any]:
@@ -389,11 +569,7 @@ def get_schema() -> dict[str, Any]:
 
 @mcp.tool(
     title="Stock d'une référence",
-    description=(
-        "Base de données commerciale. Rend le stock d'une référence REF-NNNN, "
-        "entrepôt par entrepôt, avec le seuil de réapprovisionnement. N'accepte pas "
-        "un nom de produit ; pour une autre question chiffrée, utiliser ask_database."
-    ),
+    description=_DESCRIPTIONS["check_stock"],
     annotations=_READ_ONLY,
 )
 def check_stock(reference: Annotated[str, Field(pattern=r"^REF-\d{4}$")]) -> dict[str, Any]:
@@ -402,10 +578,7 @@ def check_stock(reference: Annotated[str, Field(pattern=r"^REF-\d{4}$")]) -> dic
 
 @mcp.tool(
     title="Statut d'une commande",
-    description=(
-        "Base de données commerciale. Rend l'en-tête d'une commande CMD-AAAA-NNNN. "
-        "Pour plusieurs commandes ou un agrégat, utiliser ask_database."
-    ),
+    description=_DESCRIPTIONS["order_status"],
     annotations=_READ_ONLY,
 )
 def order_status(order_id: Annotated[str, Field(pattern=r"^CMD-\d{4}-\d{4}$")]) -> dict[str, Any]:

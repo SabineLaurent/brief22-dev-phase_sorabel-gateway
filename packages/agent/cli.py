@@ -136,27 +136,84 @@ def call_record() -> Iterator[list[CallNote]]:
         _CURRENT_CALL.reset(token)
 
 
+def _frozen_of(view: dict[str, Any]) -> str:
+    """La phrase figée d'une enveloppe, axes de clarification compris."""
+    text: str = view["message"]
+    axes = view["payload"].get("axes")
+    if axes:
+        text += "\n" + "\n".join(f"  - {axis}" for axis in axes)
+    return text
+
+
+def _served(book: list[CallNote]) -> bool:
+    """Un appel du tour a-t-il rendu quelque chose ? C'est le pivot des deux fonctions
+    suivantes, et il ne regarde que le statut : ce qui est ``ok`` a déjà passé les étages 2
+    et 3, donc c'est autorisé, donc c'est servable."""
+    return any(note.envelope["status"] == "ok" for note in book)
+
+
 def frozen_text(book: list[CallNote]) -> str | None:
-    """La phrase à afficher **telle quelle**, ou ``None`` s'il faut laisser le LLM rédiger.
+    """La phrase qui **remplace** la réponse, ou ``None`` s'il y a autre chose à servir.
 
     C'est le point de décision unique : *le modèle n'entre en jeu que quand il y a un
-    résultat à exprimer.* Partout ailleurs — refus, panne, clarification — la phrase est
-    déjà écrite et part à l'écran sans passer par lui. Elle ne peut donc pas varier d'un
-    appel à l'autre.
+    résultat à exprimer.* Partout ailleurs — refus, panne, clarification, non-réponse — la
+    phrase est déjà écrite et part à l'écran sans passer par lui. Elle ne peut donc pas
+    varier d'un appel à l'autre.
 
-    Le **premier** verdict non-``ok`` gagne, et il gagne sur une réponse par ailleurs
-    réussie : afficher le texte rédigé masquerait un refus survenu en chemin.
+    **La règle a un domaine, et il a fallu le border quand l'agent s'est mis à appeler deux
+    tools pour une même question.** « Le premier verdict non-``ok`` gagne, sur tout » était
+    juste tant qu'un tour n'avait qu'un appel : il n'y avait rien à écraser. Dès que deux
+    domaines répondent, elle devient fausse — mesuré le 2026-09-08 sur une référence nue,
+    trois passes sur trois : ``answer_question`` rendait ``contexte_insuffisant`` et
+    ``check_stock`` rendait son résultat, et l'écran affichait « les documents ne portent pas
+    la réponse » en **jetant le stock**.
+
+    D'où la coupure : **on substitue quand rien n'a été servi, on complète sinon**
+    (:func:`frozen_notes`). Ce qui est ``ok`` a franchi les étages d'accès — le refuser à
+    l'écran ne protège rien, ça prive l'utilisateur de ce à quoi il a droit. Et ce qui n'a
+    pas abouti reste dit, **avec sa phrase**, jamais avec celle du modèle.
     """
+    if _served(book):
+        return None
     for note in book:
-        view = note.envelope
-        if view["status"] == "ok":
-            continue
-        text = view["message"]
-        axes = view["payload"].get("axes")
-        if axes:
-            text += "\n" + "\n".join(f"  - {axis}" for axis in axes)
-        return text
+        if note.envelope["status"] != "ok":
+            return _frozen_of(note.envelope)
     return None
+
+
+def frozen_notes(book: list[CallNote]) -> list[str]:
+    """Les phrases figées à **ajouter** à une réponse servie : ce qui n'a pas abouti pendant
+    que le reste aboutissait.
+
+    Vide quand rien n'a été servi — c'est alors :func:`frozen_text` qui parle, et une phrase
+    ne doit pas sortir deux fois. Les doublons sont écartés en gardant l'ordre : deux tools
+    du même domaine refusés pour le même motif rendent la même phrase, et la répéter
+    donnerait à lire une insistance qui n'existe pas.
+    """
+    if not _served(book):
+        return []
+    return list(dict.fromkeys(_frozen_of(note.envelope) for note in book
+                              if note.envelope["status"] != "ok"))
+
+
+def compose_answer(book: list[CallNote], drafted: str) -> str:
+    """Ce qui part à l'écran : la phrase figée seule, ou le texte du modèle suivi des
+    phrases figées de ce qui n'a pas abouti.
+
+    **Un seul point d'assemblage pour la CLI et l'API**, et ce n'est pas de l'économie : les
+    deux affichaient déjà la même décision par deux chemins parallèles, ce qui les laissait
+    libres de diverger au prochain changement. Celui-ci en était un.
+    """
+    frozen = frozen_text(book)
+    if frozen is not None:
+        return frozen
+    # Une phrase que le modèle a **déjà recopiée** ne s'ajoute pas : la consigne du serveur
+    # lui demande de rendre `message` tel quel, et il le fait — mesuré, deux passes sur trois
+    # sur une référence inexistante, où la phrase de non-réponse sortait donc deux fois.
+    # L'égalité est stricte, sur la phrase entière : une paraphrase du modèle ne compte pas
+    # comme la phrase figée, et celle-ci doit alors bien être ajoutée.
+    notes = [note for note in frozen_notes(book) if note not in drafted]
+    return "\n\n".join([drafted, *notes]) if notes else drafted
 
 
 def render(tool: str, view: dict[str, Any]) -> str:
@@ -343,10 +400,10 @@ async def run(profile: str) -> None:
                 response = await agent.ainvoke(
                     {"messages": [{"role": "user", "content": question}]}
                 )
-                # Même règle qu'à l'écran : une phrase figée part telle quelle, le modèle
-                # ne la réécrit pas. Sans quoi la CLI et la GUI n'afficheraient pas la
-                # même chose pour la même décision.
-                print(frozen_text(book) or response["messages"][-1].content)
+                # Même règle qu'à l'écran, et par le même code : une phrase figée part telle
+                # quelle, le modèle ne la réécrit pas. Sans quoi la CLI et la GUI
+                # n'afficheraient pas la même chose pour la même décision.
+                print(compose_answer(book, response["messages"][-1].content))
 
 
 def main() -> None:
