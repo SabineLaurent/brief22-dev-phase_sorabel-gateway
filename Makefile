@@ -1,6 +1,7 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat check-client eval-sql test fmt lint serve client \
+	ingest-azure-small calibrer-azure-small \
 	journal api web web-compare
 
 install:
@@ -32,6 +33,22 @@ calibrer:
 
 calibrer-hybride:
 	uv run python -m packages.rag_machines.calibrate_threshold --config C
+
+# — axe 6 du protocole : le modèle d'embeddings —
+# Le drapeau `--embeddings` se pose par l'environnement, JAMAIS dans `.env` : y écrire
+# AZURE_EMBEDDING_DEPLOYMENT basculerait aussi `make ingest`, donc l'index servi. Les deux
+# collections coexistent, ce qui est la condition pour rejouer la comparaison dans les deux
+# sens. Surcharger au besoin : `make ingest-azure-small EMB_AZURE=mon-deploiement`.
+EMB_AZURE  ?= text-embedding-3-small
+COLL_AZURE ?= sorabel_corpus_azure_small
+AZURE_ENV   = CHROMA_COLLECTION=$(COLL_AZURE) AZURE_EMBEDDING_DEPLOYMENT=$(EMB_AZURE)
+
+ingest-azure-small:
+	$(AZURE_ENV) uv run python -m packages.rag_machines.ingest.cli --reset
+
+calibrer-azure-small:
+	$(AZURE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config A
+	$(AZURE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config C
 
 mesure-dense:
 	uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --text clean --version-filter on --out mesure-dense

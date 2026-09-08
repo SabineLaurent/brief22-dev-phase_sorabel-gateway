@@ -27,9 +27,9 @@ adresse déjà au protocole à deux configurations.
 
 **Décision : aucune mesure ne fait varier plus d'un drapeau à la fois.**
 
-## 2. Quatre drapeaux orthogonaux
+## 2. Cinq drapeaux orthogonaux
 
-L'espace de mesure est un produit de quatre paramètres, pas une collection de pipelines.
+L'espace de mesure est un produit de cinq paramètres, pas une collection de pipelines.
 
 | Drapeau | Valeurs | Où il s'applique | Ce qu'il change |
 |---|---|---|---|
@@ -37,6 +37,7 @@ L'espace de mesure est un produit de quatre paramètres, pas une collection de p
 | `--config` | `A` · `B` · `C` | recherche | l'étage de recherche : dense seul · lexical seul · hybride BM25+dense+RRF+rerank |
 | `--version-filter` | `on` *(défaut)* · `off` | recherche | `is_current` appliqué dans chaque liste **avant sa troncature** ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5), ou pas de filtre |
 | `--tiebreak` | `on` · `off` | recherche | la règle de départage fiche/notice, en rangs, `FENETRE = 3` ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §5) |
+| `--embeddings` | `local` *(défaut)* · `azure-small` | ingestion **et** recherche | le modèle qui fabrique les vecteurs : `intfloat/multilingual-e5-base` en local, `text-embedding-3-small` sur Azure AI Foundry — **ajouté le 2026-09-08** |
 
 ### Ce que chaque levier change, concrètement
 
@@ -78,16 +79,48 @@ plutôt qu'une notice — aucun étage de recherche ne peut le deviner
 dans les trois premiers, la fiche technique passe devant la notice.** Un seul échange, jamais
 un reclassement, et elle ne lit jamais le texte de la question.
 
-**Chaque valeur de `--text` a sa collection Chroma**, parce que le texte indexé détermine
-les vecteurs : `sorabel_corpus` pour `clean`, `sorabel_corpus_raw` pour `raw`. Les trois
-autres drapeaux ne touchent pas à l'index et se règlent à la requête.
+**`--embeddings` — le modèle qui fabrique les vecteurs.** Seul drapeau qui s'applique des
+deux côtés à la fois : le même modèle doit encoder les documents à l'ingestion **et** la
+question à la requête, sinon les deux vecteurs ne vivent pas dans le même espace. C'est
+d'ailleurs ce qu'un garde-fou d'ingestion refuse déjà — l'empreinte du modèle est écrite dans
+la métadonnée de la collection et vérifiée à l'ouverture.
+
+Deux différences de nature, à connaître avant de lire les chiffres :
+
+| | `local` | `azure-small` |
+|---|---|---|
+| modèle | `intfloat/multilingual-e5-base` | `text-embedding-3-small` |
+| dimensions | 768 | 1536 |
+| forme | **asymétrique** — préfixes `query:` / `passage:` | **symétrique** — aucun préfixe |
+| où il tourne | dans le processus (PyTorch) | appel réseau (Foundry, API v1) |
+
+L'asymétrie est le point qui compte : e5 est entraîné à encoder une *question* et un
+*document* différemment, ce que les modèles OpenAI ne font pas. Ce n'est pas joué d'avance
+dans un sens ni dans l'autre sur un corpus français, et c'est précisément ce que l'axe 6
+mesure au lieu de le supposer.
+
+**Chaque valeur de `--text` et de `--embeddings` a sa collection Chroma**, parce que le texte
+indexé **et le modèle** déterminent les vecteurs : `sorabel_corpus` pour `clean` + `local`,
+`sorabel_corpus_raw` pour `raw`, `sorabel_corpus_azure_small` pour `clean` + `azure-small`.
+Les trois autres drapeaux ne touchent pas à l'index et se règlent à la requête.
+
+**`--embeddings` n'est pas un drapeau du script**, contrairement aux quatre autres : il se
+pose par l'environnement, `CHROMA_COLLECTION` et `AZURE_EMBEDDING_DEPLOYMENT` devant la
+commande — l'environnement primant sur `.env`. Aucune ligne de code ne le connaît, et les
+deux index coexistent, ce qui est la condition pour rejouer la comparaison dans les deux
+sens. La cible Make reste l'interface, comme pour les autres (§10).
+
+> **Le rerank n'est pas ce drapeau-ci.** `AZURE_RERANK_DEPLOYMENT` bascule le reranker sur un
+> LLM-juge sans toucher à l'index — c'est un changement de *classement*, pas d'*espace
+> vectoriel*. Il demande sa propre mesure et sa propre recalibration du seuil hybride ; le
+> mêler à celle-ci ferait varier deux choses à la fois (§1).
 
 **Le filtre de version est un drapeau de recherche, pas d'ingestion.** Les 400 éditions sont
 indexées dans les deux collections, `is_current` étant une métadonnée
 ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5). Le désactiver ne demande donc pas un
 second index — c'est ce qui rend l'axe 2 bon marché.
 
-## 3. Les cinq axes de mesure
+## 3. Les six axes de mesure
 
 ### Axe 1 — la recherche, à ingestion constante
 
@@ -252,6 +285,42 @@ La mesure écrit son journal dans un répertoire temporaire — elle ne pollue p
 
 Publié dans [`rapport_acces.md`](rapport_acces.md), cible `make mesure-acces`.
 
+### Axe 6 — le modèle d'embeddings, à texte et recherche constants
+
+**Ajouté le 2026-09-08**, et il n'est pas demandé par le brief : c'est une mesure de
+curiosité, assumée comme telle. Elle répond à une question que le dossier a tranchée par un
+choix par défaut plutôt que par un chiffre — **que vaut `multilingual-e5-base` face à un
+modèle d'embeddings de service ?**
+
+| | Constant | Varie |
+|---|---|---|
+| | `--text clean` · `--version-filter on` · `--tiebreak on` · le reranker | `--embeddings local` → `azure-small` |
+
+**Deux configurations de recherche sont publiées, pas une** :
+
+| | Ce qu'elle isole |
+|---|---|
+| **A** (dense seul) | l'embedder **seul**, sans BM25 pour le sauver — le vrai verdict sur le modèle |
+| **C** (hybride) | ce que le produit servi y gagne ou y perd — le seul chiffre qui décide d'un changement |
+
+L'écart entre les deux est attendu, et c'est le résultat le plus intéressant de l'axe : sur
+les 8 questions `reference_exacte`, **BM25 fait l'essentiel du travail** — une `REF-NNNN` est
+un terme à IDF très élevé — donc un embedder meilleur peut n'y rien changer du tout. Lire les
+trois sous-ensembles séparément, jamais le total : c'est sur `couverte` que l'embedder se
+joue.
+
+**Le seuil de refus est recalibré pour chaque modèle**, et ce n'est pas un détail de méthode :
+deux espaces vectoriels n'ont pas la même distribution de scores. Comparer deux modèles à
+seuil constant mesurerait le seuil. Le dépôt a déjà connu ce défaut exactement — deux
+configurations jugées par la même formule, avec un résultat vrai par construction — et il est
+consigné (`docs/BUGS.md`, MES-01).
+
+> **Réserve d'échantillon, à écrire dans le rapport avant les chiffres.** Huit questions par
+> sous-ensemble : une seule question qui bascule vaut **12,5 points** de Hit@1. Sur une
+> comparaison de modèles, où l'écart attendu est petit, cette réserve pèse plus lourd que sur
+> l'axe 1 — où l'écart mesuré (1/8 → 8/8) dépassait le bruit de plusieurs longueurs. Un écart
+> d'une ou deux questions ne conclut rien.
+
 ## 4. Le « RAG simple » est un coin de l'espace, pas un second projet
 
 Il ne se construit pas, il se **désactive**.
@@ -307,8 +376,11 @@ serait à jeter à l'étape 3.
   difficile pour le refus et le seul indépendant d'un filtre de gouvernance
   ([`Q5`](../docs/conception/1-rag-avance/Q5.md) §5). Le taux du profil `support` est
   indiqué en second, **comme effet de la matrice, pas comme gain de recherche** ;
-- les **versions figées** : `pypdf`, le modèle d'embeddings, le reranker — elles déterminent
-  le contenu de l'index et le classement ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §6) ;
+- les **versions figées** : `pypdf`, le reranker — elles déterminent le contenu de l'index et
+  le classement ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §6). **Le modèle d'embeddings a
+  quitté cette liste le 2026-09-08** : il est devenu le drapeau `--embeddings` de l'axe 6. Il
+  reste invariant *dans chacune des cinq autres mesures* — ce qui change est qu'il est
+  désormais nommé dans le rapport plutôt que supposé ;
 - la **graine** et l'**ordre de parcours** du corpus ;
 - le **compte** : on compte les **questions**, pas les références — 8 questions pour
   7 références distinctes, vérifié sur le fichier réel.
@@ -392,7 +464,7 @@ un module importable, pour ne pas nommer un paquet `eval`.
 
 ### Une cible Make par mesure publiée
 
-Les quatre drapeaux forment 24 combinaisons, mais **on n'en publie que sept** — auxquelles
+Les cinq drapeaux forment 48 combinaisons, mais **on n'en publie que neuf** — auxquelles
 s'ajoutent les trois axes qui ne se règlent pas par un drapeau de recherche (périmètre, refus,
 accès), une cible chacun. À ce
 nombre-là, une cible nommée par mesure vaut mieux qu'une chaîne de drapeaux : c'est la
@@ -418,6 +490,10 @@ mesure-refus             # C · clean · filtre on   — les deux barrières, 3 
 
 # — axe 5 : les étages d'accès —
 mesure-acces             # E5 : dix scénarios × cinq profils, journal + colonnes fermées
+
+# — axe 6 : le modèle d'embeddings, à texte et recherche constants —
+ingest-azure-small       # texte nettoyé, embeddings OpenAI -> sorabel_corpus_azure_small
+mesure-embeddings        # A et C, les deux modèles côte à côte, seuils recalibrés chacun
 
 # — la ligne parlante —
 mesure-rag-simple        # A · raw   · filtre off · départage off
