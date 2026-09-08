@@ -456,9 +456,15 @@ Le front multirôle (`make web-compare`) a fait apparaître dix défauts en une 
 **antérieurs à lui** — sauf **2bis.9**, qui est le sien : côte à côte, on voit un profil renoncer là où son voisin répond. En
 mono-rôle il fallait penser à comparer. Détail et mesures : journal du 2026-09-08.
 
-**À la reprise, commencer par 2bis.7 et 2bis.8** — décision de l'utilisatrice le 2026-09-08.
-Ce sont les deux que la démonstration de soutenance expose le plus directement : elles
-décident ce qu'une colonne affiche sur la question la plus simple qu'on puisse taper.
+**À la reprise, commencer par 2bis.11** — décision de l'utilisatrice le 2026-09-08, révisée
+le soir même une fois la cause trouvée. Le premier choix s'était porté sur 2bis.7 et 2bis.8,
+les deux que la démonstration de soutenance expose le plus directement ; **2bis.11 est leur
+cause**, et celle de 2bis.10 par-dessus. Les descriptions sont le seul aiguillage du système :
+les corriger devrait faire tomber les trois symptômes, et la propriété « aucune description
+servie ne nomme un tool absent du catalogue de son profil » est **contrôlable**, donc
+définitivement acquise une fois portée dans `check-contrat`.
+
+Ordre de reprise : **2bis.11**, puis rejouer 2bis.7 · 2bis.8 · 2bis.10 pour voir ce qui reste.
 
 ### 2bis.1 La redondance du corpus sature les candidats avant rerank
 
@@ -1156,7 +1162,7 @@ item est fait, et c'est celui qui fermait une fuite.
 | # | Tâche | Pourquoi à ce rang | État |
 |---|---|---|---|
 | 1b | ~~**2bis.3** le prompt publiait l'étage 1~~ | une **fuite** d'existence, et la cause des faux refus non journalisés | **fait le 2026-09-08** — fuites 4/20 → 1/20 |
-| 2b | **2bis.7** référence nue : stock ou fiche | **par là qu'on reprend** — décide ce qu'affiche la colonne sur la question la plus simple qu'on puisse taper | **ouvert** |
+| 2b | **2bis.7** référence nue : stock ou fiche | décide ce qu'affiche la colonne sur la question la plus simple qu'on puisse taper — **à rejouer après 11b** | **ouvert** |
 | 3b | **2bis.8** `dev` instable sur une référence nue | même cause visible, et `introuvable` là où le corpus porte la fiche | **ouvert** |
 | 4b | **2bis.1** saturation par redondance | un profil à **plus** de droits obtient **moins** de réponses : c'est E1 qui recule là où la matrice s'élargit | **ouvert** |
 | 5b | **2bis.2** le seuil coupe dans le couvert | refuse une question dont le corpus porte la réponse, **sans que le juge la voie** | **ouvert**, à trancher avec §2.4 |
@@ -1165,7 +1171,7 @@ item est fait, et c'est celui qui fermait une fuite.
 | 8b | **2bis.6** consigne au guide | un intégrateur peut refaire 2bis.3 chez lui | **ouvert**, écriture |
 | 9b | **2bis.9** colonne verte sur un renoncement | le seul défaut **du front lui-même** ; trompeur en démonstration | **ouvert** |
 | 10b | **2bis.10** la non-réponse n'a ni phrase ni chemin stables | même racine que 1b et 9b : un renoncement n'a pas de verdict, donc rien ne le fige | **ouvert** |
-| 11b | **2bis.11** les descriptions nomment des tools fermés | **la cause commune de 2b, 3b et 10b** — et le seul aiguillage du système ; contrôlable | **ouvert** |
+| 11b | **2bis.11** les descriptions nomment des tools fermés | **PAR LÀ QU'ON REPREND** — la cause commune de 2b, 3b et 10b, le seul aiguillage du système, et la seule des onze dont le résultat soit **contrôlable** | **ouvert** |
 
 **Ordre de sacrifice** : 7b, puis 8b, puis 6b. Ne pas sacrifier 2b à 5b — ce sont les quatre
 seuls de cette liste qui changent ce que le produit **répond**.
