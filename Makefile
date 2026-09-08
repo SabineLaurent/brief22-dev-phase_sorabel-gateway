@@ -1,7 +1,7 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat check-client eval-sql test fmt lint serve client \
-	ingest-azure-small calibrer-azure-small \
+	ingest-azure-small calibrer-azure-small calibrer-cohere mesure-rerank \
 	journal api web web-compare
 
 install:
@@ -45,6 +45,31 @@ AZURE_ENV   = CHROMA_COLLECTION=$(COLL_AZURE) AZURE_EMBEDDING_DEPLOYMENT=$(EMB_A
 
 ingest-azure-small:
 	$(AZURE_ENV) uv run python -m packages.rag_machines.ingest.cli --reset
+
+# — axe 7 du protocole : le reranker —
+# La cible ne pose QUE le nom du déploiement : l'endpoint et la clé viennent de `.env`,
+# où est leur place. C'est la règle tout ou rien qui rend ce partage sûr — deux variables
+# sur trois ne basculent rien, donc `.env` peut les porter sans que la configuration
+# servie change. Vider AZURE_RERANK_DEPLOYMENT dans `.env` : le défaut reste le
+# cross-encoder local, et seules ces cibles-ci passent sur Cohere.
+RERANK_COHERE ?= Cohere-rerank-v4.0-pro
+COHERE_ENV     = AZURE_RERANK_DEPLOYMENT=$(RERANK_COHERE)
+
+calibrer-cohere:
+	$(COHERE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config C
+
+# Les deux rerankers côte à côte, index e5 constant. Chaque passe porte SON seuil
+# calibré : comparer à seuil constant mesurerait le seuil, pas le reranker.
+SEUIL_MMARCO ?= 0.0530
+SEUIL_COHERE ?= 0.5923
+
+mesure-rerank:
+	AZURE_RERANK_DEPLOYMENT= RERANK_THRESHOLD=$(SEUIL_MMARCO) \
+	  uv run python -m packages.rag_machines.evals_and_controls.eval_rag \
+	  --config C --text clean --version-filter on --out mesure-rerank-local
+	$(COHERE_ENV) RERANK_THRESHOLD=$(SEUIL_COHERE) \
+	  uv run python -m packages.rag_machines.evals_and_controls.eval_rag \
+	  --config C --text clean --version-filter on --out mesure-rerank-cohere
 
 calibrer-azure-small:
 	$(AZURE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config A
