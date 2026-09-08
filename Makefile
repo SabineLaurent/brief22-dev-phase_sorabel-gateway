@@ -1,7 +1,7 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat check-client eval-sql test fmt lint serve client \
-	ingest-azure-small calibrer-azure-small calibrer-cohere mesure-rerank \
+	ingest-azure-small calibrer-azure-small calibrer-cohere mesure-rerank mesure-embeddings \
 	journal api web web-compare
 
 install:
@@ -74,6 +74,28 @@ mesure-rerank:
 calibrer-azure-small:
 	$(AZURE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config A
 	$(AZURE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config C
+
+# Les deux embedders côte à côte, reranker local des DEUX côtés — sans quoi l'axe 6 et
+# l'axe 7 se mélangeraient. A isole l'embedder (pas de BM25 pour le sauver), C dit ce que
+# le produit servi y gagne. Chaque passe porte SES seuils calibrés : comparer à seuil
+# constant mesurerait le seuil.
+SEUIL_LOCAL_A ?= 0.8308
+SEUIL_LOCAL_C ?= 0.0530
+SEUIL_AZURE_A ?= 0.4893
+SEUIL_AZURE_C ?= 0.0153
+RERANK_LOCAL   = AZURE_RERANK_DEPLOYMENT=
+EVAL_RAG       = uv run python -m packages.rag_machines.evals_and_controls.eval_rag \
+                 --text clean --version-filter on
+
+mesure-embeddings:
+	$(RERANK_LOCAL) REFUSAL_THRESHOLD=$(SEUIL_LOCAL_A) \
+	  $(EVAL_RAG) --config A --out mesure-emb-local-A
+	$(RERANK_LOCAL) RERANK_THRESHOLD=$(SEUIL_LOCAL_C) \
+	  $(EVAL_RAG) --config C --out mesure-emb-local-C
+	$(RERANK_LOCAL) $(AZURE_ENV) REFUSAL_THRESHOLD=$(SEUIL_AZURE_A) \
+	  $(EVAL_RAG) --config A --out mesure-emb-azure-A
+	$(RERANK_LOCAL) $(AZURE_ENV) RERANK_THRESHOLD=$(SEUIL_AZURE_C) \
+	  $(EVAL_RAG) --config C --out mesure-emb-azure-C
 
 mesure-dense:
 	uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --text clean --version-filter on --out mesure-dense
