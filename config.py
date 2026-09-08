@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     #: Calibré sur eval/questions_calibration.jsonl — jamais sur le jeu de mesure —
     #: par `make calibrer`. `None` désactive la barrière, ce que fait la mesure de
     #: rappel pour ne pas se masquer un résultat.
+    #:
+    #: **Cette valeur appartient à un modèle et à un index** : 0,8308 a été calibré
+    #: pour ``intfloat/multilingual-e5-base`` sur la collection ``sorabel_corpus``.
+    #: Un autre embedder produit une autre distribution de scores, et **rien dans le
+    #: code ne relie ce seuil au modèle qui l'a produit** — le contrôle d'empreinte
+    #: protège l'appariement index ↔ modèle, pas seuil ↔ modèle. Changer d'embedder
+    #: sans `make calibrer` règle donc le refus sur une distribution étrangère, en
+    #: silence. Garde-fou manquant, consigné.
     refusal_threshold: float | None = 0.8308
 
     # --- Recherche hybride (étape 3) ------------------------------------------
@@ -83,6 +91,12 @@ class Settings(BaseSettings):
     #: Score minimal du premier résultat, sur l'échelle du reranker — critère de
     #: refus de la configuration hybride (Q4 §3, Q5 §4). Calibré par
     #: `make calibrer-hybride`, jamais sur le jeu de mesure.
+    #:
+    #: **Même réserve que ``refusal_threshold``, sur l'autre échelle** : 0,0530 a été
+    #: calibré pour le cross-encoder ``mmarco-mMiniLMv2-L12-H384-v1``. Un reranker
+    #: Cohere rend un ``relevance_score`` d'une autre distribution ; brancher les
+    #: trois ``azure_rerank_*`` sans `make calibrer-hybride` déplace le refus sans
+    #: rien signaler.
     rerank_threshold: float | None = 0.0530
 
     # --- Base métier (chantier Text-to-SQL) ----------------------------------
