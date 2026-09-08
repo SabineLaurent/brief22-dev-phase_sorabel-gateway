@@ -452,7 +452,7 @@ uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --
 
 ## 2 bis. Trouvé par le front de comparaison — 2026-09-08
 
-Le front multirôle (`make web-compare`) a fait apparaître neuf défauts en une soirée, tous
+Le front multirôle (`make web-compare`) a fait apparaître dix défauts en une soirée, tous
 **antérieurs à lui** — sauf **2bis.9**, qui est le sien : côte à côte, on voit un profil renoncer là où son voisin répond. En
 mono-rôle il fallait penser à comparer. Détail et mesures : journal du 2026-09-08.
 
@@ -767,6 +767,57 @@ peut pas juger sans lire le contenu (cf. 2bis.9). Deux voies :
 
 > **Succès** : trois appels identiques sous `dev` sur une question hors de ses droits rendent
 > **la même phrase** et **la même ligne de journal**.
+
+### 2bis.11 Les descriptions de tools nomment des tools que la matrice ferme
+
+- [ ] **Revoir les descriptions : les renvois, les ponts entre domaines, et l'interdit de
+  `get_document`.**
+
+Question de l'utilisatrice le 2026-09-08 : « les docstrings d'outils seraient à revoir ? »
+**Oui, et c'est le levier** — les descriptions sont le *seul* aiguillage du système, et les
+trois défauts observés (2bis.7, 2bis.8, 2bis.10) sont tous des choix de tool.
+
+Elles sont par ailleurs bien écrites : chacune nomme son domaine, dit ce qu'elle rend, et
+renvoie vers l'alternative. Trois défauts précis s'y logent quand même.
+
+**a) Une description renvoie vers un tool que le profil n'a pas — mesuré.**
+
+| profil | description | renvoie vers | dans son catalogue ? |
+|---|---|---|---|
+| `dev` | `get_schema` : « Pour obtenir un résultat, utiliser `ask_database` » | `ask_database` | **non** |
+| `support` · `commercial` | — | — | aucun cas |
+
+C'est **2bis.3 à l'identique, mais dans le protocole** : le serveur nomme lui-même un tool
+fermé, dans une description qu'il sert. `SorabelMCP.list_tools` filtre les **tools**, jamais
+le **contenu de leurs descriptions**. Et cela explique directement **2bis.10** : le modèle
+lit le renvoi, cherche le tool, ne l'a pas, et renonce — « je ne peux pas déterminer […] à
+partir du seul schéma ».
+
+Le correctif appartient à `SorabelMCP.list_tools`, la méthode qui décide déjà du catalogue
+**et** réécrit déjà l'`outputSchema` (§3.5). Deux formes possibles : retirer le renvoi quand
+sa cible n'est pas servie, ou ne plus nommer de tool dans une description. La première garde
+l'aiguillage utile aux profils complets ; la seconde est plus simple mais appauvrit tout le
+monde pour un cas.
+
+**b) Aucun renvoi ne traverse les domaines.** Les ponts sont tous intra-domaine —
+`check_stock` → `ask_database`, `search_docs` → `answer_question`/`get_document`. Seul
+`answer_question` mentionne « caractéristique produit », ce qui est un pont implicite et
+dans un seul sens. D'où **2bis.7** : sur « REF-5313 », `check_stock` correspond
+littéralement à l'argument, et **rien ne suggère au modèle qu'une fiche existe aussi**.
+
+À ajouter, dans les deux sens : depuis `check_stock`, « pour les caractéristiques d'une
+référence, la documentation » ; depuis `answer_question`, « pour son stock, la base ». Sous
+réserve de (a) — un pont vers un domaine fermé rejouerait le défaut.
+
+**c) L'interdit de `get_document` rate sa cible.** Il dit « N'accepte pas une question en
+langage naturel » — or `REF-5313` **n'en est pas une**, donc rien ne l'écarte, et le modèle
+lui passe une référence produit : `introuvable`, alors que le corpus porte la fiche
+(**2bis.8**). À exclure explicitement : un identifiant d'édition n'est pas une référence
+`REF-NNNN`.
+
+> **Succès** : aucune description servie ne nomme un tool absent du catalogue de son profil
+> (contrôlable, donc à porter dans `check-contrat`), et 2bis.7 · 2bis.8 · 2bis.10 sont
+> rejoués sur trois passes sans changer de verdict.
 
 ---
 
@@ -1114,6 +1165,7 @@ item est fait, et c'est celui qui fermait une fuite.
 | 8b | **2bis.6** consigne au guide | un intégrateur peut refaire 2bis.3 chez lui | **ouvert**, écriture |
 | 9b | **2bis.9** colonne verte sur un renoncement | le seul défaut **du front lui-même** ; trompeur en démonstration | **ouvert** |
 | 10b | **2bis.10** la non-réponse n'a ni phrase ni chemin stables | même racine que 1b et 9b : un renoncement n'a pas de verdict, donc rien ne le fige | **ouvert** |
+| 11b | **2bis.11** les descriptions nomment des tools fermés | **la cause commune de 2b, 3b et 10b** — et le seul aiguillage du système ; contrôlable | **ouvert** |
 
 **Ordre de sacrifice** : 7b, puis 8b, puis 6b. Ne pas sacrifier 2b à 5b — ce sont les quatre
 seuls de cette liste qui changent ce que le produit **répond**.
