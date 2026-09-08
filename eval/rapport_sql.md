@@ -1,6 +1,6 @@
 # Text-to-SQL — conformité sur les 24 questions du jeu
 
-> Généré par `make eval-sql` le 2026-09-03. **Ne pas éditer à la main.**
+> Généré par `make eval-sql` le 2026-09-04. **Ne pas éditer à la main.**
 
 Jeu : `eval/questions_sql.jsonl` · modèle de génération : `gpt-5.6-terra` · CSV : `eval/resultats/eval-sql.csv`
 
@@ -38,7 +38,7 @@ aucune : il ne se renégocie pas.
 | SQL-04 | commercial | `metier` | `ok` | `ok` |  | 5 | `SELECT p.ref AS ref, p.nom AS nom, SUM(v.quantite) AS quantite_vendue ` |
 | SQL-05 | commercial | `metier` | `ok` | `ok` |  | 1 | `SELECT COUNT(*) AS nombre_clients FROM clients AS clients WHERE client` |
 | SQL-06 | commercial | `metier` | `ok` | `ok` |  | 1 | `SELECT SUM(commandes.montant_ht) AS montant_total_commandes_ht FROM co` |
-| SQL-07 | commercial | `metier` | `ok` | `ok` |  | 3 | `SELECT s.ref AS ref, p.nom AS nom, s.quantite AS quantite, s.seuil_rea` |
+| SQL-07 | commercial | `metier` | `ok` | `ok` |  | 3 | `SELECT s.ref AS ref, p.nom AS nom, s.entrepot AS entrepot, s.quantite ` |
 | SQL-08 | commercial | `metier` | `ok` | `aucune_ligne` |  |  | `SELECT commandes.statut AS statut FROM commandes AS commandes WHERE co` |
 | SQL-09 | commercial | `metier` | `ok` | `ok` |  | 1 | `SELECT COUNT(*) AS nombre_commandes_annulees FROM commandes AS command` |
 | SQL-10 | commercial | `metier` | `ok` | `ambiguite_donnees` |  | 4 | `SELECT produits.ref AS ref, produits.nom AS nom, produits.prix_vente_h` |

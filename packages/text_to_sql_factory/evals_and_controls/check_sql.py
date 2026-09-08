@@ -26,7 +26,10 @@ from pathlib import Path
 from config import settings
 from packages.access import scope_for
 from packages.text_to_sql_factory.contract import ReadContract, build_read_contract
-from packages.text_to_sql_factory.executor import execute, explain
+# `_connect` est importé exprès malgré son tiret bas : le contrôle de l'invariant de
+# lecture seule doit porter sur **la** fonction qui ouvre les connexions du service, pas
+# sur une connexion réécrite ici — qui ne prouverait rien de ce que fait l'exécuteur.
+from packages.text_to_sql_factory.executor import _connect, execute, explain
 from packages.text_to_sql_factory.generator import Generation, SqlGenerator, clarification_axes
 from packages.text_to_sql_factory.tools import ask_database, check_stock, get_schema, order_status
 from packages.text_to_sql_factory.validator import validate
@@ -222,6 +225,28 @@ def main() -> int:
             check(label, "refusé", "refusé")
     connection.close()
 
+    # L'invariant qui porte réellement la garantie : la connexion est **neuve à chaque
+    # requête**. `query_only` se désarme par un PRAGMA — que le validateur refuse en amont,
+    # mais la défense de fond est que le désarmement ne survive pas d'un appel au suivant :
+    # une connexion désarmée exfiltre la base entière par un seul `VACUUM INTO`.
+    # Ce contrôle existe parce que le dépôt a déjà mémoïsé des constructeurs pour la
+    # performance (`build_embedder`, `build_reranker`) : le même geste sur `_connect`
+    # laisserait tous les autres contrôles au vert.
+    disarmed = _connect(settings)
+    disarmed.execute("PRAGMA query_only=OFF")
+    fresh = _connect(settings)
+    check("query_only réarmé sur connexion neuve",
+          (disarmed.execute("PRAGMA query_only").fetchone()[0],
+           fresh.execute("PRAGMA query_only").fetchone()[0]),
+          (0, 1))
+    disarmed.close()
+    fresh.close()
+
+    # Garde de dernier recours de `execute()` : jamais atteinte par le service, puisque
+    # `validate()` passe avant. Appelée seule, elle doit tenir quand même.
+    check("execute() seule sur une non-lecture → erreur_execution",
+          execute("UPDATE produits SET prix_vente_ht=1").code, "erreur_execution")
+
     print("\nExécution et contrôles du résultat (N7)")
     check("T1 — commandes d'avril 2026",
           execute("SELECT COUNT(*) FROM commandes WHERE date_commande LIKE '2026-04-%'").rows,
@@ -263,16 +288,16 @@ def main() -> int:
     ])
     answer = ask_database("les commandes par mois", "commercial", settings, scripted)
     check("une requête fausse déclenche une reprise", scripted.repairs, 1)
-    check("la reprise est exécutée", answer["payload"]["code"], "ok")
+    check("la reprise est exécutée", answer.payload["code"], "ok")
     check("c'est bien la seconde requête qui sert",
-          "STRFTIME" in str(answer["payload"]["sql"]), True)
+          "STRFTIME" in str(answer.payload["sql"]), True)
     check("l'erreur du moteur a été rendue au modèle",
           any("DATE_TRUNC" in prompt for prompt in scripted.seen), True)
 
     forbidden = _ScriptedGenerator(["SELECT marge_pct FROM produits"])
     answer = ask_database("les marges", "support", settings, forbidden)
     check("un refus de droits ne déclenche aucune reprise", forbidden.repairs, 0)
-    check("et reste un refus de droits", answer["payload"]["code"], "perimetre_interdit")
+    check("et reste un refus de droits", answer.payload["code"], "perimetre_interdit")
 
     exhausted = _ScriptedGenerator([
         "SELECT DATE_TRUNC('month', date_commande) FROM commandes",
@@ -281,34 +306,34 @@ def main() -> int:
     answer = ask_database("les commandes par mois", "commercial", settings, exhausted)
     check("une reprise, jamais deux", exhausted.repairs, 1)
     check("reprise ratée → le refus de la seconde tentative",
-          answer["payload"]["code"], "erreur_execution")
+          answer.payload["code"], "erreur_execution")
 
     print("\nTools figés")
     stock = check_stock("REF-8842", "support")
-    check("check_stock — une ligne par entrepôt", len(stock["payload"]["rows"]), 3)
-    check("check_stock — le total, jamais la première ligne", stock["payload"]["total"], 774)
+    check("check_stock — une ligne par entrepôt", len(stock.payload["rows"]), 3)
+    check("check_stock — le total, jamais la première ligne", stock.payload["total"], 774)
     check("check_stock — sous_seuil par ligne, non agrégé",
-          [row[3] for row in stock["payload"]["rows"]], [0, 0, 0])
-    check("check_stock — libellé refusé", check_stock("disjoncteur", "support")["status"], "error")
+          [row[3] for row in stock.payload["rows"]], [0, 0, 0])
+    check("check_stock — libellé refusé", check_stock("disjoncteur", "support").status, "error")
     check("check_stock — référence absente → aucune ligne",
-          check_stock("REF-9999", "support")["payload"]["code"], "aucune_ligne")
+          check_stock("REF-9999", "support").payload["code"], "aucune_ligne")
     order = order_status("CMD-2025-0042", "support")
-    check("order_status — en-tête de la commande", order["payload"]["rows"],
+    check("order_status — en-tête de la commande", order.payload["rows"],
           [["CMD-2025-0042", "livree", "2025-11-22", 28524.27, "CLI-1015"]])
     check("order_status — CMD-2026-0042 n'existe pas, ce n'est pas un refus",
-          order_status("CMD-2026-0042", "support")["payload"]["code"], "aucune_ligne")
+          order_status("CMD-2026-0042", "support").payload["code"], "aucune_ligne")
     check("order_status — identifiant malformé",
-          order_status("42", "support")["status"], "error")
+          order_status("42", "support").status, "error")
 
-    print("\nEnveloppe et périmètre des tools")
+    print("\nRéponse structurée et périmètre des tools")
     check("get_schema — le support y a droit ici, le serveur MCP tranchera l'étage 2",
-          get_schema("support")["status"], "ok")
-    check("get_schema — profil sans périmètre", get_schema("default")["status"], "refused")
+          get_schema("support").status, "ok")
+    check("get_schema — profil sans périmètre", get_schema("default").status, "refused")
     check("ask_database — profil sans périmètre, aucun appel de modèle",
-          ask_database("combien de commandes ?", "default")["payload"]["code"],
+          ask_database("combien de commandes ?", "default").payload["code"],
           "perimetre_interdit")
     refused = ask_database("combien de commandes ?", "default")
-    check("un refus ne porte aucune ligne", "rows" in refused["payload"], False)
+    check("un refus ne porte aucune ligne", "rows" in refused.payload, False)
 
     return verdict()
 

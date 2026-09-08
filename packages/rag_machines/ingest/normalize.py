@@ -314,3 +314,29 @@ def corpus_files(root: Path) -> list[Path]:
         for path in (root / folder).glob("*")
         if path.suffix.lower() in _READERS
     )
+
+
+def classify(doc_id: str) -> tuple[str, str | None] | None:
+    """Rend ``(doc_type, theme)`` d'un ``edition_id`` ou d'un ``doc_key``, sans lire l'index.
+
+    Les deux identifiants sont des chemins relatifs au corpus, privés d'extension —
+    ``fiches/REF-1024-v2.1``, ``notes/note-2024-01-02-reunion-achat-32``. Le dossier porte
+    donc la collection, et le nom de fichier porte le thème quand il s'agit d'une note.
+    C'est ce que ``Q3`` §8 appelle « décidable sur le seul argument » : ``get_document`` doit
+    pouvoir refuser **avant tout accès à l'index**, sans quoi la fermeture des notes serait
+    contournable par un simple chemin de fichier.
+
+    Rend ``None`` quand l'identifiant ne désigne aucune collection connue — un dossier
+    inventé, ou un identifiant sans dossier du tout. C'est un ``introuvable``, pas un refus :
+    l'appelant tranche.
+    """
+    head, _, tail = doc_id.strip().strip("/").partition("/")
+    if not tail:
+        return None
+    doc_type = DOC_TYPE_BY_FOLDER.get(head)
+    if doc_type is None:
+        return None
+    if doc_type != "note_interne":
+        return doc_type, None
+    match = _RE_NOTE_FILENAME.match(tail.rsplit("/", 1)[-1])
+    return doc_type, (match.group("theme") if match else None)

@@ -16,39 +16,36 @@ Lancement : uv run chainlit run packages/web_client/app.py
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import chainlit as cl
 import httpx
 
 from packages.agent.api import profile_for_role
 from packages.access import scope_for
+from packages.web_client.evals import load_eval_questions
 
 API_URL = "http://127.0.0.1:8000/chat"
+JOURNAL_URL = "http://127.0.0.1:8000/journal"
+ALLOWED_URL = "http://127.0.0.1:8000/journal/allowed"
 
-_EVAL_FILES = [
-    Path("eval/questions_rag.jsonl"),
-    Path("eval/questions_sql.jsonl"),
-    Path("eval/questions_calibration.jsonl"),
-]
+#: Le mot tapé au chat pour relire le journal. Un mot plutôt qu'un bouton : l'interface est
+#: un banc d'essai, et un bouton laisserait croire que la lecture est acquise — alors que
+#: c'est la matrice qui tranche, appel par appel, et que le refus est lui-même journalisé.
+JOURNAL_COMMAND = "journal"
 
+#: Les champs d'une entrée affichés en clair, dans cet ordre. La trace d'exception n'y est
+#: pas : elle est rendue par l'API, mais un `stack` de quarante lignes dans une bulle de chat
+#: noie les dix-neuf autres entrées. Elle est affichée à part, et seulement si elle existe.
+_JOURNAL_FIELDS = ("timestamp", "profile", "tool", "status", "code", "decision", "etage",
+                   "cause", "sql", "n_rows", "latency_ms", "forbidden")
 
-def _load_eval_questions() -> dict[str, str]:
-    questions: dict[str, str] = {}
-    for path in _EVAL_FILES:
-        if not path.exists():
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            entry = json.loads(line)
-            questions[entry["id"]] = entry["question"]
-    return questions
+_EVAL_QUESTIONS = load_eval_questions()
 
 
-_EVAL_QUESTIONS = _load_eval_questions()
-
-
-@cl.set_chat_profiles
+# `type: ignore[arg-type]` — dette amont, pas la nôtre : les stubs de Chainlit déclarent
+# un rappel prenant un `User | None`, que le décorateur n'envoie pas. La signature sans
+# argument est celle de la documentation et celle qui fonctionne ; l'annoter avec un
+# paramètre jamais fourni la rendrait fausse à l'exécution pour plaire au typeur.
+@cl.set_chat_profiles  # type: ignore[arg-type]
 async def chat_profiles() -> list[cl.ChatProfile]:
     # `name` est l'identifiant du rôle : c'est lui qui part vers l'API et que
     # `profile_for_role()` convertit. `display_name` est ce que le sélecteur montre — la
@@ -67,7 +64,8 @@ async def chat_profiles() -> list[cl.ChatProfile]:
     ]
 
 
-@cl.set_starters
+# Même stub Chainlit, même motif qu'au-dessus.
+@cl.set_starters  # type: ignore[arg-type]
 async def starters() -> list[cl.Starter]:
     return [
         cl.Starter(label=f"{qid} — {question[:60]}", message=question)
@@ -113,20 +111,66 @@ async def on_chat_start() -> None:
         content=(
             f"Rôle actif : **{role}** — {_rights_summary(role)}\n\n"
             "Posez une question, ou tapez un identifiant d'eval "
-            "(ex. `RAG-03`, `SQL-01`, `CAL-02`) pour la rejouer."
+            "(ex. `RAG-03`, `SQL-01`, `CAL-02`) pour la rejouer.\n\n"
+            f"Tapez `{JOURNAL_COMMAND}` pour relire le journal des appels — la matrice dit "
+            "qui en a le droit, et la tentative est journalisée dans les deux cas."
         )
+    ).send()
+
+
+def _format_entry(entry: dict) -> str:
+    """Une entrée de journal, mise à plat. Rendue **entière** côté API ; ici seulement mise
+    en forme, jamais expurgée — l'affichage n'est pas la barrière."""
+    lines = [f"- **{field}** : `{entry[field]}`"
+             for field in _JOURNAL_FIELDS
+             if entry.get(field) not in (None, "", [], 0, 0.0)]
+    stack = entry.get("stack")
+    if stack:
+        lines.append(f"```\n{stack.strip()}\n```")
+    return "\n".join(lines)
+
+
+async def _show_journal(role: str) -> None:
+    """Affiche le journal, ou le refus que la matrice oppose à ce rôle.
+
+    Aucun contrôle de droits n'est fait ici : l'API refuse, et son refus arrive sous la même
+    forme que n'importe quelle autre réponse — un `status` et une phrase figée. Le doubler
+    d'un contrôle côté interface donnerait deux barrières à maintenir, dont une seule
+    journalisée.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.get(JOURNAL_URL, params={"role": role, "limit": 20})
+        data = response.json()
+
+    if data["status"] != "ok":
+        await cl.Message(content=data["message"]).send()
+        return
+
+    entries = data.get("entries") or []
+    body = "\n\n---\n\n".join(_format_entry(entry) for entry in reversed(entries))
+    await cl.Message(
+        content=f"**Journal — {len(entries)} dernière(s) entrée(s), la plus récente "
+                f"d'abord**\n\n{body}"
     ).send()
 
 
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     role = cl.user_session.get("role", "support")
-    question = _EVAL_QUESTIONS.get(message.content.strip().upper(), message.content)
+    typed = message.content.strip()
+
+    if typed.lower() == JOURNAL_COMMAND:
+        await _show_journal(role)
+        return
+
+    question = _EVAL_QUESTIONS.get(typed.upper(), message.content)
 
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(API_URL, json={"role": role, "question": question})
         data = response.json()
 
+    # `error` ne porte plus qu'une phrase figée : l'API ne laisse plus sortir de message
+    # d'exception. Le préfixe reste, il dit à l'utilisateur que rien n'a abouti.
     if data.get("error"):
         await cl.Message(content=f"Erreur : {data['error']}").send()
     else:

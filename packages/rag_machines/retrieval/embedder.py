@@ -14,6 +14,7 @@ sur les questions. Confondre les deux dégrade le rappel sans rien signaler.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Protocol, cast
 
 from config import Settings
@@ -106,16 +107,32 @@ class AzureEmbedder:
         return self._encode([text])[0]
 
 
+@lru_cache(maxsize=None)
+def _embedder(azure: bool, endpoint: str, api_key: str, deployment: str,
+              model: str) -> Embedder:
+    """Le cache est ici, sur les seuls champs lus — pas sur ``Settings``, qui n'est pas
+    hachable, et pas sur l'objet appelant, qui varie d'une mesure à l'autre."""
+    if azure:
+        return cast(Embedder, AzureEmbedder(endpoint, api_key, deployment))
+    return cast(Embedder, LocalEmbedder(model))
+
+
 def build_embedder(settings: Settings | None = None) -> Embedder:
-    """Rend l'embedder configuré. Azure s'il est renseigné, local sinon."""
+    """Rend l'embedder configuré. Azure s'il est renseigné, local sinon.
+
+    **Le même objet est rendu à configuration égale**, et c'est nécessaire, pas
+    opportuniste : ``LocalEmbedder`` ne charge son ``SentenceTransformer`` qu'au premier
+    usage, mais il le charge **par instance**. Une instance neuve à chaque appel de
+    ``search()`` ferait relire le modèle sur le disque à chaque question — invisible pour
+    la suite d'acceptance, qui relance un processus serveur par appel, mais payé à chaque
+    question par un serveur MCP qui vit. Même raison que l'index BM25, mémoïsé dans
+    ``lexical.py``.
+    """
     settings = settings or default_settings
-    if settings.uses_azure_embeddings:
-        return cast(
-            Embedder,
-            AzureEmbedder(
-                settings.azure_ai_endpoint,
-                settings.azure_ai_api_key,
-                settings.azure_embedding_deployment,
-            ),
-        )
-    return cast(Embedder, LocalEmbedder(settings.embedding_model))
+    return _embedder(
+        settings.uses_azure_embeddings,
+        settings.azure_ai_endpoint,
+        settings.azure_ai_api_key,
+        settings.azure_embedding_deployment,
+        settings.embedding_model,
+    )

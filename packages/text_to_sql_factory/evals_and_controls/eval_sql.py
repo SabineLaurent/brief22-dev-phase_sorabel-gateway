@@ -28,7 +28,11 @@ from config import settings
 from packages.text_to_sql_factory.generator import build_generator
 from packages.text_to_sql_factory.tools import ask_database
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+#: La racine du dépôt. **parents[3]**, pas [2] : ce module vit un niveau plus bas que
+#: les autres, dans `evals_and_controls/`. Le compte était juste avant ce déplacement,
+#: et il a fait pointer les jeux de questions et les rapports dans `packages/eval/`,
+#: qui n'existe pas — la cible échouait à la lecture du jeu.
+REPO_ROOT = Path(__file__).resolve().parents[3]
 QUESTION_SET = REPO_ROOT / "eval" / "questions_sql.jsonl"
 RESULTS_DIR = REPO_ROOT / "eval" / "resultats"
 REPORT = REPO_ROOT / "eval" / "rapport_sql.md"
@@ -81,14 +85,14 @@ def run(questions: list[dict]) -> list[Row]:
     rows: list[Row] = []
     for question in questions:
         before = generator.repairs
-        envelope = ask_database(question["question"], question["profil"], settings, generator)
-        payload = envelope["payload"]
+        answer = ask_database(question["question"], question["profil"], settings, generator)
+        payload = answer.payload
         code = str(payload.get("code", ""))
         row = Row(
             id=str(question["id"]),
             type=str(question["type"]),
             profil=str(question["profil"]),
-            status=str(envelope["status"]),
+            status=answer.status,
             code=code,
             conforme=code in EXPECTED_CODES.get(str(question["type"]), frozenset()),
             repare=generator.repairs > before,

@@ -35,3 +35,17 @@ data/bm25/
 .DS_Store
 
 .claude/worktrees
+
+# Regénérés par Chainlit sous le root du front de comparaison (cf. `make web-compare`) :
+# les traductions sont recréées au démarrage, `.files` est vidé à l'arrêt.
+packages/web_client/compare_root/.files/
+#
+# Son `config.toml`, en revanche, est VERSIONNÉ — il porte le seul réglage qui distingue ce
+# front (`layout = "wide"` : un message passe de 700 px à 892, mesuré au navigateur), et sans
+# lui un clone rendrait quatre colonnes dans la largeur de lecture par défaut. La règle
+# `.chainlit/` du haut de ce fichier exclut le répertoire en bloc, et Git ne réévalue pas les
+# négations sous un répertoire exclu : il faut donc le dé-exclure d'abord, puis re-exclure son
+# contenu, puis excepter ce seul fichier.
+!packages/web_client/compare_root/.chainlit/
+packages/web_client/compare_root/.chainlit/*
+!packages/web_client/compare_root/.chainlit/config.toml

@@ -15,6 +15,8 @@ import re
 import sys
 from collections import Counter
 
+from chromadb.api.types import IncludeEnum
+
 from config import settings
 from packages.rag_machines.ingest.index import collection_name, connect, get_collection
 from packages.rag_machines.ingest.registry import version_sort_key
@@ -42,7 +44,10 @@ def main() -> int:
     except (RuntimeError, ValueError) as error:
         print(f"Index illisible : {error}", file=sys.stderr)
         return 1
-    batch = collection.get(include=["metadatas"])
+    # `IncludeEnum.metadatas` plutôt que la chaîne : c'est ce que le SDK typé attend, et
+    # ici la collection est typée — ailleurs dans le dépôt elle passe par un `get_collection`
+    # non annoté, ce qui masque l'écart sans le corriger.
+    batch = collection.get(include=[IncludeEnum.metadatas])
     metadatas = [dict(entry) for entry in (batch.get("metadatas") or [])]
 
     failures: list[str] = []

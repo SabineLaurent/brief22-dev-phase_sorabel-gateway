@@ -23,8 +23,8 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 
 | Profil | Questions dont le top-5 contient au moins un résultat interdit |
 |---|---|
-| `dev` | 10 / 30 |
-| `support` | 4 / 30 |
+| `dev` | 11 / 30 |
+| `support` | 5 / 30 |
 | `commercial` | 0 / 30 |
 | `admin` | 0 / 30 |
 
@@ -34,7 +34,7 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 
 | Mesure | P0 — après troncature | P1 — avant troncature |
 |---|---|---|
-| Résultats rendus, moyenne | 4.17 | 5.00 |
+| Résultats rendus, moyenne | 4.13 | 5.00 |
 | Résultats rendus, minimum | 0 | 5 |
 | Questions sans aucun résultat | **3** | 0 |
 | … dont questions couvertes | 0 | 0 |
@@ -47,7 +47,7 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 
 | Mesure | P0 — après troncature | P1 — avant troncature |
 |---|---|---|
-| Résultats rendus, moyenne | 4.73 | 5.00 |
+| Résultats rendus, moyenne | 4.70 | 5.00 |
 | Résultats rendus, minimum | 0 | 5 |
 | Questions sans aucun résultat | **1** | 0 |
 | … dont questions couvertes | 0 | 0 |

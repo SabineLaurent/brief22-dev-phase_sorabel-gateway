@@ -1,0 +1,6 @@
+scenario,tool,is_error,status,code,journal_entries,envelope_ok,internals_in_view
+arg-hors-format,check_stock,True,error,erreur_execution,1,True,
+arg-manquant,check_stock,True,error,erreur_execution,1,True,
+arg-mauvais-type,check_stock,True,error,erreur_execution,1,True,
+tool-inconnu,outil_inconnu,True,error,erreur_execution,1,True,
+temoin-valide,check_stock,False,ok,ok,1,True,

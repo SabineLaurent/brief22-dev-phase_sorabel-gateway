@@ -40,7 +40,7 @@ py-modules = ["config"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["packages*", "sql*", "mcp_server*"]
+include = ["packages*", "mcp_server*"]
 
 [build-system]
 requires = ["setuptools>=68"]

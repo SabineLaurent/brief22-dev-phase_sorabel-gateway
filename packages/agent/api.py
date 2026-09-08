@@ -1,26 +1,49 @@
 """API FastAPI de l'agent conversationnel, consommée par l'interface web de test.
 
-Le rôle **a désormais un effet réel sur le SQL** : il est converti en profil de la matrice,
-qui décide du droit d'interroger la base et des colonnes atteignables. Il reste sans effet
-sur la recherche documentaire, inchangée.
+Le rôle **choisit un processus, plus un argument.** ``profile_for_role()`` le convertit en
+profil de matrice, et ce profil sert à désigner *quel sous-processus serveur MCP* on
+interroge — chacun lancé avec son ``SORABEL_PROFILE``. L'écart du banc d'essai est donc
+refermé : le profil n'est plus déclaré par le client, il est une propriété du processus
+d'en face, et le LLM n'a aucun moyen de l'atteindre.
 
-C'est un **banc d'essai**, et un écart assumé : le profil est ici déclaré par le client,
-alors que la conception veut ``SORABEL_PROFILE`` lu au lancement du serveur MCP et jamais
-reçu du client (cf. docs/cadrage_dsi.md et matrice.yaml). Il disparaît au chantier 3.
+Le rôle a désormais un effet réel sur **les deux domaines** : la base *et* le corpus. Le
+raccourci documentaire du banc d'essai — étage 2 en dur, seuil de refus contourné — a
+disparu avec le branchement.
+
+**Rien de technique ne franchit cette frontière.** Ce module est le dernier point avant
+l'écran, et il applique deux règles :
+
+* une phrase figée déposée au carnet de l'appel (``cli.call_record``) part **telle quelle**,
+  sans repasser par le modèle. C'est ce qui rend l'affichage aussi déterministe que la
+  décision — un refus reformulé par un LLM produit une phrase différente à chaque fois ;
+* une panne rend une phrase figée elle aussi, et la trace part au **journal**. La version
+  précédente renvoyait ``str(exc)``, que l'interface Chainlit affichait ensuite à
+  l'utilisateur : un message d'exception de SDK sous les yeux d'un agent du support.
 
 Lancement : uv run uvicorn packages.agent.api:app --reload
 """
 
 from __future__ import annotations
 
-from functools import lru_cache
+import traceback
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from packages.rag_machines.retrieval.search import Strategy
+from config import settings as gateway_settings
+from packages import journal
+from packages.access import authorize
+from packages.text_to_sql_factory.handler import read_feedback
+from packages.text_to_sql_factory.structured_answer import (
+    CLIENT_MESSAGES,
+    build_db_structured_answer,
+)
 
-from .cli import build_agent
+from .cli import EMPTY_CATALOGUE, CallNote, build_agent, call_record, compose_answer
+from .gateway import GatewayRegistry
 
 ROLES = ["support", "dev", "commerciale", "sans_role", "admin"]
 
@@ -45,38 +68,184 @@ def profile_for_role(role: str) -> str:
     return _PROFILE_BY_ROLE.get(role, "default")
 
 
-app = FastAPI(title="Sorabel Data Gateway — API de test")
+#: Les sessions MCP ouvertes par cette API, une par profil. Vit au niveau du module et non
+#: dans l'état de l'application : ``build_agent`` en a besoin à la construction, et un
+#: registre par instance de ``FastAPI`` n'apporterait rien à un banc d'essai à un processus.
+GATEWAYS = GatewayRegistry()
+
+#: Un agent par profil. Le profil est dans la clé pour la même raison qu'avant : partagé,
+#: le premier rôle utilisé serait servi à tous les suivants, et un `sans_role` hériterait
+#: des droits d'un `commerciale` passé avant lui. La différence est qu'aujourd'hui cette
+#: séparation est **doublée** par celle des processus serveur.
+_AGENTS: dict[str, Any] = {}
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Les sous-processus serveur s'ouvrent au premier besoin et se ferment tous ici.
+
+    Sans cette fermeture, arrêter l'API laisserait derrière elle autant de serveurs MCP
+    que de rôles utilisés — chacun tenant son embedder en mémoire.
+    """
+    try:
+        yield
+    finally:
+        await GATEWAYS.aclose()
+        _AGENTS.clear()
+
+
+app = FastAPI(title="Sorabel Data Gateway — API de test", lifespan=lifespan)
 
 
 class ChatRequest(BaseModel):
     role: str
     question: str
-    strategy: Strategy = "hybrid"
+
+
+class ToolCall(BaseModel):
+    """Un appel de tool tel qu'il s'est passé, réduit à ce qu'une colonne peut montrer.
+
+    Ni payload ni message : c'est de l'**observabilité d'interface**, pas une seconde voie
+    de sortie des données. Le nom du tool dit quel étage a servi, le code dit ce que la
+    matrice en a fait — les deux seuls faits qui distinguent visuellement deux profils sur
+    la même question.
+    """
+
+    tool: str
+    status: str
+    code: str
 
 
 class ChatResponse(BaseModel):
     answer: str
+    #: Une **phrase figée**, jamais un message d'exception. L'interface l'affiche tel quel.
     error: str | None = None
+    #: Les tools appelés pendant cette question, dans l'ordre. Vide quand le modèle n'a rien
+    #: appelé — catalogue vide, ou question à laquelle il répond sans outil.
+    calls: list[ToolCall] = []
 
 
-@lru_cache(maxsize=None)
-def _agent_for(strategy: Strategy, profile: str):  # type: ignore[no-untyped-def]
-    """Un agent par couple (stratégie, profil).
+class CatalogueResponse(BaseModel):
+    """Les tools que ce rôle voit — l'**étage 1**, tel que ``tools/list`` le sert.
 
-    Le profil est capturé à la construction du tool : mis en cache sur la seule stratégie,
-    le premier rôle utilisé serait servi à tous les suivants — et un `sans_role` hériterait
-    des droits d'un `commerciale` passé avant lui.
+    Lu sur le serveur et non dans ``matrice.yaml`` : c'est le catalogue effectif qu'on veut
+    montrer, pas la déclaration dont il dérive. Les deux doivent coïncider, et c'est
+    justement ce qu'une interface qui les affiche permet de constater.
     """
-    return build_agent(strategy, profile)
+
+    profile: str
+    tools: list[str] = []
+
+
+class JournalResponse(BaseModel):
+    """Les entrées du journal, rendues entières — trace d'exception comprise.
+
+    C'est assumé : ce n'est pas une commodité d'affichage mais la surface de débug métier, et
+    l'expurger la rendrait inutile à ce pour quoi elle existe. Sa protection est son droit
+    d'accès, pas son contenu.
+    """
+
+    status: str
+    message: str
+    entries: list[dict[str, Any]] = []
+
+
+async def _agent_for(profile: str):  # type: ignore[no-untyped-def]
+    """L'agent de ce profil, construit sur le catalogue que **son** serveur lui sert.
+
+    Le catalogue est lu une fois, à la construction : il ne peut pas changer en cours de
+    route, puisque le profil du processus d'en face ne change pas non plus.
+    """
+    if profile not in _AGENTS:
+        _AGENTS[profile] = await build_agent(await GATEWAYS.get(profile))
+    return _AGENTS[profile]
+
+
+def _calls_of(book: list[CallNote]) -> list[ToolCall]:
+    """Le carnet, mis à plat pour l'affichage. Le carnet lui-même ne sort pas de l'API."""
+    return [
+        ToolCall(tool=note.tool, status=note.envelope["status"],
+                 code=note.envelope["payload"]["code"])
+        for note in book
+    ]
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+async def chat(request: ChatRequest) -> ChatResponse:
+    # Un rôle inconnu n'est pas renvoyé en écho : le répéter à l'écran fait de la réponse un
+    # miroir de l'entrée, et la matrice retombe déjà sur `default` sans qu'on ait à le dire.
     if request.role not in ROLES:
-        return ChatResponse(answer="", error=f"rôle inconnu : {request.role}")
-    try:
-        agent = _agent_for(request.strategy, profile_for_role(request.role))
-        response = agent.invoke({"messages": [{"role": "user", "content": request.question}]})
-        return ChatResponse(answer=response["messages"][-1].content)
-    except Exception as exc:  # appel Azure chat encore en échec connu (404) — remonté proprement
-        return ChatResponse(answer="", error=str(exc))
+        return ChatResponse(answer="", error=CLIENT_MESSAGES["argument_malforme"])
+
+    profile = profile_for_role(request.role)
+    with call_record() as book:
+        try:
+            agent = await _agent_for(profile)
+            # Catalogue vide : pas d'appel possible, donc rien à faire rédiger. La phrase
+            # figée du refus part directement — cf. `cli.build_agent`.
+            if agent is None:
+                return ChatResponse(answer=EMPTY_CATALOGUE)
+            response = await agent.ainvoke(
+                {"messages": [{"role": "user", "content": request.question}]}
+            )
+        except Exception as error:  # noqa: BLE001 - dernier filet avant l'écran
+            # La trace va au journal, entière ; l'écran reçoit une phrase figée. Le tool est
+            # nommé `chat` : ce n'est pas un tool du catalogue, mais c'est bien un appel qui
+            # a échoué, et le retrouver au journal est précisément ce qu'on veut au débug.
+            journal.record(
+                "chat", profile, {"question": request.question},
+                build_db_structured_answer(
+                    "erreur_execution",
+                    cause=f"{type(error).__name__}: {error}",
+                    stack=traceback.format_exc(),
+                ),
+            )
+            return ChatResponse(answer="", error=CLIENT_MESSAGES["erreur_execution"])
+
+        # Une phrase figée gagne sur le texte rédigé : le refus ne se renégocie pas au
+        # dernier mètre. Mais il ne se substitue à la réponse que si **rien** n'a été servi
+        # — sinon il la complète, et `compose_answer` tranche pour la CLI comme pour ici.
+        return ChatResponse(answer=compose_answer(book, response["messages"][-1].content),
+                            calls=_calls_of(book))
+
+
+@app.get("/catalogue", response_model=CatalogueResponse)
+async def catalogue(role: str) -> CatalogueResponse:
+    """Le catalogue de ce rôle, demandé au serveur qui le sert.
+
+    Ouvre la session du profil si elle ne l'est pas — c'est voulu : l'interface de
+    comparaison appelle cette route **en même temps** que la première question, jamais à
+    l'accueil. Quatre sessions ouvertes pour afficher un en-tête coûteraient quatre
+    sous-processus à qui personne n'a rien demandé.
+    """
+    profile = profile_for_role(role)
+    if role not in ROLES:
+        return CatalogueResponse(profile=profile)
+    gateway = await GATEWAYS.get(profile)
+    return CatalogueResponse(
+        profile=profile, tools=[card.name for card in await gateway.catalogue()]
+    )
+
+
+@app.get("/journal", response_model=JournalResponse)
+def read_journal(role: str, limit: int = 50) -> JournalResponse:
+    """Le journal, rendu au front — **réservé au rôle qui en a le droit par la matrice**.
+
+    L'autre moitié de la journalisation : sans lecture, le journal ne se consulte qu'en se
+    connectant à la machine. Le garde-fou n'est pas ici, il est dans la matrice — cette
+    route ne fait que convertir un rôle d'interface en profil et transmettre.
+    """
+    view = read_feedback(profile_for_role(role), limit)
+    return JournalResponse(
+        status=view["status"],
+        message=view["message"],
+        entries=view["payload"].get("entries", []),
+    )
+
+
+@app.get("/journal/allowed")
+def journal_allowed(role: str) -> dict[str, bool]:
+    """Ce rôle peut-il lire le journal ? Sert à l'interface pour ne pas proposer un bouton
+    qui refusera de toute façon. Ce n'est **pas** la barrière — la barrière est dans
+    ``read_journal``, et elle est journalisée."""
+    return {"allowed": authorize(profile_for_role(role), gateway_settings.journal_reader_tool)}
