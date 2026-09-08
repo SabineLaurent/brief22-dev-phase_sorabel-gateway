@@ -27,9 +27,9 @@ adresse déjà au protocole à deux configurations.
 
 **Décision : aucune mesure ne fait varier plus d'un drapeau à la fois.**
 
-## 2. Cinq drapeaux orthogonaux
+## 2. Six drapeaux orthogonaux
 
-L'espace de mesure est un produit de cinq paramètres, pas une collection de pipelines.
+L'espace de mesure est un produit de six paramètres, pas une collection de pipelines.
 
 | Drapeau | Valeurs | Où il s'applique | Ce qu'il change |
 |---|---|---|---|
@@ -38,6 +38,7 @@ L'espace de mesure est un produit de cinq paramètres, pas une collection de pip
 | `--version-filter` | `on` *(défaut)* · `off` | recherche | `is_current` appliqué dans chaque liste **avant sa troncature** ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5), ou pas de filtre |
 | `--tiebreak` | `on` · `off` | recherche | la règle de départage fiche/notice, en rangs, `FENETRE = 3` ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §5) |
 | `--embeddings` | `local` *(défaut)* · `azure-small` | ingestion **et** recherche | le modèle qui fabrique les vecteurs : `intfloat/multilingual-e5-base` en local, `text-embedding-3-small` sur Azure AI Foundry — **ajouté le 2026-09-08** |
+| `--rerank` | `local` *(défaut)* · `cohere` | recherche seule | le modèle qui classe les candidats : le cross-encoder `mmarco-mMiniLMv2-L12-H384-v1` en local, `Cohere-rerank-v4.0-pro` sur Azure AI Foundry — **ajouté le 2026-09-08** |
 
 ### Ce que chaque levier change, concrètement
 
@@ -99,6 +100,16 @@ L'asymétrie est le point qui compte : e5 est entraîné à encoder une *questio
 dans un sens ni dans l'autre sur un corpus français, et c'est précisément ce que l'axe 6
 mesure au lieu de le supposer.
 
+**`--rerank` — le modèle qui classe.** Contrairement à `--embeddings`, il ne touche **pas
+l'index** : le rerank note des candidats déjà trouvés. Donc **pas de réindexation, pas de
+collection supplémentaire, et `REFUSAL_THRESHOLD` n'est pas concerné** — la configuration A
+ne rerank pas. C'est l'axe le moins cher du protocole, et le seul dont le coût ne croît pas
+avec la taille du corpus.
+
+Ce qui change en revanche, et qui est la seule chose à ne pas oublier : **`RERANK_THRESHOLD`
+est sur l'échelle du reranker**. Un cross-encoder rend un logit passé au sigmoïde, Cohere un
+`relevance_score` natif ; les deux vivent dans `[0, 1]` sans y avoir la même distribution.
+
 **Chaque valeur de `--text` et de `--embeddings` a sa collection Chroma**, parce que le texte
 indexé **et le modèle** déterminent les vecteurs : `sorabel_corpus` pour `clean` + `local`,
 `sorabel_corpus_raw` pour `raw`, `sorabel_corpus_azure_small` pour `clean` + `azure-small`.
@@ -120,7 +131,7 @@ indexées dans les deux collections, `is_current` étant une métadonnée
 ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5). Le désactiver ne demande donc pas un
 second index — c'est ce qui rend l'axe 2 bon marché.
 
-## 3. Les six axes de mesure
+## 3. Les sept axes de mesure
 
 ### Axe 1 — la recherche, à ingestion constante
 
@@ -321,6 +332,29 @@ consigné (`docs/BUGS.md`, MES-01).
 > l'axe 1 — où l'écart mesuré (1/8 → 8/8) dépassait le bruit de plusieurs longueurs. Un écart
 > d'une ou deux questions ne conclut rien.
 
+### Axe 7 — le reranker, à index et texte constants
+
+**Ajouté le 2026-09-08**, en même temps que l'axe 6 et pour la même raison : le dossier a
+choisi le reranker par un tableau de conception, pas par une mesure. La question est
+**que vaut le cross-encoder local face à un reranker de service ?**
+
+| | Constant | Varie |
+|---|---|---|
+| | `--text clean` · `--embeddings local` · `--version-filter on` · `--tiebreak on` | `--rerank local` → `cohere` |
+
+**`--embeddings` reste `local` dans cet axe, et ce n'est pas un détail** : c'est la seule
+façon d'attribuer l'écart au reranker. La cellule « les deux changent » ne se lit qu'après
+les axes 6 et 7 pris séparément, sinon elle ne dit rien de qui a fait quoi.
+
+Seule la configuration **C** est concernée — A ne rerank pas, B non plus. L'axe publie donc
+une seule ligne par valeur du drapeau, et le seuil hybride est **recalibré pour chacune**.
+
+> **Ce que l'axe ne dira pas.** Le reranker note les candidats que la recherche lui donne.
+> Sur les 8 questions `reference_exacte`, ces candidats sont déjà les bons — BM25 y fait
+> l'essentiel du travail. Un meilleur reranker ne peut donc y gagner que des places, jamais
+> des documents. C'est sur `couverte`, et sur le **refus** (le score du premier sert de
+> critère), qu'il se joue.
+
 ## 4. Le « RAG simple » est un coin de l'espace, pas un second projet
 
 Il ne se construit pas, il se **désactive**.
@@ -377,10 +411,11 @@ serait à jeter à l'étape 3.
   ([`Q5`](../docs/conception/1-rag-avance/Q5.md) §5). Le taux du profil `support` est
   indiqué en second, **comme effet de la matrice, pas comme gain de recherche** ;
 - les **versions figées** : `pypdf`, le reranker — elles déterminent le contenu de l'index et
-  le classement ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §6). **Le modèle d'embeddings a
-  quitté cette liste le 2026-09-08** : il est devenu le drapeau `--embeddings` de l'axe 6. Il
-  reste invariant *dans chacune des cinq autres mesures* — ce qui change est qu'il est
-  désormais nommé dans le rapport plutôt que supposé ;
+  le classement ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §6). **Le modèle d'embeddings
+  et le reranker ont quitté cette liste le 2026-09-08** : ils sont devenus les drapeaux
+  `--embeddings` (axe 6) et `--rerank` (axe 7). Ils restent invariants *dans chacune des cinq
+  autres mesures* — ce qui change est qu'ils sont désormais nommés dans le rapport plutôt que
+  supposés ;
 - la **graine** et l'**ordre de parcours** du corpus ;
 - le **compte** : on compte les **questions**, pas les références — 8 questions pour
   7 références distinctes, vérifié sur le fichier réel.
@@ -464,7 +499,7 @@ un module importable, pour ne pas nommer un paquet `eval`.
 
 ### Une cible Make par mesure publiée
 
-Les cinq drapeaux forment 48 combinaisons, mais **on n'en publie que neuf** — auxquelles
+Les six drapeaux forment 96 combinaisons, mais **on n'en publie que onze** — auxquelles
 s'ajoutent les trois axes qui ne se règlent pas par un drapeau de recherche (périmètre, refus,
 accès), une cible chacun. À ce
 nombre-là, une cible nommée par mesure vaut mieux qu'une chaîne de drapeaux : c'est la
@@ -494,6 +529,10 @@ mesure-acces             # E5 : dix scénarios × cinq profils, journal + colonn
 # — axe 6 : le modèle d'embeddings, à texte et recherche constants —
 ingest-azure-small       # texte nettoyé, embeddings OpenAI -> sorabel_corpus_azure_small
 mesure-embeddings        # A et C, les deux modèles côte à côte, seuils recalibrés chacun
+
+# — axe 7 : le reranker, à index et texte constants —
+calibrer-cohere          # le seuil hybride sur l'échelle de Cohere
+mesure-rerank            # C · clean · embeddings local, les deux rerankers côte à côte
 
 # — la ligne parlante —
 mesure-rag-simple        # A · raw   · filtre off · départage off

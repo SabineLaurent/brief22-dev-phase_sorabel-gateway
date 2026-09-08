@@ -4142,3 +4142,182 @@ des dictionnaires fabriqués n'aurait contrôlé que sa propre fabrication.
 `make test` **12/12** (47,0 s) · `check-client` **39** (cible neuve) · `check-contrat` 163,
 `check-sql` 83, `check-feedback` 103, `check-rag-tools` 67, `check-perimetre` 31 — inchangées ·
 `make lint` au vert (61 fichiers).
+
+## 2026-09-08 (soir) — Local ou distant : deux axes de mesure de plus, et un reranker qui en est vraiment un
+
+Hors brief, assumé comme tel. Le point de départ n'était pas la qualité mais **l'empreinte
+mémoire** : mesuré ce soir, un serveur MCP qui a répondu à une question documentaire occupe
+**~1 Go de RSS** — PyTorch, plus `multilingual-e5-base` et le cross-encoder. Quatre profils
+chauds ≈ 2,8 Go, au-delà du plan Azure fourni par la formation. D'où la question : que
+coûterait, en qualité, de faire calculer ces deux étages ailleurs ?
+
+Le dossier de conception avait choisi les deux modèles par un **tableau** (`Q3` §6), pas par
+une mesure. Deux axes ont donc été ajoutés au protocole, **écrits avant de mesurer**, comme le
+protocole lui-même l'a été.
+
+### Le LLM-juge n'était pas un reranker, et il est parti
+
+`AzureReranker` faisait noter les candidats par un modèle de **chat** : les vingt documents
+numérotés dans un prompt, une sortie JSON. Écrit à l'étape 3 « sur le même modèle
+qu'`AzureEmbedder` », et le journal de l'époque le dit — **non exercé contre un déploiement
+réel**. Il a tourné une fois, le 2026-09-03, le temps de découvrir que le déploiement refusait
+`temperature`.
+
+Il n'était **ni conçu** (le tableau `Q3` §6 ne nomme que des cross-encoders, repli
+`bge-reranker-v2-m3`), **ni mesuré**, **ni calibré**. Et il formait la moitié illogique d'un
+interrupteur : un cross-encoder note une paire, un modèle de chat écrit un nombre parce qu'on
+le lui demande ; les mettre derrière le même booléen les déclare interchangeables.
+
+`CohereReranker` le remplace, en `httpx`. **Deux points du contrat justifient une classe** : la
+réponse Cohere est **triée par pertinence** alors que le protocole `Reranker` impose l'ordre
+d'entrée (l'`index` renvoyé le rétablit), et `top_n` vaut le nombre de documents — en demander
+moins ferait valoir 0 aux derniers sans le dire, or c'est le score du **premier** qui sert de
+critère de refus.
+
+**Bascule tout ou rien**, décidée par l'utilisatrice : les trois `AZURE_RERANK_*` renseignées,
+sinon `RERANKER_MODEL`. Un reranker à moitié configuré retombe sur un défaut qui marche plutôt
+que d'échouer à la première question — mais **pas en silence** : une configuration partielle
+écrit sur `stderr`, faute de quoi on croirait à un rerank de service là où le cross-encoder
+travaille. C'est aussi cette règle qui rend sûr le partage de `.env` avec les cibles Make :
+deux variables sur trois ne basculent rien, donc la clé et l'endpoint peuvent y vivre pendant
+que la cible pose le seul nom de déploiement — aucun secret dans le dépôt.
+
+### L'endpoint : deux surfaces sur une même ressource
+
+`POST {endpoint}/v2/rerank` construisait `…/openai/v1/v2/rerank` et rendait 404. Cinq chemins
+candidats essayés, tous en 404. L'URL qui répond est celle du **détail** du déploiement, que
+l'utilisatrice a trouvée :
+
+```
+https://<ressource>.services.ai.azure.com/providers/cohere/v2/rerank
+```
+
+Azure AI Foundry expose **deux surfaces** sur une même ressource : l'API OpenAI-compatible
+(`.openai.azure.com/openai/v1`) pour les modèles OpenAI, et `services.ai.azure.com/providers/
+<nom>/…` pour les modèles partenaires qui gardent leur API native. Un rerank n'a pas
+d'équivalent OpenAI, donc il ne peut pas passer par la première. **Le champ « point de
+terminaison » du panneau affiche pourtant l'endpoint générique** — c'est le piège, et il est
+écrit dans `.env.example`.
+
+Le code ne compose donc plus le chemin : `AZURE_RERANK_ENDPOINT` est **l'URL complète de
+l'appel**. Composer `providers/cohere/…` lierait ce module à Cohere alors que le chemin dépend
+du fournisseur.
+
+### Quatre cellules, chacune avec son seuil
+
+Deux étages commutables, donc quatre combinaisons. **Chaque cellule porte son propre seuil**,
+calibré pour elle : comparer à seuil constant mesurerait le seuil — c'est le défaut `MES-01`
+du registre, déjà rencontré sur l'axe 3.
+
+| # | embedder | reranker | PyTorch | seuil C | Hit@1 | MRR | Recall@5 | refus | faux refus |
+|---|---|---|---|---:|---:|---:|---:|---:|---:|
+| ① | `e5` | mmarco | **oui** | 0,0530 | 8/8 | 1,000 | 12/13 | 5/8 | 1/22 |
+| ② | `3-small` | mmarco | oui | 0,0153 | 8/8 | 1,000 | 12/13 | 4/8 | 1/22 |
+| ③ | `e5` | Cohere | oui | 0,5923 | 8/8 | 1,000 | 12/13 | 7/8 | 0/22 |
+| ④ | `3-small` | Cohere | **non** | 0,6203 | 8/8 | 1,000 | 12/13 | **8/8** | **0/22** |
+
+**Le classement est identique aux quatre coins.** Aucun des deux modèles distants ne change ce
+que la recherche trouve — ils ne changent que ce qu'elle **refuse**.
+
+### Ce que chaque axe a appris
+
+**L'embedder ne se voit pas en configuration servie.** En C, aucun rang ne change sur 38
+lignes, et le seul verdict qui bascule (`RAG-30`) le fait sur un score **identique au
+dix-millième** — 0,0175 des deux côtés. Ce qui change n'est pas la recherche mais le seuil que
+la calibration de chaque modèle a produit. **BM25 et le rerank absorbent entièrement la
+différence d'embedder.**
+
+**En dense seul, l'écart est réel et à double sens** : `text-embedding-3-small` est meilleur
+sur la prose (Recall@5 9/13 → 11/13) et nul sur les identifiants (Hit@1 1/8 → **0/8**, MRR
+0,271 → **0,000**).
+
+**Le MRR de 0,000 a été contre-vérifié**, sur question de l'utilisatrice — « t'es sûr qu'il n'y
+a pas eu de gag ? ». Un zéro parfait est exactement la forme qu'aurait une erreur avalée. Trois
+vérifications hors harnais : la colonne rang du CSV est **vide** et non `0` ; à `top_k=50` sur
+350 éditions le bon document est **absent** ; et le **texte du document passé en requête** le
+ramène au **rang 1 à 0,9572** — les vecteurs sont sains, la collection complète. Le résultat
+tient : le document porte `Référence produit : REF-8842` en clair, le modèle le **voit** mais
+ne le **pondère** pas. C'est la démonstration par l'absurde de `Q3` §2, et ce n'est pas propre
+à OpenAI — `e5` place la même notice au rang 3, ce qui n'est pas bon non plus.
+
+### La cause du renversement calibration → mesure, trouvée par l'utilisatrice
+
+Les deux axes ont produit le **même phénomène en sens contraire** : le jeu de calibration
+annonçait l'inverse du résultat. Sa question — « le jeu de calibration n'est pas adapté ? » —
+a trouvé la cause, vérifiée sur les fichiers :
+
+```
+questions_calibration.jsonl : {hors_corpus: 8, couverte: 6}   — 0 question porte une REF-
+questions_rag.jsonl         : {reference_exacte: 8, couverte: 14, hors_corpus: 8} — 8 REF-
+```
+
+**Le jeu de calibration ne contient aucune référence produit.** Il ne teste donc jamais le
+point faible du modèle OpenAI et interroge surtout son point fort. Ce n'est **pas** un défaut
+du jeu — il existe pour placer une frontière couvert/hors-corpus — mais il est **non
+représentatif pour comparer deux modèles**, et c'est écrit dans les réserves du rapport. La
+leçon opératoire est plus précise que la morale « un jeu de réglage ne prédit pas » : **un jeu
+qui ne contient pas le cas difficile ne peut rien dire du cas difficile.**
+
+### Le gain de la cellule ④ n'est pas « refuser plus », c'est « refuser mieux »
+
+Le refus **servi** est déjà de 8/8 en ① : `rapport_refus.md` le mesure sur les **deux**
+barrières, et la barrière 2 rattrape `RAG-23`, `RAG-24` et `RAG-29` — dont les deux que Cohere
+ajoute à la barrière 1. À l'écran, ④ ne change rien.
+
+Ce qu'elle change est ailleurs, et ce n'est pas rien : **8 refus tranchés sans appeler le
+modèle au lieu de 5**, une décision **déterministe** au lieu d'un jugement de modèle, une ligne
+de journal **stable** (`hors_corpus` plutôt que `contexte_insuffisant`), et **0 faux refus** à
+la barrière 1. Gain d'E5 et de latence, pas gain visible.
+
+### Décision : servir ① en local, déployer ④
+
+Les deux configurations sont mesurées, aucune n'est un pari. La machine de développement et
+les cinq rapports publiés restent sur ① — rien à republier. L'image déployée porte les quatre
+variables `AZURE_*`, donc **pas de PyTorch** : ~150 Mo par processus au lieu de ~1 Go, et les
+quatre colonnes du comparateur tiennent.
+
+**Le coût est ailleurs, et il est nommé** : dépendance de service (Foundry indisponible ⇒
+recherche documentaire morte), **quota** — quatre reprises sur 429 pour 30 questions
+*séquentielles*, alors que le comparateur interroge quatre profils **en parallèle** —, coût par
+appel, et republication si la configuration servie change.
+
+**Reprise sur 429 ajoutée** pour cette raison : un déploiement Foundry a un quota par minute, et
+une mesure enchaîne 30 questions sans respirer, ce que le service applicatif ne fait jamais. Elle
+ne masque pas une panne — un 429 est une cadence, pas une erreur — et `raise_for_status()` reste
+le dernier mot après cinq tentatives.
+
+### Un constat de revue, ouvert
+
+**Aucun garde-fou ne relie un seuil au modèle qui l'a calibré.** Le contrôle d'empreinte
+protège l'appariement index ↔ modèle (correctif `RAG-07`), pas seuil ↔ modèle. Changer
+d'embedder ou de reranker sans recalibrer règle le refus sur une distribution étrangère,
+**en silence** — et l'écart est spectaculaire : le seuil dense passe de 0,8308 à 0,4893 d'un
+modèle à l'autre. En attendant un vrai garde-fou, chaque seuil **nomme désormais** dans
+`config.py` et `.env.example` le modèle et l'index pour lesquels il vaut. Un commentaire n'est
+pas un contrôle, et c'est écrit aussi.
+
+### Écarts et limites
+
+* **le protocole passe de quatre à six drapeaux et de cinq à sept axes.** Le modèle
+  d'embeddings et le reranker **quittent la liste des invariants** du §6 — écrit explicitement
+  plutôt que glissé ;
+* **les deux rapports sont écrits à la main**, contrairement à `rapport_gain.md` que
+  `make mesure` régénère : deux à quatre cellules ne justifient pas un générateur, et c'est dit
+  en tête de chaque fichier avec la commande qui régénère les CSV ;
+* **la barrière 2 n'est pas remesurée** en cellule ④ : `eval_rag` s'arrête à la barrière 1,
+  et l'effet sur le refus servi est **déduit** de `rapport_refus.md` ;
+* **huit questions `hors_corpus`, vingt-deux à cible.** Un refus qui bascule vaut 12,5 points ;
+* **`e5` n'existe pas au catalogue Foundry** (vérifié sur 418 entrées) : le seul embedder
+  multilingue disponible est `Cohere-embed-v3-multilingual`. Un `e5` distant demanderait
+  Hugging Face Inference Endpoints ou un conteneur TEI — et **surtout** une classe d'embedder
+  de plus, `AzureEmbedder` ne posant pas les préfixes `query:` / `passage:` ;
+* **le crash `libc++abi … recursive_mutex lock failed` s'est reproduit** (sortie 134, après
+  l'affichage complet des résultats). `docs/BUGS.md` §10 le classe encore « non reproduit » :
+  à reclasser.
+
+### Vérifications
+
+`make lint` vert · `check-rag-tools` et `check-perimetre` au vert **sans neutralisation de
+variable**, une fois `.env` revenu au local · `make test` 12/12 (avant l'ajout de la reprise
+429, qui ne touche pas les chemins testés) · quatre cellules mesurées, trois rapports publiés :
+`rapport_embeddings.md`, `rapport_rerank.md`, `rapport_local_vs_distant.md`.

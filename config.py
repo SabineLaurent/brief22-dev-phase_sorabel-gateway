@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     #: Calibré sur eval/questions_calibration.jsonl — jamais sur le jeu de mesure —
     #: par `make calibrer`. `None` désactive la barrière, ce que fait la mesure de
     #: rappel pour ne pas se masquer un résultat.
+    #:
+    #: **Cette valeur appartient à un modèle et à un index** : 0,8308 a été calibré
+    #: pour ``intfloat/multilingual-e5-base`` sur la collection ``sorabel_corpus``.
+    #: Un autre embedder produit une autre distribution de scores, et **rien dans le
+    #: code ne relie ce seuil au modèle qui l'a produit** — le contrôle d'empreinte
+    #: protège l'appariement index ↔ modèle, pas seuil ↔ modèle. Changer d'embedder
+    #: sans `make calibrer` règle donc le refus sur une distribution étrangère, en
+    #: silence. Garde-fou manquant, consigné.
     refusal_threshold: float | None = 0.8308
 
     # --- Recherche hybride (étape 3) ------------------------------------------
@@ -68,14 +76,30 @@ class Settings(BaseSettings):
     # --- Reranker --------------------------------------------------------------
     #: Cross-encoder local, utilisé quand aucun déploiement Azure n'est renseigné.
     reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
-    #: Renseigné ⇒ le rerank part sur Azure AI Foundry (API v1), en LLM-juge.
+    #: Déploiement de rerank sur Azure AI Foundry (Cohere). Les TROIS champs
+    #: ``azure_rerank_*`` sont nécessaires ensemble : un reranker à moitié configuré
+    #: retombe sur le cross-encoder local plutôt que d'échouer à la première question.
     azure_rerank_deployment: str = ""
+    #: **URL complète** de l'appel de rerank, pas une base : Azure AI Foundry sert les
+    #: modèles partenaires sous ``services.ai.azure.com/providers/<nom>/…``, et le chemin
+    #: dépend du fournisseur. Elle se lit dans le *détail* du déploiement — le champ
+    #: « point de terminaison » du panneau affiche l'endpoint générique de la ressource,
+    #: qui rend 404 sur le rerank. Rien de commun avec ``azure_ai_endpoint``.
+    azure_rerank_endpoint: str = ""
+    #: Clé propre au déploiement de rerank, pour la même raison.
+    azure_rerank_api_key: str = ""
     #: Modèle de chat (API v1), utilisé par l'agent conversationnel de
     #: packages/agent/cli.py — aucune fonction du RAG lui-même n'en dépend.
     llm_chat_model: str = ""
     #: Score minimal du premier résultat, sur l'échelle du reranker — critère de
     #: refus de la configuration hybride (Q4 §3, Q5 §4). Calibré par
     #: `make calibrer-hybride`, jamais sur le jeu de mesure.
+    #:
+    #: **Même réserve que ``refusal_threshold``, sur l'autre échelle** : 0,0530 a été
+    #: calibré pour le cross-encoder ``mmarco-mMiniLMv2-L12-H384-v1``. Un reranker
+    #: Cohere rend un ``relevance_score`` d'une autre distribution ; brancher les
+    #: trois ``azure_rerank_*`` sans `make calibrer-hybride` déplace le refus sans
+    #: rien signaler.
     rerank_threshold: float | None = 0.0530
 
     # --- Base métier (chantier Text-to-SQL) ----------------------------------
@@ -112,7 +136,12 @@ class Settings(BaseSettings):
 
     @property
     def uses_azure_rerank(self) -> bool:
-        return bool(self.azure_rerank_deployment and self.azure_ai_endpoint)
+        """Tout ou rien : les trois, ou le cross-encoder local."""
+        return bool(
+            self.azure_rerank_deployment
+            and self.azure_rerank_endpoint
+            and self.azure_rerank_api_key
+        )
 
 
 settings = Settings()

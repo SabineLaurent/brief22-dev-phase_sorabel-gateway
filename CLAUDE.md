@@ -158,6 +158,33 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   `# type: ignore[arg-type]` motivés sur les décorateurs Chainlit.
   `make test` 12/12 ; check-rag-tools **67**, check-sql **83**, check-feedback 103,
   check-perimetre 31.
+- **Axes 6 et 7 — local ou distant, mesuré (hors brief).** `retrieval/reranker.py`
+  (`CohereReranker`, LLM-juge retiré), `config.py` (les trois `azure_rerank_*`),
+  `protocole-mesure.md` (**six** drapeaux, **sept** axes), et trois rapports :
+  `eval/rapport_embeddings.md`, `rapport_rerank.md`, `rapport_local_vs_distant.md`.
+  **Le point de départ n'était pas la qualité mais l'empreinte** : ~1 Go de RSS par serveur
+  MCP chaud, quatre profils ≈ 2,8 Go. PyTorch ne disparaît que si **les deux** modèles partent
+  en distant.
+  Quatre cellules, **chacune avec son seuil calibré** — comparer à seuil constant mesurerait
+  le seuil. **Le classement est identique aux quatre coins** (Hit@1 8/8, MRR 1,000, Recall@5
+  12/13) ; seul le **refus** bouge : ① `e5`+mmarco 5/8 · ② azure+mmarco 4/8 · ③ `e5`+Cohere
+  7/8 · ④ **azure+Cohere 8/8, 0 faux refus**.
+  **En configuration servie, l'embedder est invisible** : aucun rang ne change sur 38 lignes,
+  et le seul verdict qui bascule le fait sur un score identique au dix-millième — BM25 et le
+  rerank absorbent la différence. En dense seul l'écart est réel et à double sens : meilleur
+  sur la prose (Recall 9/13 → 11/13), **nul sur les identifiants** (MRR 0,271 → **0,000**,
+  contre-vérifié trois fois : le texte du document en requête le ramène au rang 1 à 0,9572).
+  **Le gain de ④ n'est pas « refuser plus » mais « refuser mieux »** : le refus *servi* est
+  déjà 8/8 en ① grâce à la barrière 2. ④ tranche **8 refus sans appeler le modèle** au lieu de
+  5, de façon déterministe, avec une ligne de journal stable.
+  **Décision : servir ① en local, déployer ④** — les cinq rapports publiés décrivent ①, rien à
+  republier ; l'image déployée n'embarque pas PyTorch (~150 Mo par processus).
+  **Constat ouvert** : aucun garde-fou ne relie un seuil au modèle qui l'a calibré (le contrôle
+  d'empreinte protège index ↔ modèle, pas seuil ↔ modèle). Chaque seuil **nomme** désormais son
+  modèle en commentaire — ce qui n'est pas un contrôle.
+  **Le jeu de calibration ne contient aucune référence produit** : non représentatif pour
+  comparer deux modèles, et c'est ce qui explique que les deux axes aient vu la calibration
+  annoncer l'inverse du résultat.
 - **La frontière du serveur : posée et mesurée.** `SorabelMCP.call_tool` — surcharge
   symétrique de `list_tools` : **la liste décide ce qui est visible, l'appel garantit ce qui
   en sort.**
@@ -327,7 +354,12 @@ une entrée à chaque étape terminée.
   standard, `base_url=f"{endpoint}/openai/v1"`, déploiement en `model`, pas d'`api_version`.
 - **Embeddings** : commutables — Azure si `AZURE_EMBEDDING_DEPLOYMENT` est renseigné,
   sinon `intfloat/multilingual-e5-base` en local (préfixes `passage:` / `query:`).
-- **Reranker** (étape 3) : les deux, commutables — cross-encoder local et rerank LLM Azure.
+- **Reranker** : commutable — cross-encoder local (`mmarco-mMiniLMv2-L12-H384-v1`) ou
+  **Cohere sur Azure AI Foundry**. Bascule **tout ou rien** : les trois `AZURE_RERANK_*`
+  (déploiement, endpoint, clé), sinon le local. L'endpoint est **l'URL complète** de l'appel
+  (`…/providers/cohere/v2/rerank`), pas une base — Foundry sert les modèles partenaires sur
+  une autre surface que l'API OpenAI-compatible. *Le rerank LLM-juge a été retiré le
+  2026-09-08 : ni conçu, ni mesuré, ni calibré.*
 - **Chroma** : service `docker compose`, port 8002.
 
 ## Langue
@@ -380,6 +412,13 @@ make ingest        # ingestion du corpus dans Chroma (met l'index à jour)
 make reindex       # reconstruit la collection à neuf (modèle d'embeddings changé)
 make ingest-brut   # index témoin, texte non nettoyé (axe 2 du protocole de mesure)
 make calibrer      # règle le seuil de refus sur le jeu de calibration
+make ingest-azure-small   # index témoin, embeddings OpenAI (axe 6) -> sorabel_corpus_azure_small
+make calibrer-azure-small # les deux seuils sur l'index OpenAI
+make calibrer-cohere      # le seuil hybride sur l'échelle de Cohere (axe 7)
+make calibrer-distant     # le seuil de la cellule 4 : les deux modèles en distant
+make mesure-embeddings    # axe 6 : A et C, les deux embedders -> eval/rapport_embeddings.md
+make mesure-rerank        # axe 7 : les deux rerankers -> eval/rapport_rerank.md
+make mesure-distant       # cellule 4 -> eval/rapport_local_vs_distant.md
 make check-index   # contrôles d'intégrité de l'index
 make check-perimetre # contrôles du filtre de périmètre documentaire (matrice sur le corpus)
 make check-rag-tools # contrôles des quatre tools RAG et de leur journal (sans appel de modèle)

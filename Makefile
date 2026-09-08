@@ -1,7 +1,7 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat check-client eval-sql test fmt lint serve client \
-	ingest-azure-small calibrer-azure-small \
+	ingest-azure-small calibrer-azure-small calibrer-cohere mesure-rerank mesure-embeddings calibrer-distant mesure-distant \
 	journal api web web-compare
 
 install:
@@ -46,9 +46,70 @@ AZURE_ENV   = CHROMA_COLLECTION=$(COLL_AZURE) AZURE_EMBEDDING_DEPLOYMENT=$(EMB_A
 ingest-azure-small:
 	$(AZURE_ENV) uv run python -m packages.rag_machines.ingest.cli --reset
 
+# — axe 7 du protocole : le reranker —
+# La cible ne pose QUE le nom du déploiement : l'endpoint et la clé viennent de `.env`,
+# où est leur place. C'est la règle tout ou rien qui rend ce partage sûr — deux variables
+# sur trois ne basculent rien, donc `.env` peut les porter sans que la configuration
+# servie change. Vider AZURE_RERANK_DEPLOYMENT dans `.env` : le défaut reste le
+# cross-encoder local, et seules ces cibles-ci passent sur Cohere.
+RERANK_COHERE ?= Cohere-rerank-v4.0-pro
+COHERE_ENV     = AZURE_RERANK_DEPLOYMENT=$(RERANK_COHERE)
+
+calibrer-cohere:
+	$(COHERE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config C
+
+# Les deux rerankers côte à côte, index e5 constant. Chaque passe porte SON seuil
+# calibré : comparer à seuil constant mesurerait le seuil, pas le reranker.
+SEUIL_MMARCO ?= 0.0530
+SEUIL_COHERE ?= 0.5923
+
+mesure-rerank:
+	AZURE_RERANK_DEPLOYMENT= RERANK_THRESHOLD=$(SEUIL_MMARCO) \
+	  uv run python -m packages.rag_machines.evals_and_controls.eval_rag \
+	  --config C --text clean --version-filter on --out mesure-rerank-local
+	$(COHERE_ENV) RERANK_THRESHOLD=$(SEUIL_COHERE) \
+	  uv run python -m packages.rag_machines.evals_and_controls.eval_rag \
+	  --config C --text clean --version-filter on --out mesure-rerank-cohere
+
 calibrer-azure-small:
 	$(AZURE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config A
 	$(AZURE_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config C
+
+# Les deux embedders côte à côte, reranker local des DEUX côtés — sans quoi l'axe 6 et
+# l'axe 7 se mélangeraient. A isole l'embedder (pas de BM25 pour le sauver), C dit ce que
+# le produit servi y gagne. Chaque passe porte SES seuils calibrés : comparer à seuil
+# constant mesurerait le seuil.
+SEUIL_LOCAL_A ?= 0.8308
+SEUIL_LOCAL_C ?= 0.0530
+SEUIL_AZURE_A ?= 0.4893
+SEUIL_AZURE_C ?= 0.0153
+RERANK_LOCAL   = AZURE_RERANK_DEPLOYMENT=
+EVAL_RAG       = uv run python -m packages.rag_machines.evals_and_controls.eval_rag \
+                 --text clean --version-filter on
+
+# La cellule 4 : les DEUX modèles en distant. C'est la seule combinaison qui retire
+# PyTorch du processus, donc la seule qui réponde à la contrainte de déploiement — et
+# elle ne se déduit pas des axes 6 et 7, les deux effets portant sur un seuil qu'il faut
+# calibrer pour elle.
+SEUIL_DISTANT ?= 0.6203
+DISTANT_ENV    = $(AZURE_ENV) $(COHERE_ENV)
+
+calibrer-distant:
+	$(DISTANT_ENV) uv run python -m packages.rag_machines.calibrate_threshold --config C
+
+mesure-distant:
+	$(DISTANT_ENV) RERANK_THRESHOLD=$(SEUIL_DISTANT) \
+	  $(EVAL_RAG) --config C --out mesure-emb-azure-C-cohere
+
+mesure-embeddings:
+	$(RERANK_LOCAL) REFUSAL_THRESHOLD=$(SEUIL_LOCAL_A) \
+	  $(EVAL_RAG) --config A --out mesure-emb-local-A
+	$(RERANK_LOCAL) RERANK_THRESHOLD=$(SEUIL_LOCAL_C) \
+	  $(EVAL_RAG) --config C --out mesure-emb-local-C
+	$(RERANK_LOCAL) $(AZURE_ENV) REFUSAL_THRESHOLD=$(SEUIL_AZURE_A) \
+	  $(EVAL_RAG) --config A --out mesure-emb-azure-A
+	$(RERANK_LOCAL) $(AZURE_ENV) RERANK_THRESHOLD=$(SEUIL_AZURE_C) \
+	  $(EVAL_RAG) --config C --out mesure-emb-azure-C
 
 mesure-dense:
 	uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --text clean --version-filter on --out mesure-dense
