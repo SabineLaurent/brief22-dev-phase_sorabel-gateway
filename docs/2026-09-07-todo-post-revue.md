@@ -452,8 +452,8 @@ uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --
 
 ## 2 bis. Trouvé par le front de comparaison — 2026-09-08
 
-Le front multirôle (`make web-compare`) a fait apparaître six défauts en une soirée, tous
-**antérieurs à lui** : côte à côte, on voit un profil renoncer là où son voisin répond. En
+Le front multirôle (`make web-compare`) a fait apparaître huit défauts en une soirée, tous
+**antérieurs à lui** — sauf **2bis.9**, qui est le sien : côte à côte, on voit un profil renoncer là où son voisin répond. En
 mono-rôle il fallait penser à comparer. Détail et mesures : journal du 2026-09-08.
 
 **À la reprise, commencer par 2bis.7 et 2bis.8** — décision de l'utilisatrice le 2026-09-08.
@@ -684,6 +684,45 @@ la fiche.
 
 > **Succès** : trois passes sur « REF-5313 » sous `dev` donnent le même tool documentaire, et
 > aucune ne rend `introuvable`.
+
+### 2bis.9 La colonne dit « servi » sur un renoncement — défaut du front
+
+- [ ] **Faire dépendre le statut de colonne de la réponse, pas seulement des tools appelés.**
+
+Relevé sur `SQL-01` (« combien de commandes en avril ? ») par l'utilisatrice, le 2026-09-08 :
+
+| profil | badge | statut affiché | texte rendu |
+|---|---|---|---|
+| `dev` | `get_schema · ok` | **« servi », en vert** | « Je ne peux pas déterminer le nombre de commandes d'avril avec les outils accessibles. » |
+| `support` · `commercial` | `ask_database · ok` | « servi » | **27 commandes**, avec le SQL |
+
+`_statut()` dans `app_compare.py` prend le **premier verdict non-`ok` parmi les tools
+appelés**, sinon `ok` — la règle de `cli.frozen_text`, reprise volontairement pour ne pas
+avoir deux lectures du même carnet. Elle répond à « la gateway a-t-elle refusé quelque
+chose ? », pas à « l'utilisateur a-t-il obtenu sa réponse ? ». `dev` appelle `get_schema`,
+qui réussit, puis renonce : tous les verdicts sont `ok`, donc la colonne est verte.
+
+**Le vert est faux du point de vue du lecteur**, et c'est le plus trompeur des trois états
+possibles : sur une démonstration côte à côte, il fait croire que `dev` a été servi alors
+qu'il n'a rien obtenu.
+
+Le cas est le même que 2bis.3 vu d'un autre bord : **un renoncement du modèle n'a pas de
+statut**, puisque aucun verdict ne le porte. Ici il en emprunte un — celui d'un appel
+réussi qui n'a pas produit la réponse.
+
+Pistes, à peser :
+
+| piste | ce qu'elle coûte |
+|---|---|
+| un état d'affichage « **appelé, sans réponse** » quand aucun call n'a produit la donnée demandée | demande de savoir ce qui « produit la donnée » — non trivial, et le front ne doit pas juger le contenu |
+| reprendre le **dernier** verdict au lieu du premier | ne règle rien ici : `get_schema·ok` est le seul |
+| n'afficher « servi » que si le texte ne vient **pas** d'une rédaction libre du modèle — c'est-à-dire si une phrase figée ou un payload de données a été rendu | le plus honnête ; demande que `ChatResponse` dise **d'où vient le texte** (phrase figée, payload, ou rédaction) |
+
+La troisième piste rejoint une lacune déjà nommée : rien ne distingue aujourd'hui, côté
+client, un texte figé d'un texte rédigé. `frozen_text` le sait — il le jette.
+
+> **Succès** : aucune colonne n'est verte quand l'utilisateur n'a pas obtenu de réponse, et
+> le front n'a pas eu à juger le contenu pour le savoir.
 
 ---
 
@@ -1029,6 +1068,7 @@ item est fait, et c'est celui qui fermait une fuite.
 | 6b | **2bis.5** cible Make de la mesure | sans elle, le chiffre de 1b n'est pas rejouable | **ouvert** |
 | 7b | **2bis.4** requête SQL sans table | ni fuite ni reproductible, mais un trou de contrôle nommé | **ouvert** |
 | 8b | **2bis.6** consigne au guide | un intégrateur peut refaire 2bis.3 chez lui | **ouvert**, écriture |
+| 9b | **2bis.9** colonne verte sur un renoncement | le seul défaut **du front lui-même** ; trompeur en démonstration | **ouvert** |
 
 **Ordre de sacrifice** : 7b, puis 8b, puis 6b. Ne pas sacrifier 2b à 5b — ce sont les quatre
 seuls de cette liste qui changent ce que le produit **répond**.
