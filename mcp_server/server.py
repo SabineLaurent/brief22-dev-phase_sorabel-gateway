@@ -188,13 +188,58 @@ class SorabelMCP(FastMCP):
         return _marked(result)
 
 
-mcp = SorabelMCP(
-    name="Sorabel Data Gateway",
-    instructions=(
-        "Documentation technique et base métier Sorabel, en lecture seule, gouvernées "
-        "par profil."
-    ),
+#: Ce que le serveur dit au client sur la façon de le consommer — le champ
+#: ``instructions`` de la réponse à ``initialize``.
+#:
+#: **C'est le seul canal du protocole pour ça, et ce n'est pas une primitive.** Les trois
+#: primitives serveur sont les ressources, les tools et les prompts ; aucune ne porte une
+#: consigne permanente. La spec réserve les prompts au *user control* — « explicit user
+#: selection, such as slash commands » — et un ``PromptMessage`` n'admet que les rôles
+#: ``user`` et ``assistant``, jamais ``system``. ``instructions``, lui, est décrit pour
+#: exactement cet usage : « clients **may** use this information as a hint to improve an
+#: LLM's understanding of available tools, such as by incorporating it into a system
+#: prompt ».
+#:
+#: Ce ``may`` est la limite, et elle est assumée : **le serveur recommande, il ne
+#: contraint pas.** Même asymétrie que ``readOnlyHint``, dans l'autre sens. Ce qui est
+#: garanti quel que soit le client ne passe pas par ici — c'est l'étage 1 (le catalogue
+#: filtré), l'étage 2, le périmètre, le journal, et les phrases figées qui voyagent
+#: **dans l'enveloppe** : un client peut les reformuler, il ne peut pas les fabriquer.
+#:
+#: La première consigne est née d'un défaut mesuré le 2026-09-08 dans le client de ce
+#: dépôt : son prompt système énumérait les huit tools aux cinq profils, donc le modèle
+#: apprenait l'existence de ceux qu'il n'avait pas et le disait à l'utilisateur — « je
+#: n'ai pas accès à l'outil de consultation de stock ». L'étage 1 était publié en creux
+#: par un chemin parallèle au protocole. Un intégrateur externe peut refaire exactement
+#: cette erreur en lisant le README, qui documente les huit.
+_INSTRUCTIONS = (
+    "Documentation technique et base métier Sorabel, en lecture seule, gouvernées par "
+    "profil. Le profil est une propriété de cette connexion : il n'est jamais un "
+    "argument, et tu ne peux pas le changer.\n\n"
+    "Le catalogue que `tools/list` te rend est CELUI DE TON PROFIL, et il est déjà "
+    "filtré. N'évoque aucun autre outil, ne suppose pas qu'il en manque un, et ne dis "
+    "pas à l'utilisateur ce que tu ne peux pas faire avant d'avoir essayé ce dont tu "
+    "disposes : une question qui n'entre pas dans un outil entre souvent dans un autre — "
+    "la documentation porte ce que les données ne portent pas, et l'inverse.\n\n"
+    "Entre deux outils DU MÊME DOMAINE dont l'un porte sur UN objet identifié et l'autre "
+    "interroge librement, prends le premier : sa réponse est plus sûre. Si l'identifiant "
+    "est absent ou mal formé, ou si la question en couvre plusieurs, prends le second. "
+    "Cette règle ne départage PAS deux domaines : elle ne dit jamais de préférer un "
+    "chiffre à un document, ni l'inverse.\n\n"
+    "Chaque réponse est une enveloppe `{status, payload, message}`. Le discriminant est "
+    "`payload.code`, jamais `isError`. Quand `status` n'est pas `ok`, RENDS `message` TEL "
+    "QUEL : c'est une phrase figée, choisie par le serveur, et la reformuler la rend "
+    "variable là où elle doit être constante. N'explique jamais la cause d'un refus — tu "
+    "ne la connais pas. Un refus n'est pas une absence de données, et une absence de "
+    "données n'est pas un refus. Ne réessaie pas la même question avec un autre outil "
+    "pour contourner un refus.\n\n"
+    "Avec les outils documentaires : cite systématiquement la référence et le titre des "
+    "sources rendues. Avec les outils de base : montre la requête SQL renvoyée et les "
+    "conventions métier appliquées — c'est ce qui rend le chiffre vérifiable ; n'invente "
+    "jamais de requête et ne modifie jamais celle qui t'est rendue."
 )
+
+mcp = SorabelMCP(name="Sorabel Data Gateway", instructions=_INSTRUCTIONS)
 SQL_TOOL_LAUNCHER = SqlToolLauncher(SQL_TOOLS, settings)
 
 

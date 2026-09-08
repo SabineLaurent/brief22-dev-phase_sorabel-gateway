@@ -3499,3 +3499,358 @@ republication du matin. Corrigé, avec les deux rapports qui manquaient à son i
 Contrôles : `make lint` vert · les cinq profils rendent 0 · 5 · 7 · 8 · 8 par
 `scripts/mcp_client.py` · l'exemple de refus du §9 vérifié (`support` sur les marges →
 `perimetre_interdit`, sans `rows`) · les sept liens du guide résolvent.
+
+## 2026-09-08 — Le front de comparaison : quatre profils, une question, et quatre décisions renversées par la mesure
+
+Dernier livrable nommé du brief qui manquait au chantier 3 : l'interface graphique
+« splittée par rôle ». Elle existe : `make web-compare`, port 8101, quatre colonnes.
+
+### Un second front, pas un mode
+
+Question posée d'entrée : le mode comparaison remplace-t-il le chat mono-rôle, ou s'y
+ajoute-t-il ? Réponse de l'utilisatrice : **« le chainlit mono-rôle reste, je veux un second
+chainlit multi-rôle »**. C'est ce qui est fait — `packages/web_client/app_compare.py`, un
+fichier d'app à lui, un port à lui, un `CHAINLIT_APP_ROOT` à lui.
+
+Le mono-rôle et le comparateur ne répondent pas à la même question. `app.py` demande *que
+voit cette personne ?* — on s'y met dans la peau d'un rôle, on y tape `journal`, on y rejoue
+un identifiant d'eval. `app_compare.py` demande **ce qui change quand le profil change**, et
+c'est celle-là que le brief demande de démontrer. Un seul front à deux modes aurait mélangé
+les deux lectures dans le même fil.
+
+### Ce qu'une colonne montre, et pourquoi ces trois choses-là
+
+| Ce qui est affiché | L'étage qu'il rend visible |
+|---|---|
+| `n tools` | **étage 1** — celui que `tools/list` applique |
+| le badge `tool · code` de chaque appel | **étages 2 et 3** |
+| la réponse servie telle quelle | ce que l'utilisateur aurait vu |
+
+Le catalogue est le seul étage qu'**aucune réponse ne révèle** : un tool absent du catalogue
+n'est pas refusé, il n'existe pas pour le modèle, et rien dans le texte rendu ne le dit.
+D'où la route `GET /catalogue?role=` — lue **sur le serveur** et non dans `matrice.yaml` :
+c'est le catalogue effectif qu'on veut montrer, pas la déclaration dont il dérive. Les deux
+doivent coïncider, et une interface qui les affiche permet de le constater.
+
+Mesuré, sur « Quelle est la marge totale sur les ventes d'avril ? » :
+
+| Colonne | tools | statut | appels |
+|---|---|---|---|
+| Sans rôle | 0 | `aucun_appel` | — |
+| Dev | 5 | `aucun_appel` | — |
+| Support | 7 | `refused` | `ask_database · perimetre_interdit` |
+| Commerciale | 8 | `ok` | `ask_database · ok` |
+
+**E5 lisible sans ouvrir le journal**, en une ligne. 6,1 s pour les quatre profils en
+parallèle ; 17,4 s sur une question documentaire.
+
+### `CallNote` : une dataclass, pas une clé de plus dans l'enveloppe
+
+Pour afficher `tool · code`, il fallait le **nom du tool**, que le carnet de l'appel
+(`cli.call_record`) ne notait pas — il n'y déposait que l'enveloppe. La tentation était
+`book.append({**view, "tool": tool})`.
+
+Refusé, pour la raison qui vaut déjà pour `cause` et `stack` : le nom du tool est une note
+du client, **pas un champ du contrat servi**. L'écrire dans le dictionnaire de l'enveloppe en
+ferait une sixième clé indistinguable des trois que le DSI a fixées. `CallNote(tool,
+envelope)` rend la séparation structurelle — un `CallNote` ne peut pas être sérialisé par
+mégarde à la place d'une enveloppe.
+
+### Quatre décisions renversées par la mesure
+
+C'est le fait marquant de l'étape : **aucune des quatre n'aurait été trouvée sans mesurer**,
+et trois portaient sur du code qui « avait l'air » de marcher.
+
+**1. Le coût mémoire, corrigé à la baisse.** Annoncé à l'utilisatrice : ~1 Go par
+sous-processus faisant un appel documentaire, d'où l'arbitrage sur le nombre de colonnes.
+C'était un **pic** (`ru_maxrss`) relevé dans un processus isolé. La RSS *résidente* de trois
+serveurs ayant tous cherché dans le corpus : **245 · 251 · 280 Mo**. Et tant qu'aucun appel
+documentaire n'a lieu, un serveur vit à **~90 Mo** — torch n'est pas importé. Le chiffre qui
+avait servi à décider était pessimiste d'un facteur quatre ; la décision (quatre colonnes,
+`admin` exclu) tient quand même, mais elle tient pour de meilleures raisons.
+
+**2. `react-markdown` n'existe pas dans un custom element.** Le premier rendu affichait
+`Module not found: 'react-markdown'` — et rien d'autre : le composant entier échoue à
+l'import, silencieusement du point de vue de Python. Ma liste d'imports venait d'un `grep`
+du bundle, qui trouve la chaîne sans dire si elle est *exposée*. Le vrai `require` de
+Chainlit expose 32 modules, dont **`@/components/markdown`** (export nommé `Markdown`) —
+mieux que `react-markdown` : c'est le rendu de Chainlit lui-même, donc même coloration de
+code et mêmes liens qu'une bulle de chat.
+
+**3. `repeat(4, …)` coupait la quatrième colonne.** Relevé au navigateur : Chainlit borne un
+message à **700 px**, **892** avec `layout = "wide"`. La grille en réclamait 949 — la
+quatrième colonne sortait du cadre **sans que rien ne le signale**. Corrigé en calant le
+plancher sur la mesure, puis corrigé une seconde fois sur remarque de l'utilisatrice — « en
+mettant des dimensions fixes, qui plus est en pixel, ce n'est pas responsive » : elle a
+raison sur le fond, et le vrai défaut était plus grave que l'unité. `repeat(4, …)` garde les
+quatre colonnes **sur une ligne quoi qu'il arrive**. La forme retenue,
+`repeat(auto-fit, minmax(min(100%, 13rem), 1fr))`, n'a ni nombre de colonnes figé ni pixel,
+et se passe de media query — indisponible dans un style en ligne. Vérifié à trois largeurs :
+**4 colonnes à 1600, 3 puis 1 à 900, empilées à 420**, et `scrollWidth == clientWidth` dans
+les trois cas.
+
+**4. Deux fronts sur un même root se cassent l'un l'autre.** Décidé au départ : pas de
+`CHAINLIT_APP_ROOT`, les deux fronts partagent `.chainlit/` et `public/` — plus simple, et
+un root séparé semblait imposer de dupliquer les trente fichiers de traduction. Puis
+`FileNotFoundError: .files/<session>` est apparu dans le log du comparateur, **au moment où
+un autre serveur Chainlit s'arrêtait** : `chainlit/server.py` fait `shutil.rmtree` sur
+`<root>/.files` à l'arrêt. Deux fronts partageant un root partagent ce dossier, et arrêter
+l'un fait échouer les éléments de l'autre — précisément le mode d'usage prévu, les deux
+tournant ensemble pour la démonstration. Vérifié ensuite : Chainlit **régénère**
+`translations/` au démarrage. Le root séparé ne coûte donc qu'un `config.toml`, et le
+mono-rôle retrouve sa configuration d'origine — le `layout = "wide"` n'appartient qu'au
+comparateur.
+
+### Le défaut que le front a fait apparaître : le prompt système publiait l'étage 1
+
+**Constat de l'utilisatrice, en regardant la colonne `dev`** : sur « REF-5313 », elle répond
+« Je n'ai pas accès à l'outil de consultation de stock » — alors que `dev` a les quatre tools
+documentaires et que `answer_question("REF-5313", profile="dev")` rend **`ok`**, vérifié
+directement sur le tool.
+
+Sa question suivante était la bonne : *« pourquoi une variabilité de réponse à la même
+question ? »* Mesuré, quatre appels séquentiels identiques : quatre formulations différentes.
+Et sa remarque de fond touchait juste — « j'ai fait en sorte de cadrer la sortie des outils et
+de retourner des phrases figées pour éviter le data leak et uniformiser les refus, et ici ça
+ne se passe pas comme ça ».
+
+**Ce n'était pas une régression.** Vérifié en restaurant `cli.py` et `api.py` dans leur
+version `HEAD` (sauvegarde et empreintes SHA-256 contrôlées à la restauration) : comportement
+identique, variabilité comprise. Le dispositif de phrases figées fonctionne — `support` sur
+la marge rend la même phrase mot pour mot sur trois tours. Il a seulement une **condition
+d'application** que rien n'énonçait : *il suppose qu'un tool a été appelé.* Carnet vide ⇒
+`frozen_text` rend `None` ⇒ le modèle rédige.
+
+**La cause était en amont, et c'est une fuite.** `_SYSTEM_PROMPT` était une constante passée
+aux cinq profils, et elle **énumérait les huit tools avec leur description**, suivie de : « si
+l'un de ceux cités ci-dessus ne t'est pas proposé, il ne t'est pas accessible. Ne le réclame
+pas et n'essaie pas d'obtenir son résultat autrement. » Deux conséquences :
+
+* **le prompt publiait l'étage 1 en creux.** Le modèle apprenait l'existence des tools qu'il
+  n'avait pas, et le disait à l'utilisateur. C'est le motif même que `matrice.yaml` invoque
+  pour fermer `get_schema` à `support` : « décrire une colonne à qui ne doit pas la lire,
+  c'est déjà en publier l'existence ». Le prompt le faisait avec les tools ;
+* **il faisait renoncer les profils partiels.** `dev` associait la référence au tool de stock,
+  constatait son absence, appliquait « n'essaie pas autrement », et ne tentait jamais la
+  documentation. Aucun appel, donc aucun verdict, donc aucune phrase figée.
+
+**Le correctif est une suppression, et elle était déjà due.** Les descriptions des tools
+présents arrivent au modèle par le canal du protocole (`gateway.py`, `description=card.description`,
+servie par `tools/list`). L'énumération était donc **redondante pour les tools disponibles et
+fuyante pour les autres**. La retirer aligne enfin ce module sur sa propre doctrine, écrite en
+tête de fichier : « c'est le LLM qui aiguille, et le seul levier est la rédaction des
+descriptions — qui viennent désormais du serveur, pas d'ici ». Le prompt était le dernier
+endroit où un catalogue restait écrit en dur côté client, après que l'étape C ait retiré tous
+les autres.
+
+Le prompt conserve ce qui n'a pas d'équivalent côté serveur — ne pas s'appuyer sur ses
+connaissances, citer les sources, montrer le SQL et les conventions, rapporter un refus tel
+quel sans l'expliquer, ne pas contourner un refus — et gagne une phrase qui ferme le
+renoncement : « ne dis pas ce que tu ne peux pas faire avant d'avoir essayé ce que tu as ».
+
+### La mesure encadrante du correctif : 5 questions × 4 profils, avant et après
+
+Trois métriques par cellule : les tools appelés avec leur code, et **si le texte nomme un tool
+absent du catalogue** — la fuite. Le §2.2 exigeait ce garde-fou, ayant mesuré qu'une règle de
+prompt ne reste pas locale.
+
+| | avant | après |
+|---|---|---|
+| cellules avec fuite | **4 / 20** | **1 / 20** (le seul faux positif du lexique) |
+| fuites réelles | **3** | **0** |
+| cellules sans aucun appel de tool | 11 | 8 |
+
+Les **trois cellules qui bougent sont exactement les trois fuites réelles**, et les douze
+autres sont inchangées :
+
+| cellule | avant | après |
+|---|---|---|
+| `dev` + « REF-5313 » | aucun appel, fuite `check_stock` | **`search_docs·ok`** |
+| `dev` + marge d'avril | aucun appel, fuite `ask_database` | **`get_schema·ok` puis `answer_question·hors_corpus`** — verdict et phrase figée |
+| `support` + « quelles tables » | aucun appel, fuite `get_schema` | **`ask_database·hors_schema`** — refus figé, journalisé |
+
+Les quatre « bonjour » restent sans appel de tool : le correctif ne provoque pas d'appel là où
+il n'y a rien à demander.
+
+**Ce que la mesure ne prétend pas.** Le lexique de détection de fuite est explicite et
+imparfait — « stock » apparaît légitimement quand `get_schema` liste la table `stocks`, d'où
+le faux positif qui subsiste des deux côtés. Il est **identique avant et après**, ce qui est
+tout ce qu'une comparaison demande. Et sur `dev` + marge, le verdict obtenu est
+`hors_corpus` : honnête sur la fuite, mais la marge n'est pas « hors corpus », elle est hors
+de ses droits — le code juste n'existe pas pour ce cas, faute d'appel possible.
+
+**Aucune mesure publiée n'est concernée**, et c'est vérifié plutôt que supposé : `build_agent`
+n'est importé que par `cli.py` et `api.py`. Les cinq suites `check-*`, `eval-sql`,
+`mesure-refus` et `mesure-acces` appellent les couches en dessous et sont **structurellement
+insensibles** à ce prompt. Les rejouer n'aurait rien prouvé.
+
+**Dette assumée** : la mesure ci-dessus a été relevée par un script jetable, hors dépôt —
+exactement ce que le TODO reproche aux mesures de la revue. Les chiffres sont ici ; la cible
+Make est portée au TODO.
+
+### La suite, posée par l'utilisatrice : « je livre un MCP, je ne maîtrise pas les agents des intégrateurs »
+
+Objection juste, et elle déplace le problème au bon endroit : le correctif ci-dessus répare
+*notre* client. Un intégrateur externe peut refaire exactement la même erreur — énumérer les
+huit tools dans son prompt système parce qu'il les a lus dans `mcp_server/README.md`, qui les
+documente tous. « Les prompts devraient être fournis par le MCP ? »
+
+**Réponse vérifiée sur la spec, et contre-intuitive : aucune des trois primitives ne peut
+porter un prompt système.** L'utilisatrice a raison de rappeler qu'un serveur MCP en a trois —
+ressources, tools, prompts — et c'est précisément ce qui rend la réponse surprenante :
+
+* les **prompts** sont *user-controlled* par conception. Spec 2025-11-25 : « designed for user
+  control, meaning servers expose them to clients for **explicit user selection** […] such as
+  **slash commands** ». Le SDK le confirme structurellement — `PromptMessage.role` n'admet que
+  `user` et `assistant`, **jamais `system`**. Un prompt MCP est un template de conversation
+  qu'on invoque, pas une consigne permanente ;
+* le canal qui le fait n'est **pas** une primitive, c'est un champ du handshake :
+  `InitializeResult.instructions` — « clients **may** use this information as a hint to improve
+  an LLM's understanding of available tools, such as by **incorporating it into a system
+  prompt** ». La spec nomme donc exactement cet usage.
+
+**Le levier était déjà branché, et personne ne l'écoutait.** `server.py` déclarait des
+`instructions`, mais une seule phrase descriptive ; et `gateway.py` faisait
+`await session.initialize()` **en jetant le résultat**. Disponible, alimenté, ignoré — y
+compris par nous.
+
+D'où les trois modifications : les `instructions` du serveur portent désormais la consigne
+d'usage complète ; `gateway.py` la lit et `Gateway` la porte ; `cli.py` se réduit à « qui est
+cet agent » et préfixe la consigne du serveur sous un en-tête qui **nomme sa provenance** —
+elle vient d'en face, elle peut changer sans que ce fichier bouge, et le modèle doit la lire
+comme la règle de la gateway.
+
+**Ce n'est pas une duplication mais un déplacement.** Tout ce qui décrit *comment consommer
+cette gateway* appartient à la gateway, et tout client qui lit le `initialize` en hérite — pas
+seulement celui de ce dépôt. Le prompt du client ne contient plus aucun nom de tool (vérifié :
+1 886 caractères composés, zéro occurrence des huit noms).
+
+| | avant | prompt client corrigé | instructions serveur |
+|---|---|---|---|
+| cellules avec fuite | **4 / 20** | 1 / 20 | **1 / 20** |
+| sans aucun appel de tool | 11 / 20 | 8 / 20 | **8 / 20** |
+
+Le gain est **conservé** par le déplacement, et `dev` sur « REF-5313 » progresse même de
+`search_docs·ok` à **`answer_question·ok`** — une réponse rédigée et sourcée au lieu
+d'extraits bruts.
+
+**La limite, écrite plutôt que tue.** Ce `may` de la spec est tout : **le serveur recommande,
+il ne contraint pas.** Même asymétrie que `readOnlyHint`, dans l'autre sens. Ce qui est garanti
+quel que soit le client ne passe par aucun de ces canaux — l'étage 1, l'étage 2, le périmètre,
+le journal, et les phrases figées qui voyagent **dans l'enveloppe** : un client peut les
+reformuler, il ne peut pas les fabriquer. Le pire qu'un intégrateur négligent en tire est de
+mal *raconter* un refus, jamais d'obtenir une donnée fermée.
+
+### Une règle de prompt qui n'est pas restée locale — la mienne
+
+En reformulant le prompt pour en retirer les noms de tools, j'ai généralisé une règle qui
+était **explicitement bornée**. L'originale disait : « Entre un outil figé **et
+`ask_database`**, prends le figé quand la question porte sur UN objet identifié ». La
+réécriture disait : « Quand **plusieurs outils** conviennent, prends celui qui porte sur UN
+objet identifié ». Elle opposait donc désormais `check_stock` à `answer_question` — deux
+domaines — alors qu'elle n'était censée arbitrer qu'à l'intérieur du SQL.
+
+C'est mot pour mot l'avertissement du §2.2 du TODO : *une règle générale dans un prompt ne
+sait pas rester locale ; un cas nommé dans le code, si.* Écrit après l'avoir mesuré sur le
+rédacteur, et reproduit ici trois semaines plus tard.
+
+Resserré, sans réintroduire de nom de tool : « **Entre deux outils DU MÊME DOMAINE** dont l'un
+porte sur UN objet identifié et l'autre interroge librement, prends le premier […] Cette règle
+ne départage **PAS** deux domaines : elle ne dit jamais de préférer un chiffre à un document,
+ni l'inverse. » Mesure rejouée : **le gain est conservé** — fuites 1/20, sans-appel 8/20,
+identiques aux deux états précédents.
+
+**Ce que le resserrement ne change pas, et c'était la vraie question.** `support` et
+`commercial` continuent de choisir `check_stock` sur « REF-5313 », et c'est défendable : le
+tool est décrit « le stock d'UNE référence REF-NNNN », et la question **est** littéralement
+cet argument. Le comportement préexistait — la mesure « avant » le montrait déjà. Vérifié au
+passage, contre l'hypothèse d'un défaut de droits : `answer_question` sous profil `support`
+rend la fiche **entière** avec ses sources. Le support y a droit ; le modèle s'arrête
+simplement au premier tool qui répond `ok`.
+
+**Et l'agent n'est pas limité à une voie**, contrairement à ce que la colonne suggère : sur
+les 80 cellules mesurées, `dev` sur la marge enchaîne `get_schema·ok` **puis**
+`answer_question·hors_corpus` — deux domaines dans un appel. La boucle de `create_agent`
+n'est bornée par rien dans `cli.py`. Rien ne l'empêche de faire les deux ; rien ne lui dit
+non plus qu'une référence produit a une fiche *et* un stock.
+
+Reste donc un choix **produit** et non un réglage — le stock, la fiche, ou les deux — porté au
+TODO en **2bis.7**, avec l'instabilité de `dev` (`search_docs·ok` ou `get_document·introuvable`
+selon la passe) en **2bis.8**. Décision de l'utilisatrice : **on reprend par là.**
+
+### Un trou de contrôle trouvé en chemin : une requête SQL sans table
+
+Une cellule de la mesure a rendu `ask_database·ok` pour `support` sur « quelles tables contient
+la base ? » — profil auquel la matrice **retire** `get_schema`. Le SQL rendu :
+
+```sql
+SELECT 'clients' AS table_name UNION ALL SELECT 'commandes' … LIMIT 200
+```
+
+Le générateur a **récité son contrat de lecture** en littéraux, sans lire la base. Les cinq
+tables citées sont exactement celles du périmètre de `support` : aucune donnée, aucune colonne,
+rien hors périmètre. Ce n'est donc pas une fuite, mais c'est ce que le retrait de `get_schema`
+visait — « il lit des DONNÉES, pas la FORME de la base ».
+
+**Non reproductible** : sur trois essais de plus, deux `answer_question·contexte_insuffisant`
+et un `ask_database·hors_schema`, tous avec leur phrase figée. Un aléa du modèle, une fois sur
+quatre.
+
+Le constat qui reste est structurel : **les six contrôles ne peuvent rien refuser à une requête
+qui ne référence aucune table.** Les contrôles 5a et 5b portent sur les tables et colonnes
+citées — il n'y en a aucune — et le contrôle 6 `EXPLAIN` prépare sans peine un `SELECT` de
+littéraux. Correctif possible : refuser une requête sans table, `ask_database` servant à
+interroger des données. Non fait — cela touche le validateur et ses 83 contrôles, donc c'est
+une décision et pas une retouche.
+
+### Les tableaux markdown, illisibles en colonne étroite
+
+Signalé par l'utilisatrice sur une réponse de `check_stock` : les en-têtes s'affichaient une
+lettre par ligne (« E n t r e p ô t »). `overflow-x: auto` sur le corps de colonne ne
+suffisait pas — la classe `prose` de Chainlit laisse un tableau se **comprimer** plutôt que
+déborder, et sans débordement il n'y a rien à faire défiler. Ce qui le déclenche est
+`white-space: nowrap` sur les cellules. D'où la seule feuille de style du composant, et elle
+n'existe que pour ça : le tableau est produit par le Markdown de Chainlit, aucun style en
+ligne ne l'atteint. Vérifié au navigateur : « Entrepôt » 60 px, « Seuil de réappro. » 103 px,
+sur une ligne.
+
+### Le cloisonnement, mis en doute et vérifié
+
+Question de l'utilisatrice devant l'anomalie de `dev` : « un problème de cloisonnement des
+rôles te paraîtrait plausible ? » Légitime — le multirôle introduit quatre requêtes
+concurrentes dans le même processus API, ce que le mono-rôle n'exerce jamais. Mesuré :
+
+* **12 réponses sur 12** conformes, 3 tours × 4 profils en `asyncio.gather` : `135 616`
+  n'apparaît jamais ailleurs que chez `commerciale`, `support` reçoit `perimetre_interdit`
+  à chaque tour ;
+* le **journal** attribue chaque appel au bon profil, `blocked_at` cohérent ;
+* sur les 233 entrées du journal, **18 requêtes SQL** servies à des profils sans droit aux
+  marges, et **0** ne mentionne `prix_achat_ht`, `marge_pct` ou `marge_ht`.
+
+Cohérent avec l'architecture : un sous-processus par profil, `_AGENTS` indexé par profil, et
+un carnet en `ContextVar` — une copie par tâche asyncio. La séparation est celle des
+processus, pas une convention du code.
+
+### Écarts et limites, nommés
+
+* **`admin` n'est pas une colonne.** Son intérêt est le journal, qui se lit dans le
+  mono-rôle et ne tiendrait pas dans une colonne. Quatre profils : `default`, `dev`,
+  `support`, `commercial` — dans cet ordre, **par droits croissants**, ce qui rend la grille
+  lisible de gauche à droite ;
+* **`sans_role` et `dev` affichent `aucun tool appelé`** sur une question de marge, et c'est
+  l'écart déjà consigné le 2026-09-06 : un profil qui n'a pas le tool ne l'essaie pas, donc
+  ne le journalise pas. C'est le sens de l'étage 1. Le badge le **rend visible** au lieu de
+  le laisser deviner — mais la colonne `Dev` affiche alors un texte **rédigé par le modèle**,
+  non déterministe, puisque rien n'a été refusé et qu'aucune phrase figée ne s'applique ;
+* **`layout = "wide"` reste un réglage de confort**, pas une garantie : la largeur d'un
+  message vient de Chainlit, et le motif `auto-fit` est ce qui rend le rendu correct sans
+  elle ;
+* **l'URL publiée manque toujours** (TODO §1.3). L'interface est complète, `make web-compare`
+  la sert en local ; aucun lien ouvrable depuis une autre machine n'existe.
+
+### Vérifications
+
+`make test` **12/12** (51 s) · `check-sql` 83 · `check-feedback` 103 · `check-rag-tools` 67
+· `check-perimetre` 31 · `check-contrat` 145 — tous inchangés · `make lint` au vert
+(60 fichiers). Rendu vérifié au navigateur (headless, Chromium), trois largeurs, deux
+fronts lancés ensemble puis l'un arrêté : `compare_root/.files` intact.

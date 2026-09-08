@@ -1,9 +1,10 @@
 # TODO post-revue — 2026-09-07
 
-Issu de [`2026-09-07-revue-brief22-phase-developpement.md`](2026-09-07-revue-brief22-phase-developpement.md).
-Ordre : **ce que le brief exige** d'abord, **ce que la revue a trouvé** ensuite, **les
-décisions à prendre** enfin. Chaque entrée porte son critère de succès — sans quoi on ne
-sait pas quand la barrer.
+Issu de [`2026-09-07-revue-brief22-phase-developpement.md`](2026-09-07-revue-brief22-phase-developpement.md),
+**complété le 2026-09-08** par ce que le front de comparaison a fait apparaître (§2 bis).
+Ordre : **ce que le brief exige** d'abord, **ce que la revue a trouvé** ensuite, **ce que le
+front a révélé**, **les décisions à prendre** enfin. Chaque entrée porte son critère de
+succès — sans quoi on ne sait pas quand la barrer.
 
 État de départ, mesuré le 2026-09-07 : `make test` 12/12 (48,46 s) · `check-sql` 81 ·
 `check-feedback` 103 · `check-rag-tools` 62 · `check-perimetre` 31.
@@ -11,9 +12,13 @@ Après la vague 1 : `check-sql` **83** · `check-rag-tools` **67** · `make lint
 Après §3.5 : `check-contrat` **145** — cible neuve, premier contrôle du serveur MCP, et la
 frontière `call_tool` qu'il a fait apparaître (6 exceptions client sur 9 → 0, 3 lignes de
 journal sur 9 → 9).
+Après §2 bis (2026-09-08) : **tous les décomptes inchangés** — 83 · 103 · 67 · 31 · 145,
+`make test` 12/12, `lint` vert. Le correctif du prompt ne touche aucune couche contrôlée ;
+sa mesure propre est la fuite d'existence, **4 cellules sur 20 → 1**.
 
 **Les mesures citées ici ont été relevées par des scripts jetables**, hors dépôt et non
-conservés : refaire la mesure fait partie de la tâche qui la cite (§2.1, §2.2, §2.3, §2.4).
+conservés : refaire la mesure fait partie de la tâche qui la cite (§2.1, §2.2, §2.3, §2.4,
+et **§2bis.3** — d'où §2bis.5, qui porte cette dette).
 Les chiffres, eux, sont dans ce fichier — ils servent de valeur attendue, pas de preuve.
 
 ---
@@ -84,11 +89,21 @@ journal de développement.
 
 ### 1.3 Une URL pour l'interface graphique
 
+- [x] **L'interface graphique splittée par rôle.** *Faite le 2026-09-08* —
+  `packages/web_client/app_compare.py`, `compare_root/public/elements/Comparaison.jsx`,
+  `make web-compare` (port 8101). Quatre colonnes — `default`, `dev`, `support`,
+  `commercial`, par droits croissants — chacune adossée à son propre sous-processus MCP,
+  les quatre interrogées en `asyncio.gather`. Chaque colonne affiche son catalogue
+  (**étage 1**, par la route neuve `GET /catalogue`), les badges `tool · code` de ses
+  appels (**étages 2 et 3**, par `calls` sur `ChatResponse`) et la réponse servie telle
+  quelle. Vérifié au navigateur à trois largeurs. Détail et les quatre décisions que la
+  mesure a renversées : journal du 2026-09-08.
 - [ ] **Publier un lien de l'IGU.**
 
-Livrable : « Un lien d'une interface graphique du produit fonctionnel ». L'interface existe
-et fonctionne (`make web`, port 8100, adossée à `make api`), cinq rôles qui agissent
-réellement — un sous-processus serveur MCP par profil. **Aucune URL n'est publiée.**
+Livrable : « Un lien d'une interface graphique du produit fonctionnel ». Les deux interfaces
+existent et fonctionnent (`make web` port 8100, `make web-compare` port 8101, adossées à
+`make api`), cinq rôles qui agissent réellement — un sous-processus serveur MCP par profil.
+**Aucune URL n'est publiée.**
 
 Arbitrage déjà consigné : l'URL exigée porte sur l'**IGU**, pas sur le serveur MCP ; stdio
 tient le livrable serveur.
@@ -435,6 +450,243 @@ uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --
 
 ---
 
+## 2 bis. Trouvé par le front de comparaison — 2026-09-08
+
+Le front multirôle (`make web-compare`) a fait apparaître six défauts en une soirée, tous
+**antérieurs à lui** : côte à côte, on voit un profil renoncer là où son voisin répond. En
+mono-rôle il fallait penser à comparer. Détail et mesures : journal du 2026-09-08.
+
+**À la reprise, commencer par 2bis.7 et 2bis.8** — décision de l'utilisatrice le 2026-09-08.
+Ce sont les deux que la démonstration de soutenance expose le plus directement : elles
+décident ce qu'une colonne affiche sur la question la plus simple qu'on puisse taper.
+
+### 2bis.1 La redondance du corpus sature les candidats avant rerank
+
+- [ ] **Donner au rerank de quoi trancher, sur un périmètre large.**
+
+Constat : `dev` sert « Comment procéder à un retour ? », `support` et `commercial` la
+**refusent** — alors qu'ils voient un **surensemble** du corpus de `dev` (318 et 350 éditions
+contre 270). Plus de droits, moins de réponses.
+
+Cause mesurée — la redondance est très inégale :
+
+| type | documents | titres distincts | redondance |
+|---|---|---|---|
+| `procedure_sav` | 80 | **80** | 1,0× |
+| `notice` | 70 | 43 | 1,6× |
+| `fiche_technique` | 120 | 52 | 2,3× |
+| **`note_interne`** | 80 | **5** | **16,0×** |
+
+Cinq séries de 16 notes datées, même titre. Pour `support`, les 20 candidats fusionnés sont
+20 documents distincts mais **2 titres seulement** — 12 « Alerte qualité fournisseur » et
+8 « Retour terrain équipe commerciale ». La diversité effective est de **2**, et la procédure
+SAV n'entre jamais dans les candidats. Le reranker ne se trompe pas : il ne voit pas le
+document. Pour `dev`, dont le périmètre exclut `note_interne` : 20 candidats, **20 titres**.
+
+Trois correctifs possibles, du plus juste au plus rapide :
+
+| correctif | portée |
+|---|---|
+| **plafond de candidats par titre** avant rerank | attaque la cause ; à 3 par titre, 20 places portent ~7 sujets au lieu de 2 ; profite à toutes les questions |
+| `rerank_candidates` **proportionnel au périmètre** | empêche la régression de revenir si un thème est rouvert ; ne règle pas la redondance elle-même |
+| constante 20 → 40 | une ligne ; **pansement** — il faudrait dépasser ~48 places pour que `support` voie un 3ᵉ sujet de façon fiable. Que `depth=30` ait suffi sur cette question est un accident, pas une garantie |
+
+⚠️ **Azure ne change rien à ce défaut**, mesuré : l'étage lexical est du BM25, aucun modèle, et
+les 16 notes matchent « retour » à l'identique ; l'étage dense est dominé lui aussi (top-20 de
+`support` entièrement composé de `note_interne`). Cf. §3.6.
+
+> **Succès** : `support` et `commercial` servent ce que `dev` sert, et un contrôle interdit
+> qu'un profil à périmètre plus large obtienne moins de réponses qu'un profil plus étroit.
+
+### 2bis.2 Le seuil de refus coupe dans la population couverte
+
+- [ ] **Trancher le sort de la barrière 1.** Lié à **§2.4**, qui documentait déjà le
+  chevauchement mais pas sa portée.
+
+« comment retourner un article ? » : retrieval **parfait** — la bonne procédure au rang 1 —
+et pourtant `hors_corpus`, parce que le score de rerank vaut 0,0251 pour un seuil de 0,0530.
+Le cas échoue **pour les trois profils** et à **toutes** les profondeurs : ce n'est pas 2bis.1.
+
+Le même document, selon la tournure :
+
+| question | score | verdict |
+|---|---|---|
+| « retour produit défectueux » | **0,9843** | servi |
+| « Comment procéder à un retour ? » | 0,0859 | servi |
+| « comment retourner un article ? » | 0,0251 | **refus** |
+| « retourner un article » | 0,0107 | **refus** |
+
+**Facteur 100 sur le même document.** Le §2.4 relevait la dispersion *entre* questions
+(population `couverte` de 0,0049 à 0,9997) ; celle-ci est **intra-question**, ce qui en fait un
+défaut du critère et non un cas limite. Et le seuil de 0,0530 est **au-dessus** du minimum
+connu de la population couverte : il coupe mécaniquement dedans.
+
+Aucune de ces formulations n'est dans un jeu d'évaluation — le faux refus publié à 3/22 ne les
+voyait pas. Tous les refus observés portent le code `hors_corpus` : **la barrière 1, jamais le
+modèle.**
+
+E1 ne dépend pas d'elle : §2.1 mesure la barrière 1 seule à **5/8** et les deux à **8/8**. Le
+seuil est une économie d'appels LLM (5 sur 8), pas la garantie.
+
+> **Succès** : une question dont le corpus porte la réponse n'est plus refusée sans que le juge
+> l'ait vue — et le rapport de refus publie le nouveau chiffre sur les quatre formulations.
+
+### 2bis.3 Le prompt système publiait l'étage 1 en creux — **corrigé**
+
+- [x] **Retirer l'énumération des tools du prompt, et déclarer la consigne côté serveur.**
+  *Fait le 2026-09-08.*
+
+`_SYSTEM_PROMPT` était une constante passée aux **cinq** profils, énumérant les **huit** tools,
+suivie de « si l'un de ceux cités ci-dessus ne t'est pas proposé, il ne t'est pas accessible.
+Ne le réclame pas et n'essaie pas d'obtenir son résultat autrement ». Deux défauts :
+
+* **fuite** — le modèle apprenait l'existence des tools fermés et le disait : « je n'ai pas
+  accès à l'outil de consultation de stock ». C'est le motif que `matrice.yaml` invoque pour
+  fermer `get_schema` à `support`. La fuite **ne traversait pas le protocole** : le serveur ne
+  servait bien que 5 tools à `dev`, c'est le client qui racontait les trois autres ;
+* **renoncement** — `dev` n'essayait jamais la documentation sur une référence nue. Aucun tool
+  appelé ⇒ aucun verdict ⇒ **aucune phrase figée** ⇒ un faux refus rédigé par le modèle,
+  variable d'un appel à l'autre et absent du journal. Or `answer_question("REF-5313",
+  profile="dev")` rend `ok`.
+
+L'énumération était **redondante** : les descriptions des tools présents arrivent déjà par le
+protocole. Le correctif est donc une **suppression**, puis un **déplacement** vers
+`InitializeResult.instructions` — le seul canal du protocole pour une consigne permanente
+(les prompts sont *user-controlled* et `PromptMessage.role` n'admet pas `system`). `gateway.py`
+jetait le résultat du `initialize` ; il le lit désormais.
+
+Mesure encadrante, 5 questions × 4 profils :
+
+| | avant | prompt corrigé | consigne côté serveur |
+|---|---|---|---|
+| cellules avec fuite | **4 / 20** | 1 / 20 | **1 / 20** (faux positif du lexique) |
+| sans aucun appel de tool | 11 / 20 | 8 / 20 | **8 / 20** |
+
+Les trois cellules qui bougent sont exactement les trois fuites réelles ; les douze autres sont
+inchangées, et les quatre « bonjour » restent sans appel. `dev` sur « REF-5313 » finit à
+`answer_question·ok`. **Aucune mesure publiée n'est concernée** — vérifié : `build_agent` n'est
+importé que par `cli.py` et `api.py`, les suites appellent les couches en dessous.
+
+### 2bis.4 Une requête SQL qui ne référence aucune table
+
+- [ ] **Décider si `ask_database` doit refuser une requête sans table.**
+
+Observé une fois sur quatre : `support` obtient `ask_database·ok` sur « quelles tables contient
+la base ? », profil auquel la matrice **retire** `get_schema`. Le SQL rendu récite le contrat
+de lecture en littéraux — `SELECT 'clients' AS table_name UNION ALL …` — sans lire la base.
+
+**Pas une fuite** : les cinq tables citées sont exactement celles de son périmètre, aucune
+donnée ni colonne ne sort. **Pas reproductible** : trois essais de plus donnent deux
+`contexte_insuffisant` et un `hors_schema`, tous en phrase figée.
+
+Le constat structurel reste : **les six contrôles ne peuvent rien refuser à une requête sans
+table.** 5a et 5b portent sur les tables et colonnes citées — il n'y en a aucune — et le
+contrôle 6 `EXPLAIN` prépare sans peine un `SELECT` de littéraux.
+
+> **Succès** : soit un septième contrôle (« une requête qui n'interroge aucune table n'a rien à
+> faire dans `ask_database` ») avec son cas dans `check_sql.py`, soit la décision écrite que
+> réciter un périmètre qu'on a le droit de lire n'est pas un défaut.
+
+### 2bis.5 La mesure du prompt vient d'un script jetable
+
+- [ ] **Porter la mesure en cible Make.**
+
+Les chiffres de 2bis.3 ont été relevés hors dépôt, non conservés — exactement ce que l'en-tête
+de ce fichier reproche aux mesures de la revue. Les chiffres sont au journal du 2026-09-08 ;
+la mesure, elle, n'est pas rejouable.
+
+Elle porte trois métriques par cellule (question × profil) : les tools appelés avec leur code,
+et **si le texte nomme un tool absent du catalogue**. Le lexique de détection est explicite et
+imparfait (« stock » apparaît légitimement quand `get_schema` liste la table `stocks`) — à
+conserver tel quel, sa valeur étant d'être **identique avant et après**.
+
+> **Succès** : `make mesure-prompt` rejoue les 20 cellules et publie un rapport, comme les cinq
+> autres axes.
+
+### 2bis.6 Le guide doit dire à l'intégrateur de ne pas énumérer le catalogue
+
+- [ ] **Ajouter la consigne à `mcp_server/README.md`.**
+
+Un intégrateur externe peut refaire **exactement** l'erreur de 2bis.3 : énumérer les huit tools
+dans son prompt système parce que le guide les documente tous. Il publierait alors à son modèle
+des tools que la matrice lui a fermés, et son modèle en parlerait à ses utilisateurs.
+
+À écrire au §7 : **n'énumérez pas le catalogue dans votre prompt système — utilisez celui que
+`tools/list` vous sert**, et lisez les `instructions` du `initialize`. Avec la limite, au même
+titre que `readOnlyHint` : le serveur **recommande**, il ne contraint pas ; ce qui est garanti
+quel que soit le client est ailleurs — étages 1 à 3, journal, et les phrases figées qui
+voyagent dans l'enveloppe.
+
+> **Succès** : le guide dit ce qu'un client ne doit pas faire de son côté, et pourquoi le
+> serveur ne peut pas l'en empêcher.
+
+### 2bis.7 Une référence nue : le stock ou la fiche ? — **par là qu'on reprend**
+
+- [ ] **Décider ce que le produit répond à une référence nue.**
+
+Sur `RAG-03` (« REF-5313 »), les quatre colonnes ne divergent pas par droits mais par
+**aiguillage** :
+
+| profil | ce qu'il rend | pourquoi |
+|---|---|---|
+| `dev` | la **fiche** documentaire | il n'a pas `check_stock` |
+| `support` · `commercial` | le **stock** (SQL) | `check_stock` est décrit « le stock d'UNE référence REF-NNNN », et « REF-5313 » **est** littéralement cet argument |
+
+**Le support a bien accès à la fiche**, vérifié : `answer_question("Quelles sont les
+caractéristiques de la référence REF-5313 ?", profile="support")` rend `ok` avec la fiche
+entière — perceuse à colonne 500 W, Torqua, garantie 2 ans, 118,30 € HT — et ses sources.
+Aucun défaut de droits : le modèle s'arrête simplement au premier tool qui répond `ok`.
+
+**L'agent n'est pas limité à une voie**, mesuré : sur les 80 cellules de la nuit, `dev` sur la
+marge d'avril enchaîne `get_schema·ok` **puis** `answer_question·hors_corpus` — deux domaines
+dans un seul appel. La boucle de `create_agent` n'est bornée par rien dans `cli.py`. Rien ne
+l'empêche donc de faire les deux ; rien ne lui dit non plus qu'une référence produit a une
+fiche **et** un stock.
+
+Trois réponses possibles, et c'est un choix **produit**, pas un réglage :
+
+| | pour | contre |
+|---|---|---|
+| le **stock** seul (actuel) | le tool figé correspond littéralement à l'argument | `RAG-03` attend la fiche |
+| la **fiche** seule | c'est la cible du jeu RAG | perd le stock, que l'utilisateur voulait peut-être |
+| **les deux** | objectivement la meilleure réponse | demande une consigne au serveur, et le §2.2 a mesuré qu'une règle générale de prompt ne reste pas locale |
+
+⚠️ Les mesures RAG publiées **ne voient pas ce choix** : `eval_rag` et `eval_refusal`
+appellent `answer_question` en direct. Le changer n'invalide aucun rapport.
+
+> **Succès** : ce que rend une référence nue est écrit quelque part, et la démonstration de
+> soutenance ne laisse plus croire à un effet de droits là où il n'y en a pas.
+
+### 2bis.8 `dev` est instable sur une référence nue
+
+- [ ] **Dissuader `get_document` d'accepter une référence produit.**
+
+Deux passes consécutives, même question, même profil :
+
+| passe | appel | résultat |
+|---|---|---|
+| 1 | `search_docs·ok` | la fiche remonte |
+| 2 | `get_document·introuvable` | **« Aucune édition ne porte cet identifiant. »** |
+
+`get_document` attend un identifiant d'**édition** (`notices/notice-REF-1589-v1.0`), pas une
+référence produit. Sa description dit déjà « le texte intégral d'un document déjà identifié,
+par son identifiant. N'accepte pas une question » — insuffisant pour écarter `REF-5313`, qui
+*ressemble* à un identifiant.
+
+Le levier est la **description côté serveur** — c'est l'aiguillage officiel, et le seul
+(`gateway.py` la passe telle quelle). Y nommer la forme attendue et l'opposer explicitement à
+une référence produit coûte une ligne, et se mesure sur trois passes puisque c'est un
+jugement de modèle.
+
+Noter le lot de consolation : `introuvable` est un code **servi** (`status: ok`), pas un refus,
+et sa phrase est figée. L'échec est propre — mais c'est une non-réponse là où le corpus porte
+la fiche.
+
+> **Succès** : trois passes sur « REF-5313 » sous `dev` donnent le même tool documentaire, et
+> aucune ne rend `introuvable`.
+
+---
+
 ## 3. Décisions
 
 **Trois sur cinq ont été tranchées le 2026-09-07** (3.1 · 3.4 · 3.5) : elles portent
@@ -627,7 +879,57 @@ descriptions des tools, qui nomment déjà le recours.
 > **Succès** : la question « pourquoi votre catalogue conçu ne ressemble pas à votre
 > serveur ? » a une réponse écrite d'avance, avec ce qu'elle coûte.
 
+### 3.6 Passer embeddings et rerank sur Azure — **à décider, pas avant l'IGU**
+
+- [ ] **Décider si l'on bascule.** Question de l'utilisatrice le 2026-09-08, pendant le
+  cadrage de l'IGU : « si je configure l'embedder en azure foundry, ça change le besoin en
+  ram ? » Réponse mesurée : **oui, et moins qu'on croit.**
+
+| Configuration | Pic (`ru_maxrss`) par processus |
+|---|---|
+| embedder local seul | 770 Mo |
+| reranker local seul | **762 Mo** |
+| les deux locaux | 1 053 Mo |
+
+Les trois chiffres disent la même chose : **~700 Mo, c'est torch + sentence-transformers**,
+pas les poids — chaque modèle n'ajoute que ~290 Mo par-dessus le runtime partagé. Donc
+l'embedder seul sur Azure ne fait descendre le pic que de 28 % ; le gain réel n'arrive
+qu'en basculant **les deux**, torch n'étant alors jamais importé. Et la RSS *résidente*
+mesurée sur des serveurs vivants est bien plus basse que le pic (**245–280 Mo** après un
+appel documentaire, **~90 Mo** avant), donc la RAM est un motif faible.
+
+Ce que ça coûte, en revanche, est lourd et connu :
+
+| Ce qu'il faut refaire | Pourquoi |
+|---|---|
+| `make reindex` | l'index Chroma porte des vecteurs e5-base à 768 dimensions ; `text-embedding-3-*` n'a ni la même géométrie ni la même dimension |
+| `make calibrer` | le seuil dense **0,8308** est sur l'échelle de e5 |
+| `make calibrer-hybride` | `rerank_threshold` **0,0530** est sur l'échelle du reranker ; un rerank LLM la change |
+| rejouer `rapport_gain.md`, `rapport_perimetre.md`, `rapport_refus.md`, `rapport_acces.md` | les chiffres publiés le 2026-09-07 deviennent caducs |
+
+**Le reranker se commute sans réindexer** ; l'embedder, non. Les deux demandent une
+recalibration.
+
+**Et le motif qui restait est tombé le 2026-09-08** : la bascule **ne règle pas §2bis.1**,
+mesuré. L'étage lexical est du BM25 — aucun modèle, un comptage de termes — et les 16 notes
+« Retour terrain » matchent « retour » à l'identique ; l'étage dense est dominé lui aussi
+(top-20 de `support` entièrement composé de `note_interne`). Le seul organe qui tranche
+correctement est le rerank, et il tranche déjà bien : 0,0859 contre 0,0050, facteur 17. Il ne
+se trompe pas, **on ne lui montre pas le document** — un reranker Azure noterait la même liste
+de candidats, même angle mort. Il ne reste donc à cette bascule aucun motif technique dans ce
+dossier, seulement la RAM, dont le §ci-dessus montre qu'elle est un motif faible.
+
+> **Succès** : soit une bascule mesurée « avant/après » (les deux seuils recalibrés, les
+> quatre rapports rejoués, le gain de démarrage chiffré), soit la décision écrite de rester
+> en local avec le motif — et dans les deux cas, plus jamais dans le cadre d'un travail
+> d'interface.
+
 ## 4. Dérives documentaires — mineures
+
+- [ ] **`CLAUDE.md` décrit encore l'IGU splittée comme « le dernier livrable nommé qui
+  manque ».** Elle est livrée le 2026-09-08 (`make web-compare`). Ce qui manque désormais est
+  l'**URL** (§1.3), pas l'interface. À reprendre dans la section « Où en est le projet »,
+  avec les quatre suites de contrôles inchangées et les deux nouvelles cibles de front.
 
 - [ ] `eval/rapport_gain.md` annonce « Généré par `scripts/eval_rag.py --report` » ; le
   script vit dans `packages/rag_machines/evals_and_controls/eval_rag.py`. Le rapport n'est
@@ -711,6 +1013,25 @@ ce qui la raconte en dernier** — et rien de ce qui touche au code servi après
 **La vague 1 est close.** Les six items sont faits, et les deux garanties qu'elle protégeait
 sont désormais contrôlées (`query_only` sur connexion neuve) ou mesurées (le refus servi sur
 ses deux barrières). Plus rien de ce qui change ce que le produit *fait* n'est en attente.
+
+### Vague 1 bis — ce que le front a révélé (2026-09-08)
+
+Elle est de la même nature que la vague 1 : **ce qui protège une garantie d'abord.** Un seul
+item est fait, et c'est celui qui fermait une fuite.
+
+| # | Tâche | Pourquoi à ce rang | État |
+|---|---|---|---|
+| 1b | ~~**2bis.3** le prompt publiait l'étage 1~~ | une **fuite** d'existence, et la cause des faux refus non journalisés | **fait le 2026-09-08** — fuites 4/20 → 1/20 |
+| 2b | **2bis.7** référence nue : stock ou fiche | **par là qu'on reprend** — décide ce qu'affiche la colonne sur la question la plus simple qu'on puisse taper | **ouvert** |
+| 3b | **2bis.8** `dev` instable sur une référence nue | même cause visible, et `introuvable` là où le corpus porte la fiche | **ouvert** |
+| 4b | **2bis.1** saturation par redondance | un profil à **plus** de droits obtient **moins** de réponses : c'est E1 qui recule là où la matrice s'élargit | **ouvert** |
+| 5b | **2bis.2** le seuil coupe dans le couvert | refuse une question dont le corpus porte la réponse, **sans que le juge la voie** | **ouvert**, à trancher avec §2.4 |
+| 6b | **2bis.5** cible Make de la mesure | sans elle, le chiffre de 1b n'est pas rejouable | **ouvert** |
+| 7b | **2bis.4** requête SQL sans table | ni fuite ni reproductible, mais un trou de contrôle nommé | **ouvert** |
+| 8b | **2bis.6** consigne au guide | un intégrateur peut refaire 2bis.3 chez lui | **ouvert**, écriture |
+
+**Ordre de sacrifice** : 7b, puis 8b, puis 6b. Ne pas sacrifier 2b à 5b — ce sont les quatre
+seuls de cette liste qui changent ce que le produit **répond**.
 
 ### Vague 2 — décider (rien à coder avant)
 

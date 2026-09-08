@@ -16,14 +16,12 @@ Lancement : uv run chainlit run packages/web_client/app.py
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import chainlit as cl
 import httpx
 
 from packages.agent.api import profile_for_role
 from packages.access import scope_for
+from packages.web_client.evals import load_eval_questions
 
 API_URL = "http://127.0.0.1:8000/chat"
 JOURNAL_URL = "http://127.0.0.1:8000/journal"
@@ -40,25 +38,7 @@ JOURNAL_COMMAND = "journal"
 _JOURNAL_FIELDS = ("timestamp", "profile", "tool", "status", "code", "decision", "etage",
                    "cause", "sql", "n_rows", "latency_ms", "forbidden")
 
-_EVAL_FILES = [
-    Path("eval/questions_rag.jsonl"),
-    Path("eval/questions_sql.jsonl"),
-    Path("eval/questions_calibration.jsonl"),
-]
-
-
-def _load_eval_questions() -> dict[str, str]:
-    questions: dict[str, str] = {}
-    for path in _EVAL_FILES:
-        if not path.exists():
-            continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            entry = json.loads(line)
-            questions[entry["id"]] = entry["question"]
-    return questions
-
-
-_EVAL_QUESTIONS = _load_eval_questions()
+_EVAL_QUESTIONS = load_eval_questions()
 
 
 # `type: ignore[arg-type]` — dette amont, pas la nôtre : les stubs de Chainlit déclarent

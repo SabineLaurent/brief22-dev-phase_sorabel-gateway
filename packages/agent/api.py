@@ -42,7 +42,7 @@ from packages.text_to_sql_factory.structured_answer import (
     build_db_structured_answer,
 )
 
-from .cli import EMPTY_CATALOGUE, build_agent, call_record, frozen_text
+from .cli import EMPTY_CATALOGUE, CallNote, build_agent, call_record, frozen_text
 from .gateway import GatewayRegistry
 
 ROLES = ["support", "dev", "commerciale", "sans_role", "admin"]
@@ -102,10 +102,39 @@ class ChatRequest(BaseModel):
     question: str
 
 
+class ToolCall(BaseModel):
+    """Un appel de tool tel qu'il s'est passé, réduit à ce qu'une colonne peut montrer.
+
+    Ni payload ni message : c'est de l'**observabilité d'interface**, pas une seconde voie
+    de sortie des données. Le nom du tool dit quel étage a servi, le code dit ce que la
+    matrice en a fait — les deux seuls faits qui distinguent visuellement deux profils sur
+    la même question.
+    """
+
+    tool: str
+    status: str
+    code: str
+
+
 class ChatResponse(BaseModel):
     answer: str
     #: Une **phrase figée**, jamais un message d'exception. L'interface l'affiche tel quel.
     error: str | None = None
+    #: Les tools appelés pendant cette question, dans l'ordre. Vide quand le modèle n'a rien
+    #: appelé — catalogue vide, ou question à laquelle il répond sans outil.
+    calls: list[ToolCall] = []
+
+
+class CatalogueResponse(BaseModel):
+    """Les tools que ce rôle voit — l'**étage 1**, tel que ``tools/list`` le sert.
+
+    Lu sur le serveur et non dans ``matrice.yaml`` : c'est le catalogue effectif qu'on veut
+    montrer, pas la déclaration dont il dérive. Les deux doivent coïncider, et c'est
+    justement ce qu'une interface qui les affiche permet de constater.
+    """
+
+    profile: str
+    tools: list[str] = []
 
 
 class JournalResponse(BaseModel):
@@ -130,6 +159,15 @@ async def _agent_for(profile: str):  # type: ignore[no-untyped-def]
     if profile not in _AGENTS:
         _AGENTS[profile] = await build_agent(await GATEWAYS.get(profile))
     return _AGENTS[profile]
+
+
+def _calls_of(book: list[CallNote]) -> list[ToolCall]:
+    """Le carnet, mis à plat pour l'affichage. Le carnet lui-même ne sort pas de l'API."""
+    return [
+        ToolCall(tool=note.tool, status=note.envelope["status"],
+                 code=note.envelope["payload"]["code"])
+        for note in book
+    ]
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -168,8 +206,27 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # dernier mètre.
         frozen = frozen_text(book)
         if frozen is not None:
-            return ChatResponse(answer=frozen)
-        return ChatResponse(answer=response["messages"][-1].content)
+            return ChatResponse(answer=frozen, calls=_calls_of(book))
+        return ChatResponse(answer=response["messages"][-1].content,
+                            calls=_calls_of(book))
+
+
+@app.get("/catalogue", response_model=CatalogueResponse)
+async def catalogue(role: str) -> CatalogueResponse:
+    """Le catalogue de ce rôle, demandé au serveur qui le sert.
+
+    Ouvre la session du profil si elle ne l'est pas — c'est voulu : l'interface de
+    comparaison appelle cette route **en même temps** que la première question, jamais à
+    l'accueil. Quatre sessions ouvertes pour afficher un en-tête coûteraient quatre
+    sous-processus à qui personne n'a rien demandé.
+    """
+    profile = profile_for_role(role)
+    if role not in ROLES:
+        return CatalogueResponse(profile=profile)
+    gateway = await GATEWAYS.get(profile)
+    return CatalogueResponse(
+        profile=profile, tools=[card.name for card in await gateway.catalogue()]
+    )
 
 
 @app.get("/journal", response_model=JournalResponse)

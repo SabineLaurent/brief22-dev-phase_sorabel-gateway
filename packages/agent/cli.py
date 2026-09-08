@@ -42,6 +42,7 @@ import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 from langchain.agents import create_agent
@@ -52,43 +53,37 @@ from config import llm_base_url, settings
 from packages.agent.gateway import Gateway, build_tools, gateway_session
 from packages.text_to_sql_factory.structured_answer import CLIENT_MESSAGES
 
+#: La consigne du **client**, et seulement elle : qui est cet agent.
+#:
+#: Tout ce qui concerne l'usage de *cette* gateway — n'évoquer que les tools de
+#: ``tools/list``, essayer un autre domaine avant de renoncer, rendre ``message`` tel quel
+#: sur un refus, citer les sources, montrer le SQL — a été **déplacé dans les
+#: ``instructions`` du serveur** (``mcp_server/server.py``), que ``build_agent`` préfixe
+#: ici. Une seule source par sujet : ces règles décrivent comment consommer la gateway,
+#: donc elles lui appartiennent, et tout client qui lit le ``initialize`` en hérite — pas
+#: seulement celui de ce dépôt.
+#:
+#: Ce prompt en énumérait les huit tools, pour les cinq profils, avec la clause « si l'un
+#: de ceux cités ci-dessus ne t'est pas proposé, il ne t'est pas accessible ». Deux
+#: défauts en sortaient, mesurés le 2026-09-08 : le prompt **publiait l'étage 1 en creux**
+#: (le modèle apprenait l'existence des tools fermés et le disait à l'utilisateur), et il
+#: **faisait renoncer les profils partiels** — `dev` n'essayait jamais la documentation sur
+#: une référence nue, donc aucun tool appelé, donc aucun verdict, donc **aucune phrase
+#: figée** : un faux refus rédigé par le modèle, variable et absent du journal.
+#: L'énumération était de surcroît redondante, les descriptions des tools présents arrivant
+#: déjà par le protocole.
 _SYSTEM_PROMPT = (
-    "Tu réponds aux questions sur Sorabel en t'appuyant uniquement sur tes outils — jamais "
-    "sur tes propres connaissances.\n\n"
-    "Choisis l'outil par le DOMAINE de la question, pas par sa formulation. La forme de la "
-    "question est le meilleur indice : un identifiant bien formé oriente vers les données, "
-    "un « comment » ou un « pourquoi » vers la documentation.\n"
-    "  - answer_question : une réponse rédigée et sourcée sur la documentation interne — "
-    "procédure, caractéristique produit, consigne. C'est l'outil documentaire par "
-    "défaut ;\n"
-    "  - search_docs : les extraits bruts, classés, sans rédaction — quand tu veux voir "
-    "sur quoi une réponse s'appuierait avant de la formuler ;\n"
-    "  - get_document : le texte intégral d'un document déjà identifié, par son "
-    "identifiant. N'accepte pas une question ;\n"
-    "  - list_sources : ce que le corpus contient, sans recherche ;\n"
-    "  - check_stock : le stock d'UNE référence REF-NNNN, entrepôt par entrepôt ;\n"
-    "  - order_status : l'en-tête d'UNE commande CMD-AAAA-NNNN ;\n"
-    "  - get_schema : ce que la base contient et ce qui est interrogeable — la forme, "
-    "jamais les données ;\n"
-    "  - ask_database : toute autre question chiffrée sur la base — comptage, montant, "
-    "classement, plusieurs produits ou plusieurs commandes.\n\n"
-    "Tu ne disposes que des outils qui te sont présentés : si l'un de ceux cités ci-dessus "
-    "ne t'est pas proposé, il ne t'est pas accessible. Ne le réclame pas et n'essaie pas "
-    "d'obtenir son résultat autrement.\n\n"
-    "Entre un outil figé et ask_database, prends le figé quand la question porte sur UN "
-    "objet identifié : sa réponse est plus sûre. Si l'identifiant est absent ou mal formé, "
-    "ou si la question en couvre plusieurs, prends ask_database.\n\n"
-    "Avec les outils documentaires : cite systématiquement la référence et le titre des "
-    "sources utilisées. Si l'outil signale que le corpus ne couvre pas la question, "
-    "dis-le clairement au lieu d'inventer une réponse.\n\n"
-    "Avec les outils de base : montre TOUJOURS la requête SQL renvoyée avec le résultat, "
-    "ainsi que les conventions métier appliquées — c'est ce qui rend le chiffre vérifiable. "
-    "N'invente jamais de requête toi-même et ne modifie jamais celle qui t'est rendue. "
-    "Quand un outil refuse, rapporte son message TEL QUEL, sans le reformuler et sans "
-    "chercher à en expliquer la cause — tu ne la connais pas. Un refus n'est pas une "
-    "absence de données, et une absence de données n'est pas un refus. Ne réessaie pas "
-    "la même question avec un autre outil pour contourner un refus."
+    "Tu es l'assistant du banc d'essai Sorabel : tu réponds aux questions sur la "
+    "documentation technique et la base métier de Sorabel en t'appuyant uniquement sur "
+    "tes outils — jamais sur tes propres connaissances. Tu n'as pas de mémoire d'une "
+    "question à l'autre."
 )
+
+#: L'en-tête sous lequel la consigne du serveur est présentée au modèle. Nommer sa
+#: provenance n'est pas cosmétique : elle vient d'en face, elle peut changer sans que ce
+#: fichier bouge, et le modèle doit la lire comme la règle de la gateway et non comme une
+#: préférence de son client.
+_SERVER_INSTRUCTIONS_HEADER = "Consigne d'usage déclarée par la gateway Sorabel :"
 
 #: Au-delà, on ne déverse pas le résultat dans le contexte de l'agent : il en dirait autant
 #: avec dix lignes, et le reste ne ferait que coûter des jetons.
@@ -104,20 +99,36 @@ _MAX_DISPLAYED_HITS = 5
 _RAG_TOOLS = frozenset({"answer_question", "search_docs", "get_document", "list_sources"})
 
 
+@dataclass(frozen=True)
+class CallNote:
+    """Ce qu'un tool a rendu pendant l'appel : son nom, et l'enveloppe telle qu'elle est
+    arrivée du serveur.
+
+    **Une dataclass et non une clé de plus dans l'enveloppe.** Le nom du tool est une note
+    du client, pas un champ du contrat servi ; l'écrire dans le dictionnaire de l'enveloppe
+    en ferait une sixième clé indistinguable des trois que le DSI a fixées. La séparation
+    est structurelle — un `CallNote` ne peut pas être sérialisé par mégarde à la place d'une
+    enveloppe.
+    """
+
+    tool: str
+    envelope: dict[str, Any]
+
+
 #: Le carnet de l'appel en cours. Chaque tool y dépose l'enveloppe de sa réponse ;
 #: ``api.py`` y relit la phrase figée avant de rendre quoi que ce soit à l'écran.
 #:
 #: Une ``ContextVar`` et non un attribut de l'agent : l'agent est mis en cache et partagé
 #: entre les requêtes, alors que le carnet appartient à **un** appel.
-_CURRENT_CALL: ContextVar[list[dict[str, Any]] | None] = ContextVar(
+_CURRENT_CALL: ContextVar[list[CallNote] | None] = ContextVar(
     "sorabel_current_call", default=None
 )
 
 
 @contextmanager
-def call_record() -> Iterator[list[dict[str, Any]]]:
+def call_record() -> Iterator[list[CallNote]]:
     """Ouvre un carnet pour la durée d'un appel, et le referme quoi qu'il arrive."""
-    book: list[dict[str, Any]] = []
+    book: list[CallNote] = []
     token = _CURRENT_CALL.set(book)
     try:
         yield book
@@ -125,7 +136,7 @@ def call_record() -> Iterator[list[dict[str, Any]]]:
         _CURRENT_CALL.reset(token)
 
 
-def frozen_text(book: list[dict[str, Any]]) -> str | None:
+def frozen_text(book: list[CallNote]) -> str | None:
     """La phrase à afficher **telle quelle**, ou ``None`` s'il faut laisser le LLM rédiger.
 
     C'est le point de décision unique : *le modèle n'entre en jeu que quand il y a un
@@ -136,7 +147,8 @@ def frozen_text(book: list[dict[str, Any]]) -> str | None:
     Le **premier** verdict non-``ok`` gagne, et il gagne sur une réponse par ailleurs
     réussie : afficher le texte rédigé masquerait un refus survenu en chemin.
     """
-    for view in book:
+    for note in book:
+        view = note.envelope
         if view["status"] == "ok":
             continue
         text = view["message"]
@@ -156,7 +168,7 @@ def render(tool: str, view: dict[str, Any]) -> str:
     """
     book = _CURRENT_CALL.get()
     if book is not None:
-        book.append(view)
+        book.append(CallNote(tool, view))
     if tool in _RAG_TOOLS:
         return _format_documentary_answer(view, tool)
     return _format_database_answer(view, tool)
@@ -258,6 +270,20 @@ def _format_documentary_answer(view: dict[str, Any], tool: str) -> str:
 EMPTY_CATALOGUE = CLIENT_MESSAGES["tool_interdit"]
 
 
+def _compose_prompt(gateway: Gateway) -> str:
+    """La consigne du client, précédée de celle que le serveur a déclarée.
+
+    Le champ ``instructions`` est **optionnel** dans le protocole : un serveur peut n'en
+    rendre aucune, et un client ne doit pas dépendre de sa présence. D'où la composition
+    plutôt que la concaténation en dur — sans instructions, le prompt reste celui du
+    client, et l'agent fonctionne.
+    """
+    if not gateway.instructions:
+        return _SYSTEM_PROMPT
+    return (f"{_SYSTEM_PROMPT}\n\n{_SERVER_INSTRUCTIONS_HEADER}\n"
+            f"{gateway.instructions}")
+
+
 async def build_agent(gateway: Gateway):  # type: ignore[no-untyped-def]
     """Construit l'agent sur le catalogue que **le serveur** sert à ce profil.
 
@@ -288,7 +314,7 @@ async def build_agent(gateway: Gateway):  # type: ignore[no-untyped-def]
         base_url=llm_base_url(settings.azure_ai_endpoint),
         api_key=SecretStr(settings.azure_ai_api_key),
     )
-    return create_agent(llm, tools=tools, system_prompt=_SYSTEM_PROMPT)
+    return create_agent(llm, tools=tools, system_prompt=_compose_prompt(gateway))
 
 
 async def run(profile: str) -> None:

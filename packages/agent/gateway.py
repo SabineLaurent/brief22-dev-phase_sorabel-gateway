@@ -1,8 +1,8 @@
 """Le lien client entre le banc d'essai et le serveur MCP.
 
 **C'est le seul endroit du code servi qui parle le protocole MCP.** L'agent, l'API et la
-CLI ne voient que deux choses : un catalogue de tools et une enveloppe
-``{status, payload, message}``. Ils ignorent qu'un sous-processus existe.
+CLI ne voient que trois choses : un catalogue de tools, la consigne d'usage du serveur, et
+une enveloppe ``{status, payload, message}``. Ils ignorent qu'un sous-processus existe.
 
 Ce module fait tomber l'écart le plus visible du banc d'essai : **le profil n'est plus un
 argument**. Il est écrit dans ``SORABEL_PROFILE``, dans l'environnement du sous-processus
@@ -70,10 +70,20 @@ class ToolCard:
 
 
 class Gateway:
-    """Une session ouverte vers le serveur, sous un profil fixé à l'ouverture."""
+    """Une session ouverte vers le serveur, sous un profil fixé à l'ouverture.
 
-    def __init__(self, profile: str, session: ClientSession) -> None:
+    Porte aussi les ``instructions`` que le serveur a rendues au ``initialize`` : la
+    consigne d'usage qu'il donne à ses clients. Le résultat de la poignée de main était
+    jusqu'ici **jeté**, alors que le serveur y met ce qu'il attend de nous — et que la
+    spec prévoit précisément qu'un client « may incorporate it into a system prompt ».
+    """
+
+    def __init__(self, profile: str, session: ClientSession,
+                 instructions: str = "") -> None:
         self.profile = profile
+        #: Vide si le serveur n'en déclare pas : c'est un champ optionnel du protocole,
+        #: et un client ne doit pas dépendre de sa présence.
+        self.instructions = instructions
         self._session = session
 
     async def catalogue(self) -> list[ToolCard]:
@@ -115,8 +125,11 @@ async def gateway_session(profile: str) -> AsyncIterator[Gateway]:
     )
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
-            await asyncio.wait_for(session.initialize(), CALL_TIMEOUT)
-            yield Gateway(profile, session)
+            # Le résultat de la poignée de main n'est plus jeté : il porte les
+            # `instructions` du serveur, que l'appelant préfixera à sa consigne.
+            initialisation = await asyncio.wait_for(session.initialize(), CALL_TIMEOUT)
+            yield Gateway(profile, session,
+                          (initialisation.instructions or "").strip())
 
 
 class GatewayRegistry:

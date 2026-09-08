@@ -1,7 +1,7 @@
 .PHONY: install up down seed ingest ingest-brut reindex check-index check-perimetre calibrer calibrer-hybride \
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat eval-sql test fmt lint serve client \
-	journal api web
+	journal api web web-compare
 
 install:
 	uv sync
@@ -107,6 +107,18 @@ api:
 # que `make api` et `make web` puissent tourner en même temps.
 web:
 	uv run chainlit run packages/web_client/app.py --port 8100
+
+# Le second front : une question, quatre profils côte à côte. Port encore différent —
+# les deux interfaces et l'API tournent ensemble, c'est le mode de démonstration.
+#
+# `CHAINLIT_APP_ROOT` n'est pas cosmétique : Chainlit efface `<root>/.files` à l'arrêt
+# (`chainlit/server.py`), et deux fronts partageant un root partagent ce dossier — arrêter
+# l'un fait échouer les éléments de l'autre, qui reste debout. Constaté au navigateur.
+# C'est aussi ce qui donne à ce front sa propre configuration (`layout = "wide"`) et son
+# propre `public/elements/`, sans rien changer au mono-rôle.
+web-compare:
+	CHAINLIT_APP_ROOT=packages/web_client/compare_root \
+		uv run chainlit run packages/web_client/app_compare.py --port 8101
 
 check-contrat:
 	uv run python -m packages.evals_and_controls.check_mcp_contract
