@@ -807,6 +807,48 @@ Trois défauts distincts, et le deuxième est le plus gênant :
    absence. Le lexique de la mesure ne l'attrape pas — **limite à écrire dans le rapport**
    quand 2bis.5 sera fait.
 
+#### Un second cas, observé le 2026-09-08 sur le front de comparaison : `SQL-08` sous `dev`
+
+Le tableau ci-dessus porte sur `SQL-01`, une question de schéma. La même non-réponse a été
+revue sur **`SQL-08`** — « statut de la commande `CMD-2026-0042` » — et elle y est **plus
+sévère**, parce que la porte de sortie que 2bis.11 a stabilisée n'existe pas ici.
+
+| profil | tools | chemin | texte servi | conforme ? |
+|---|---|---|---|---|
+| `default` | 0 | aucun tool appelé | « Cette information n'est pas accessible avec votre profil. » | oui — `EMPTY_CATALOGUE`, étage 1 |
+| `dev` | 5 | **`answer_question·hors_corpus`** | **« Le corpus documentaire ne couvre pas cette question. »** | **non** |
+| `support` | 7 | `order_status·aucune_ligne` | « Aucune donnée ne correspond à cette demande. » | oui |
+| `commercial` | 8 | `order_status·aucune_ligne` | idem | oui — c'est le verdict publié dans `rapport_sql.md` |
+
+**La colonne verte de `support` et `commercial` est correcte**, et ce cas n'est donc *pas*
+2bis.9 : `CMD-2026-0042` n'existe pas en base (vérifié — elle porte `CMD-2025-0042`), `SQL-08`
+est **conçue** pour exercer « clé bien formée, absente », et `aucune_ligne` vaut `ok`.
+L'utilisateur a bien obtenu une réponse : cette commande n'existe pas.
+
+**Ce que `dev` ajoute au cas `SQL-01`.** La matrice donne à `dev` les colonnes de `commandes`
+(`matrice.yaml`, dont `statut`) mais **aucun tool qui les exécute** — ni `ask_database` ni
+`order_status`, seulement `get_schema`. Sur `SQL-01`, `get_schema·ok` pouvait faire office de
+réponse partielle, et c'est ce que 2bis.11 a rendu stable. Ici **il n'y a aucune porte de
+sortie** : un statut de commande ne se lit pas dans un schéma. Le modèle se rabat donc sur le
+seul domaine qui lui reste, et le corpus répond honnêtement — pour *ce tool* — qu'il ne porte
+pas la réponse.
+
+Le texte rendu est donc **une phrase figée, et elle est fausse sur le fond** : la question
+n'est pas hors corpus, elle est **hors droits**. C'est exactement le `hors_corpus` trompeur que
+la disparition de la bascule avait retiré à `SQL-01` — il revient ici par le chemin *stable*,
+et non plus par le hasard d'une passe sur quatre. **La ligne de journal porte le même
+mensonge**, ce qui touche E5 : un appel arrêté par l'étage 1 est journalisé comme une
+non-réponse documentaire.
+
+Ce cas **tranche entre les deux voies du tableau ci-dessous**, alors que `SQL-01` les laissait
+à égalité : côté client, distinguer « question de domaine » d'une salutation ne suffirait pas —
+il faudrait reconnaître qu'une réponse `hors_corpus` d'un domaine masque une absence de droits
+dans l'autre, ce que seul le serveur sait. **La voie serveur est la seule qui ferme celui-là.**
+
+**Limite de l'observation** : une seule passe, relevée à l'écran du comparateur, pas un rejeu à
+trois passes comme le reste de la section. Le chemin `answer_question` est à confirmer stable
+avant d'en faire une mesure.
+
 **Il n'existe aucune phrase attendue pour ce cas**, et c'est la racine commune avec 2bis.3 et
 2bis.9 : un renoncement du modèle n'a pas de verdict, donc rien ne peut le figer. Candidat
 naturel — la phrase de `tool_interdit`, « Cette information n'est pas accessible avec votre
