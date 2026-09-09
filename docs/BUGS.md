@@ -362,6 +362,27 @@ Deux symptômes attendus si c'est la cause : côté Chroma, une erreur « Chroma
 (`ingest/index.py:99-102`) ; côté front, la phrase figée `FRONT_INDISPONIBLE` — « L'API de
 test n'a pas répondu ». Aucun des deux ne nommera la redirection.
 
+**DEP-05 · Le champ « Arguments » du portail se découpe sur les ESPACES, pas sur les
+virgules.** Instruction fausse de ma part, signalée comme non vérifiée puis confirmée à
+l'écran : `packages.agent.api:app,--host,0.0.0.0,--port,8000` est passé **littéralement** à
+uvicorn, qui reçoit un seul argument au lieu de cinq. Le conteneur redémarre en boucle
+(« 1/1 Container crashing ») et l'app reste en *Échec* avec 0/1 réplica.
+
+Le message exact, reproduit en local sur l'image poussée avant même de lire les journaux
+Azure :
+
+```
+ERROR: Error loading ASGI app.
+       Attribute "app,--host,0.0.0.0,--port,8000" not found in module "packages.agent.api".
+```
+
+*Correctif* : séparer les arguments par des **espaces**. *Méthode qui a payé* : plutôt
+qu'attendre l'ingestion Log Analytics (1 à 5 minutes), rejouer la commande exacte en local
+sur l'image poussée — le lancement nu réussit (`Uvicorn running on http://0.0.0.0:8000`),
+donc ni le code, ni l'image, ni l'absence de variables ; puis reproduire l'hypothèse en
+passant les arguments comme une chaîne unique, ce qui rend le message à l'identique.
+*Contrôlé par* : rien — configuration de portail.
+
 **Ce qui ne s'est PAS produit, et qu'on croyait probable** : l'audit prédisait qu'un
 sous-processus MCP mort laisserait un zombie sous PID 1 et 30 s de `CALL_TIMEOUT` par question.
 Mesuré : échec en **1,7 s**, statut `error`, phrase figée, ligne de journal
