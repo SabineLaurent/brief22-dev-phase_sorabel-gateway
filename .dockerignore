@@ -64,7 +64,10 @@ packages/web_client/compare_root/.files/
 # Docker réévalue les négations sous un répertoire exclu, contrairement à Git.
 docs/*
 !docs/schema.sql
-eval/resultats/
-eval/rapport_*.md
-eval/protocole-mesure.md
+
+# `eval/` reste ENTIER, et ce n'est pas de la générosité : la suite d'acceptance vérifie que
+# la mesure du gain hybride est PUBLIÉE — `tests/acceptance/test_rag.py:57-64` ouvre
+# `eval/rapport_gain.md`, exige qu'il existe et qu'il soit chiffré. Exclure les rapports
+# faisait tomber ce test dans le conteneur (11/12, constaté). Le test fait foi, et les
+# rapports pèsent une centaine de kilo-octets.
 brief22-updated.md
