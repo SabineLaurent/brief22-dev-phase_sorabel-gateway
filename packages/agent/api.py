@@ -42,7 +42,14 @@ from packages.text_to_sql_factory.structured_answer import (
     build_db_structured_answer,
 )
 
-from .cli import EMPTY_CATALOGUE, CallNote, build_agent, call_record, compose_answer
+from .cli import (
+    EMPTY_CATALOGUE,
+    CallNote,
+    build_agent,
+    call_record,
+    compose_answer,
+    served_status,
+)
 from .gateway import GatewayRegistry
 
 ROLES = ["support", "dev", "commerciale", "sans_role", "admin"]
@@ -123,6 +130,12 @@ class ChatResponse(BaseModel):
     #: Les tools appelés pendant cette question, dans l'ordre. Vide quand le modèle n'a rien
     #: appelé — catalogue vide, ou question à laquelle il répond sans outil.
     calls: list[ToolCall] = []
+    #: Ce qui s'est passé pendant le tour, en un mot — ``cli.served_status``. **Calculé sur
+    #: le carnet, jamais sur le texte** : le client n'a pas à juger un contenu pour savoir
+    #: si l'utilisateur a obtenu sa réponse, et il ne le peut pas. Sans ce champ, le
+    #: comparateur relisait `calls` avec sa propre règle — une seconde lecture du même
+    #: carnet, donc une divergence en attente.
+    statut: str = "ok"
 
 
 class CatalogueResponse(BaseModel):
@@ -175,7 +188,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
     # Un rôle inconnu n'est pas renvoyé en écho : le répéter à l'écran fait de la réponse un
     # miroir de l'entrée, et la matrice retombe déjà sur `default` sans qu'on ait à le dire.
     if request.role not in ROLES:
-        return ChatResponse(answer="", error=CLIENT_MESSAGES["argument_malforme"])
+        return ChatResponse(answer="", error=CLIENT_MESSAGES["argument_malforme"],
+                            statut="error")
 
     profile = profile_for_role(request.role)
     with call_record(request.question) as book:
@@ -184,7 +198,10 @@ async def chat(request: ChatRequest) -> ChatResponse:
             # Catalogue vide : pas d'appel possible, donc rien à faire rédiger. La phrase
             # figée du refus part directement — cf. `cli.build_agent`.
             if agent is None:
-                return ChatResponse(answer=EMPTY_CATALOGUE)
+                # `refused` et non « aucun appel » : rien n'a été appelé parce que l'étage 1
+                # a tout retiré du catalogue. C'est un refus de la matrice, et le dire au
+                # badge rend cet étage aussi lisible que les deux autres.
+                return ChatResponse(answer=EMPTY_CATALOGUE, statut="refused")
             response = await agent.ainvoke(
                 {"messages": [{"role": "user", "content": request.question}]}
             )
@@ -200,13 +217,14 @@ async def chat(request: ChatRequest) -> ChatResponse:
                     stack=traceback.format_exc(),
                 ),
             )
-            return ChatResponse(answer="", error=CLIENT_MESSAGES["erreur_execution"])
+            return ChatResponse(answer="", error=CLIENT_MESSAGES["erreur_execution"],
+                                statut="error")
 
         # Une phrase figée gagne sur le texte rédigé : le refus ne se renégocie pas au
         # dernier mètre. Mais il ne se substitue à la réponse que si **rien** n'a été servi
         # — sinon il la complète, et `compose_answer` tranche pour la CLI comme pour ici.
         return ChatResponse(answer=compose_answer(book, response["messages"][-1].content),
-                            calls=_calls_of(book))
+                            calls=_calls_of(book), statut=served_status(book))
 
 
 @app.get("/catalogue", response_model=CatalogueResponse)

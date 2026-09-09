@@ -15,14 +15,20 @@ import { Badge } from "@/components/ui/badge";
 // coloration de code, mêmes liens.
 import { Markdown } from "@/components/markdown";
 
-// Les cinq statuts du contrat DSI, plus les deux états que seule l'interface connaît :
-// l'attente, et le fait que le modèle n'ait appelé aucun tool.
+// Les cinq statuts du contrat DSI, plus trois que le protocole ne connaît pas : `sans_reponse`,
+// que le client pose quand le modèle déclare ne pas pouvoir répondre, et les deux états de
+// l'interface — l'attente, et le fait qu'aucun tool n'ait été appelé.
+//
+// `sans_reponse` prend l'ambre de `hors_corpus`, et c'est délibéré : les deux disent « rien
+// n'a été obtenu », là où le rouge dit « la gateway a refusé ». Ce sont bien deux familles,
+// et le libellé, lui, les sépare.
 const COULEURS = {
   en_cours: "#94a3b8",
   aucun_appel: "#64748b",
   ok: "#16a34a",
   clarification: "#2563eb",
   hors_corpus: "#d97706",
+  sans_reponse: "#d97706",
   refused: "#dc2626",
   error: "#b91c1c",
 };
@@ -33,6 +39,7 @@ const LIBELLES = {
   ok: "servi",
   clarification: "clarification demandée",
   hors_corpus: "hors corpus",
+  sans_reponse: "sans réponse",
   refused: "refusé",
   error: "erreur",
 };

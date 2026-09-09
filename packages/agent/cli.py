@@ -330,6 +330,45 @@ def frozen_notes(book: list[CallNote]) -> list[str]:
                               if note.envelope["status"] != "ok"))
 
 
+#: Ce que rend :func:`served_status` quand le modèle n'a appelé aucun tool — catalogue vide,
+#: ou question à laquelle il a répondu sans outil. Ce n'est pas un statut du contrat : c'est
+#: un état du **tour**, et il n'existe que parce qu'un tour peut n'avoir aucun appel.
+NO_CALL_STATUS = "aucun_appel"
+
+
+def served_status(book: list[CallNote]) -> str:
+    """Le statut du **tour**, celui qu'une colonne du comparateur affiche.
+
+    Il vit ici, à côté de :func:`frozen_text`, et non dans le front : les deux répondent à
+    des questions différentes — « qu'est-ce que l'utilisateur lit ? » et « qu'est-ce qui
+    s'est passé ? » — mais elles lisent le **même carnet**, et deux lectures du même carnet
+    finissent par diverger. Le front en reçoit le résultat, il ne le recalcule pas.
+
+    L'ordre n'est pas celui du carnet, c'est celui de la **sévérité**, et il reprend celui
+    de :func:`frozen_text` :
+
+    1. un verdict de la gateway — refus, panne, clarification — gagne, **même quand la
+       réponse a par ailleurs été servie**. C'est ce qui distingue ce statut du texte : un
+       incident survenu dans le tour reste lisible ici alors que la réponse, elle, est
+       complétée et non remplacée. C'est E5 au badge, et c'est volontairement plus strict ;
+    2. puis le renoncement du modèle. C'est le correctif de 2bis.9 : ``get_schema·ok`` suivi
+       d'un renoncement affichait « servi », en vert, sur une colonne qui n'avait rien
+       obtenu — le plus trompeur des trois états possibles en démonstration ;
+    3. puis la première non-réponse, puis ``ok``.
+    """
+    if not book:
+        return NO_CALL_STATUS
+    for note in book:
+        if note.envelope["status"] in _EXPLICIT_VERDICTS:
+            return str(note.envelope["status"])
+    if renounced(book):
+        return NO_ANSWER_STATUS
+    for note in book:
+        if note.envelope["status"] != "ok":
+            return str(note.envelope["status"])
+    return "ok"
+
+
 def compose_answer(book: list[CallNote], drafted: str) -> str:
     """Ce qui part à l'écran : la phrase figée seule, ou le texte du modèle suivi des
     phrases figées de ce qui n'a pas abouti.

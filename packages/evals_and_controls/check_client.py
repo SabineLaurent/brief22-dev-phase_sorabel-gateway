@@ -46,6 +46,7 @@ from packages.agent.cli import (
     NoAnswer,
     compose_answer,
     frozen_notes,
+    served_status,
     frozen_text,
     renounced,
 )
@@ -299,6 +300,33 @@ def main() -> int:
           ligne["client_message"], NO_ANSWER_MESSAGE)
     check("rien de technique n'y a été inventé",
           (ligne["cause"], ligne["stack"], ligne["sql"]), ("", "", ""))
+
+    print("\nLe statut du tour — ce que la colonne affiche, et 2bis.9")
+    # Le défaut, tel qu'il a été relevé le 2026-09-08 : `get_schema` réussit, le modèle
+    # renonce, tous les verdicts sont `ok`, donc la colonne était verte sur une colonne qui
+    # n'avait rien obtenu.
+    check("le cas de 2bis.9 — un appel servi, puis un renoncement",
+          served_status([ok_sql, renonce]), NO_ANSWER_STATUS)
+    check("et il n'est surtout pas `ok`", served_status([ok_sql, renonce]) == "ok", False)
+    check("le cas de SQL-08 — la non-réponse documentaire ne colore plus la colonne",
+          served_status([hors, renonce]), NO_ANSWER_STATUS)
+    # Ce que la règle garde de sa sévérité : un incident reste lisible même quand la réponse
+    # a été servie à côté. Le badge et le texte ne répondent pas à la même question.
+    check("un refus survenu en chemin colore la colonne, réponse servie ou non",
+          served_status([ok_sql, refus_sql]), "refused")
+    check("une panne aussi", served_status([ok_rag, panne]), "error")
+    check("et il passe devant le renoncement",
+          served_status([refus_sql, renonce]), "refused")
+    check("sinon, la première non-réponse", served_status([ok_sql, hors]), "hors_corpus")
+    check("tout servi — `ok`", served_status([ok_sql, ok_rag]), "ok")
+    check("aucun appel — ni `ok` ni un statut du contrat", served_status([]), "aucun_appel")
+    # La garantie qui ferme 2bis.9 : sur aucun carnet la colonne ne peut être verte pendant
+    # qu'une phrase figée remplace la réponse. C'est la cohérence des deux lectures.
+    carnets = [[renonce], [ok_sql, renonce], [hors, renonce], [vide_rag, renonce],
+               [refus_sql], [panne], [hors], [clarif], [ok_sql, refus_sql, renonce]]
+    verts = [i for i, book in enumerate(carnets)
+             if frozen_text(book) is not None and served_status(book) == "ok"]
+    check("jamais vert pendant qu'une phrase figée remplace la réponse", verts, [])
 
     print()
     if failures:
