@@ -110,30 +110,28 @@ def _colonnes_initiales(question: str) -> list[dict[str, Any]]:
 
 
 def _statut(data: dict[str, Any]) -> str:
-    """Le statut de la colonne, dérivé des appels de tools — jamais du texte rendu.
+    """Le statut de la colonne, **tel que l'API l'a calculé** — jamais du texte rendu.
 
-    **Le premier verdict non-``ok`` gagne, et il gagne sur une réponse par ailleurs
-    réussie.** Une colonne verte alors qu'un refus a eu lieu en chemin serait exactement le
-    contresens que cette interface doit empêcher.
+    Cette fonction ne décide plus rien : la règle vit dans ``cli.served_status``, à côté de
+    ``compose_answer`` et sur le même carnet. Elle la relisait ici avec sa propre version —
+    « le premier verdict non-``ok`` parmi les tools appelés » — et cette version était fausse
+    sur le cas qui a ouvert 2bis.9 : ``dev`` appelant ``get_schema``, qui réussit, puis
+    renonçant. Tous les verdicts étaient ``ok``, donc la colonne était **verte** alors que
+    l'utilisateur n'avait rien obtenu — le plus trompeur des trois états possibles sur une
+    démonstration côte à côte.
 
-    **C'est volontairement plus strict que ``cli.compose_answer``**, qui depuis le
-    2026-09-08 sert la réponse et *complète* par les phrases figées de ce qui n'a pas abouti.
-    Les deux ne répondent pas à la même question : le texte dit à l'utilisateur ce qu'il
-    obtient, le badge dit à l'observateur ce qui s'est passé. Un incident survenu dans le
-    tour doit rester lisible ici même quand la réponse, elle, a été servie — et le badge
-    ``tool · code`` de chaque appel le détaille au-dessous.
+    Ce que la règle garde de son ancienne sévérité : un refus, une panne ou une clarification
+    survenus en chemin colorent la colonne **même quand la réponse a été servie par ailleurs**.
+    Les deux ne répondent pas à la même question — le texte dit à l'utilisateur ce qu'il
+    obtient, le badge dit à l'observateur ce qui s'est passé — et le badge ``tool · code`` de
+    chaque appel le détaille au-dessous.
+
+    Le repli sur ``aucun_appel`` couvre une réponse d'API sans le champ : une version plus
+    ancienne du service, ou une charge utile tronquée. Il ne se produit pas dans le dépôt.
     """
     if data.get("error"):
         return "error"
-    calls = data.get("calls") or []
-    if not calls:
-        # Catalogue vide, ou question à laquelle le modèle a répondu sans outil. Les deux
-        # se lisent pareil ici : rien n'a été demandé à la gateway.
-        return "aucun_appel"
-    for call in calls:
-        if call["status"] != "ok":
-            return call["status"]
-    return "ok"
+    return str(data.get("statut") or "aucun_appel")
 
 
 async def _publier(element: cl.CustomElement, verrou: asyncio.Lock) -> None:

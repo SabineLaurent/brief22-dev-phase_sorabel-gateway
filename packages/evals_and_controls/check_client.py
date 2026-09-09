@@ -36,14 +36,31 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from packages.agent.cli import CallNote, compose_answer, frozen_notes, frozen_text
+from packages import journal
+from packages.agent.cli import (
+    NO_ANSWER_CODE,
+    NO_ANSWER_MESSAGE,
+    NO_ANSWER_STATUS,
+    NO_ANSWER_TOOL,
+    CallNote,
+    NoAnswer,
+    compose_answer,
+    frozen_notes,
+    served_status,
+    frozen_text,
+    renounced,
+)
+from packages.agent.cli import _no_answer_note as no_answer_note
+from packages.agent.cli import _no_answer_tool as no_answer_tool
 from packages.rag_machines.structured_answer import (
     RAG_CLIENT_MESSAGES,
+    RAG_STATUS_BY_CODE,
     build_rag_structured_answer,
     rag_client_view,
 )
 from packages.text_to_sql_factory.structured_answer import (
     CLIENT_MESSAGES,
+    DB_STATUS_BY_CODE,
     build_db_structured_answer,
     client_view,
 )
@@ -193,6 +210,123 @@ def main() -> int:
     check("aucune colonne fermée dans le texte servi",
           [motif for motif in ("marge_pct", "prix_achat_ht", "marge_ht") if motif in servi],
           [])
+
+    print("\nLe renoncement du modèle — la seule enveloppe que le client fabrique")
+    # Il existe parce qu'un renoncement n'a pas de verdict : aucun tool n'a échoué, donc
+    # rien ne pouvait figer la phrase ni éteindre le vert de la colonne.
+    renonce = no_answer_note()
+    check("il porte le nom du tool, son code et sa phrase",
+          (renonce.tool, renonce.envelope["payload"]["code"], renonce.envelope["message"]),
+          (NO_ANSWER_TOOL, NO_ANSWER_CODE, NO_ANSWER_MESSAGE))
+    # Le contrôle qui compte : son statut n'est aucun de ceux que les domaines posent. S'il
+    # en devenait un, il serait compté comme un refus (E5) ou comme un service rendu.
+    check("son statut n'est aucun de ceux des deux domaines",
+          NO_ANSWER_STATUS in set(DB_STATUS_BY_CODE.values()) | set(RAG_STATUS_BY_CODE.values()),
+          False)
+    check("sa phrase est distincte de celle d'un refus de droits",
+          NO_ANSWER_MESSAGE in (CLIENT_MESSAGES["tool_interdit"],
+                                RAG_CLIENT_MESSAGES["tool_interdit"]), False)
+    check("il est reconnu au carnet", (renounced([renonce]), renounced([ok_sql])),
+          (True, False))
+
+    print("\nCe que le renoncement remplace, et ce qui garde la parole devant lui")
+    check("seul — sa phrase est servie", compose_answer([renonce], DRAFTED),
+          NO_ANSWER_MESSAGE)
+    # Le cas `SQL-01` sous `dev` : un appel a réussi — pour le modèle — et l'utilisateur
+    # n'a rien obtenu. La rédaction ne passe pas, et c'est ce qui éteint le vert.
+    check("par-dessus un appel servi — sa phrase, pas la rédaction",
+          compose_answer([ok_sql, renonce], DRAFTED), NO_ANSWER_MESSAGE)
+    # Le cas `SQL-08` sous `dev` : le corpus dit honnêtement qu'il ne porte pas la réponse,
+    # et cette phrase est fausse sur le fond — la question est hors des outils du profil.
+    check("par-dessus une non-réponse documentaire — sa phrase, pas celle du corpus",
+          compose_answer([hors, renonce], DRAFTED), NO_ANSWER_MESSAGE)
+    check("par-dessus un contexte insuffisant — la sienne aussi",
+          compose_answer([vide_rag, renonce], DRAFTED), NO_ANSWER_MESSAGE)
+    # Mais un verdict de la gateway nomme la cause : la taire effacerait un refus à l'écran.
+    for label, note, expected in (
+        ("un refus SQL", refus_sql, CLIENT_MESSAGES["perimetre_interdit"]),
+        ("un refus documentaire", refus_rag, RAG_CLIENT_MESSAGES["tool_interdit"]),
+        ("une panne", panne, CLIENT_MESSAGES["erreur_execution"]),
+    ):
+        check(f"{label} garde la parole devant le renoncement",
+              compose_answer([note, renonce], DRAFTED), expected)
+    rendu = compose_answer([clarif, renonce], DRAFTED)
+    check("une clarification aussi, avec ses axes",
+          rendu.startswith(CLIENT_MESSAGES["clarification"]) and "par mois" in rendu, True)
+    check("l'ordre du carnet n'y change rien",
+          compose_answer([renonce, refus_sql], DRAFTED),
+          CLIENT_MESSAGES["perimetre_interdit"])
+
+    print("\nLe renoncement n'ouvre pas de seconde voie")
+    # Une phrase qui remplace ne complète pas : elle sortirait deux fois.
+    for label, book in (
+        ("seul", [renonce]),
+        ("avec un servi", [ok_sql, renonce]),
+        ("avec un refus", [refus_sql, renonce]),
+    ):
+        check(f"{label} — jamais les deux à la fois",
+              frozen_text(book) is not None and bool(frozen_notes(book)), False)
+    check("rien ne se complète sous un renoncement", frozen_notes([ok_sql, hors, renonce]),
+          [])
+    # La description est le seul aiguillage du tool, et elle suit la règle posée pour les
+    # huit du serveur : aucun nom de tool dans un corps de description, faute de quoi elle
+    # recommanderait ce que la matrice ferme.
+    description = no_answer_tool("dev").description
+    nommes = [nom for nom in ("ask_database", "answer_question", "get_schema",
+                              "check_stock", "order_status", "search_docs",
+                              "get_document", "list_sources") if nom in description]
+    check("sa description ne nomme aucun tool", nommes, [])
+    check("elle n'attend aucun argument",
+          no_answer_tool("dev").args_schema, {"type": "object", "properties": {}})
+
+    print("\nSa ligne de journal — la seconde moitié de ce que 2bis.10 demande")
+    # `entry_for` est pure : elle n'écrit rien, elle met en forme. Le contrôle porte donc sur
+    # la ligne telle qu'elle serait écrite, sans toucher au journal du dépôt.
+    ligne = journal.entry_for(NO_ANSWER_TOOL, "dev", {"question": "SQL-08"}, NoAnswer())
+    check("elle est reconnue journalisable", isinstance(NoAnswer(), journal.Journalable), True)
+    # Le champ qui décide d'E5 : un renoncement du modèle n'est pas un refus de la gateway,
+    # et le compter `denied` gonflerait le taux de refus de non-réponses.
+    check("sa décision est `allowed`, jamais `denied` ni `error`",
+          ligne["decision"], "allowed")
+    check("le code et le statut sont les siens",
+          (ligne["code"], ligne["status"]), (NO_ANSWER_CODE, NO_ANSWER_STATUS))
+    # Aucune couche n'a bloqué : `etage` et `blocked_at` restent vides, et c'est ce qui
+    # distingue cette ligne d'un arrêt à l'étage 2.
+    check("aucune couche n'a bloqué", (ligne["etage"], ligne["blocked_at"], ligne["forbidden"]),
+          (None, None, []))
+    check("le profil et la question y sont",
+          (ligne["profile"], ligne["arguments"]), ("dev", {"question": "SQL-08"}))
+    check("la phrase lue par l'utilisateur y est, mot pour mot",
+          ligne["client_message"], NO_ANSWER_MESSAGE)
+    check("rien de technique n'y a été inventé",
+          (ligne["cause"], ligne["stack"], ligne["sql"]), ("", "", ""))
+
+    print("\nLe statut du tour — ce que la colonne affiche, et 2bis.9")
+    # Le défaut, tel qu'il a été relevé le 2026-09-08 : `get_schema` réussit, le modèle
+    # renonce, tous les verdicts sont `ok`, donc la colonne était verte sur une colonne qui
+    # n'avait rien obtenu.
+    check("le cas de 2bis.9 — un appel servi, puis un renoncement",
+          served_status([ok_sql, renonce]), NO_ANSWER_STATUS)
+    check("et il n'est surtout pas `ok`", served_status([ok_sql, renonce]) == "ok", False)
+    check("le cas de SQL-08 — la non-réponse documentaire ne colore plus la colonne",
+          served_status([hors, renonce]), NO_ANSWER_STATUS)
+    # Ce que la règle garde de sa sévérité : un incident reste lisible même quand la réponse
+    # a été servie à côté. Le badge et le texte ne répondent pas à la même question.
+    check("un refus survenu en chemin colore la colonne, réponse servie ou non",
+          served_status([ok_sql, refus_sql]), "refused")
+    check("une panne aussi", served_status([ok_rag, panne]), "error")
+    check("et il passe devant le renoncement",
+          served_status([refus_sql, renonce]), "refused")
+    check("sinon, la première non-réponse", served_status([ok_sql, hors]), "hors_corpus")
+    check("tout servi — `ok`", served_status([ok_sql, ok_rag]), "ok")
+    check("aucun appel — ni `ok` ni un statut du contrat", served_status([]), "aucun_appel")
+    # La garantie qui ferme 2bis.9 : sur aucun carnet la colonne ne peut être verte pendant
+    # qu'une phrase figée remplace la réponse. C'est la cohérence des deux lectures.
+    carnets = [[renonce], [ok_sql, renonce], [hors, renonce], [vide_rag, renonce],
+               [refus_sql], [panne], [hors], [clarif], [ok_sql, refus_sql, renonce]]
+    verts = [i for i, book in enumerate(carnets)
+             if frozen_text(book) is not None and served_status(book) == "ok"]
+    check("jamais vert pendant qu'une phrase figée remplace la réponse", verts, [])
 
     print()
     if failures:

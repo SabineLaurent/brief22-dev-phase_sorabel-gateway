@@ -4321,3 +4321,102 @@ pas un contrôle, et c'est écrit aussi.
 variable**, une fois `.env` revenu au local · `make test` 12/12 (avant l'ajout de la reprise
 429, qui ne touche pas les chemins testés) · quatre cellules mesurées, trois rapports publiés :
 `rapport_embeddings.md`, `rapport_rerank.md`, `rapport_local_vs_distant.md`.
+
+## 2026-09-09 — Un renoncement du modèle a enfin un verdict (2bis.9 · 2bis.10)
+
+Deux constats ouverts, une seule racine : **un renoncement du modèle n'a pas de verdict.**
+Aucun tool n'a échoué, donc rien ne peut figer sa phrase ni éteindre le vert de sa colonne.
+Le front ne peut pas le savoir sans lire le texte — ce qu'il ne doit pas faire ; le serveur
+ne le sait pas non plus. **Le seul qui le sache est le modèle**, et rien ne lui permettait de
+le dire autrement qu'en rédigeant.
+
+### Ce que la piste écrite au TODO ne pouvait pas faire
+
+2bis.9 proposait de n'afficher « servi » que si « une phrase figée **ou un payload de
+données** a été rendu ». Vérifié avant de coder : sur `SQL-01` sous `dev`, `get_schema·ok`
+**rend un payload de données**. La colonne serait restée verte. `_statut()`, `_served()` et
+`frozen_text()` ne lisent tous que `status`, et le carnet ne portait rien d'autre.
+
+Trois sources possibles pour le signal manquant, et une seule ne coûte pas un écart déjà
+décidé : le modèle, le serveur (l'étage 1 laisse voir, l'étage 2 refuse — c'est-à-dire
+rouvrir la fuite d'existence fermée la veille), ou personne. **Décision de l'utilisatrice :
+le modèle**, avec une **phrase nouvelle et distincte** de celle du refus de droits — un
+renoncement du modèle n'est pas un refus de la matrice.
+
+### `declare_no_answer`, et pourquoi ce n'est pas une entorse à l'étage 1
+
+Le tool est **local au banc d'essai** : hors catalogue MCP, il n'atteint aucune donnée et ne
+traverse pas le protocole. La matrice décide de ce qui touche aux données ; celui-ci ne
+touche à rien. Il dépose au carnet **la seule enveloppe que le client fabrique**, sous un
+statut `sans_reponse` qui n'est **aucun des cinq du contrat DSI** — contrôlé contre les deux
+tables de statuts des domaines, pas contre une liste recopiée. `refused` en ferait un refus
+qu'aucune barrière n'a prononcé (E5 gonflée de non-réponses, la faute que `REFUSAL_CODES`
+évite déjà aux deux non-réponses documentaires) ; `ok` rendrait la colonne verte, c'est-à-dire
+le défaut qu'on corrige.
+
+**Il journalise lui-même**, et non depuis l'API : la CLI et l'API ouvrent toutes deux un
+carnet, et journaliser dans l'une laisserait l'autre muette. `NoAnswer` satisfait
+`Journalable` **structurellement** — ce pour quoi ce protocole a été écrit en protocole. La
+décision est `allowed` : rien n'a été refusé. `etage` et `blocked_at` restent `None` : aucune
+couche n'a bloqué. C'est le **code** qui distingue, et lui seul.
+
+**Le renoncement passe devant tout, sauf un verdict de la gateway.** Un refus, une panne ou
+une clarification nomment la cause, et la taire effacerait un refus à l'écran. `hors_corpus`
+n'en fait pas partie, et c'est le cœur du correctif : c'est précisément la phrase *fausse sur
+le fond* que `SQL-08` fait sortir.
+
+### La colonne, et la fin des deux lectures du carnet
+
+`_statut()` ne décide plus rien. La règle vit dans `cli.served_status`, à côté de
+`compose_answer`, sur le même carnet, et `ChatResponse.statut` la transporte. Le front la
+relisait avec sa propre version — « le premier verdict non-`ok` » — et cette version était
+fausse sur le cas d'ouverture. **Le front n'a pas eu à juger le contenu pour le savoir**,
+c'est la seconde moitié du critère de succès.
+
+Ce que la règle garde de sa sévérité : un incident survenu en chemin colore la colonne **même
+quand la réponse a été servie à côté**. Le texte dit ce que l'utilisateur obtient, le badge
+dit ce qui s'est passé — l'écart assumé du 2026-09-08 est donc **maintenu, et désormais
+motivé au même endroit que la règle**. Nouveauté : un catalogue vide vaut `refused` et non
+« aucun appel », l'étage 1 devenant lisible au badge comme les deux autres.
+
+### Rejeu — 3 passes, quatre cas
+
+| profil | cas | chemin | statut | texte |
+|---|---|---|---|---|
+| `dev` | `SQL-01` | `get_schema·ok` → `declare_no_answer·aucun_tool_adapte` | **`sans_reponse`** | **identique 3/3** |
+| `dev` | `SQL-08` | `answer_question·hors_corpus` | `hors_corpus` | identique 3/3, **et fausse sur le fond** |
+| `support` | `SQL-01` | `ask_database·ok` | `ok` | 27 commandes, 3/3 |
+| `commercial` | référence nue | `answer_question·ok` → `check_stock·ok` | `ok` | fiche + stock, 3/3 |
+
+**2bis.9 est fermée** : plus de vert sur un renoncement, et le chemin est stable. **2bis.10
+l'est sur `SQL-01`** — même phrase et **même ligne de journal** aux trois passes (vérifié dans
+`logs/journal.jsonl` : `aucun_tool_adapte`, `allowed`, question portée), et le défaut n°3
+(l'allusion « à partir du seul schéma ») disparaît avec la rédaction qu'il habitait.
+
+**Les deux non-régressions qui comptent sont vertes** : le cumul fiche + stock du 2026-09-08
+est intact (le modèle n'appelle pas le renoncement quand une donnée a été rendue — c'est écrit
+dans sa description, et c'est mesuré), et `support` répond comme avant.
+
+### Écarts et limites
+
+* **`SQL-08` sous `dev` reste ouvert, et le TODO l'avait prévu.** Le modèle appelle
+  `answer_question`, reçoit `hors_corpus`, et **s'arrête là** : il considère avoir répondu. La
+  phrase servie est figée et stable, mais elle dit « le corpus ne couvre pas cette question »
+  là où la vérité est « c'est hors des outils de ce profil » — et **la ligne de journal porte
+  le même mensonge**. Le fermer côté client demanderait de dire au modèle qu'une non-réponse
+  documentaire ne vaut pas réponse à une question de données ; mesuré nulle part, et le risque
+  est nommé : la même consigne appliquée à une **vraie** question hors corpus remplacerait les
+  huit phrases publiées dans `rapport_refus.md`. Ne pas y toucher sans mesurer les deux ;
+* **le signal dépend du modèle.** C'est le coût assumé de la voie client : rien ne *force*
+  l'appel de `declare_no_answer`. Trois passes ne sont pas une garantie, elles sont une
+  mesure — d'où les 75 contrôles déterministes, qui, eux, ancrent ce qui se passe **une fois
+  le tool appelé** ;
+* **le rejeu est un script jetable**, hors dépôt : la dette 2bis.5 est inchangée, et elle
+  porte maintenant deux mesures.
+
+### Vérifications
+
+`make check-client` **39 → 75** contrôles, tous au vert · `make lint` vert · `check-sql` 83,
+`check-feedback` 103, `check-rag-tools` 67, `check-perimetre` 31, `check-contrat` 163
+inchangées (aucune ne touche `packages/agent`) · `tests/` ne référence ni `packages.agent` ni
+`packages.web_client` : la suite d'acceptance est indépendante de ce chantier.
