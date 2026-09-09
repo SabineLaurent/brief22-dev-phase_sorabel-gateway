@@ -184,4 +184,41 @@ class Settings(BaseSettings):
         )
 
 
+#: Les seuils de refus **calibrés**, par couple (embedder, reranker) — sur l'échelle du
+#: reranker, donc pour la configuration hybride, la seule servie.
+#:
+#: **Ce que cette table ferme.** Les docstrings de ``refusal_threshold`` et de
+#: ``rerank_threshold`` disaient depuis le début que « rien dans le code ne relie ce seuil au
+#: modèle qui l'a produit », et le nommaient « garde-fou manquant, consigné ». Le voici : le
+#: nom du couple servi est lisible sans réseau et sans charger un modèle — ``build_embedder``
+#: et ``build_reranker`` exposent tous deux un ``.name`` —, donc l'appariement est
+#: vérifiable. ``check-rag-tools`` le vérifie ; **un couple absent de cette table est un
+#: échec**, pas un défaut silencieux.
+#:
+#: **Ce que le défaut coûterait.** 0,0530 (mmarco) contre 0,6203 (Cohere) : plus d'un ordre
+#: de grandeur. Servir le premier avec le second ne refuserait **jamais rien** — le score
+#: Cohere du premier résultat est presque toujours très supérieur à 0,053 — et l'inverse
+#: refuserait presque tout. Aucune trace, aucune exception : seulement une barrière 1 muette.
+#:
+#: **Les quatre valeurs sont celles des axes 6 et 7**, publiées dans
+#: ``eval/rapport_local_vs_distant.md`` et reprises en défauts du Makefile
+#: (``SEUIL_LOCAL_C``, ``SEUIL_DISTANT``, ``SEUIL_COHERE``, ``SEUIL_AZURE_C``). Chaque cellule
+#: a été calibrée pour elle-même : comparer à seuil constant mesurerait le seuil.
+#:
+#: **Ce n'est pas une garde à l'exécution, et c'est voulu** : ``make mesure-rerank``,
+#: ``mesure-embeddings`` et ``mesure-candidats`` posent délibérément des seuils par variable
+#: d'environnement sur des couples arbitraires. Une garde dans ``threshold_for()`` les
+#: casserait ; un contrôle sur la configuration servie ne gêne aucune mesure.
+CALIBRATED_THRESHOLDS: dict[tuple[str, str], float] = {
+    # ① servie en local — la cellule décrite par les cinq rapports publiés
+    ("intfloat/multilingual-e5-base", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"): 0.0530,
+    # ② embedder distant, reranker local
+    ("text-embedding-3-small", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"): 0.0153,
+    # ③ embedder local, reranker distant
+    ("intfloat/multilingual-e5-base", "Cohere-rerank-v4.0-pro"): 0.5923,
+    # ④ les deux en distant — la cellule déployée, sans PyTorch dans l'image
+    ("text-embedding-3-small", "Cohere-rerank-v4.0-pro"): 0.6203,
+}
+
+
 settings = Settings()
