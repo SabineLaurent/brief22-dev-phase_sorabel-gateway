@@ -1,0 +1,70 @@
+# Contexte de construction des images — À NE PAS RECOPIER DEPUIS `.gitignore`.
+#
+# Les deux fichiers ont des buts opposés sur trois chemins : `.gitignore` exclut
+# `.docker-data/`, `data/sorabel.db` et `data/bm25/` parce qu'ils sont produits
+# localement, alors que la construction des images en a BESOIN — l'index vectoriel et
+# l'index lexical n'existent que sur la machine qui a joué `make ingest`, et aucun clone
+# ne peut les reconstituer sans appels d'embeddings. Les exclure ici produirait une image
+# qui démarre et ne répond à rien.
+#
+# La protection des secrets ne repose pas sur ce fichier seul : le `Dockerfile` fait des
+# `COPY` nommés, jamais `COPY . /app`. Ce fichier est la seconde barrière.
+
+# --- Secrets : jamais dans une couche d'image ------------------------------------------
+# Sans exception, `.env.example` compris : l'image ne lit sa configuration que de
+# l'environnement, et un `.env` présent réintroduirait ses chemins RELATIFS
+# (`GATEWAY_JOURNAL=logs/journal.jsonl`, `SORABEL_DB=data/sorabel.db`), qui écrasent les
+# défauts absolus de `config.py` et créent un second journal quand le CWD diffère.
+.env
+.env.*
+
+# --- Environnement local -----------------------------------------------------------------
+# `.venv/` pèse 1,2 Go : sans cette ligne, le contexte transféré rend le build assez lent
+# pour qu'on cesse de regarder ce qu'il embarque.
+.venv/
+.python-version
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Caches d'outillage ------------------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Historique et outillage de poste ----------------------------------------------------
+.git/
+.github/
+.idea/
+.vscode/
+.claude/
+.DS_Store
+**/.DS_Store
+
+# --- Journal d'exécution -----------------------------------------------------------------
+# Éphémère par décision, et jamais hérité d'un poste : le journal de l'image doit partir
+# vide. `logs/.gitkeep` reste, donc le dossier existe.
+logs/*.jsonl
+
+# --- État régénéré par Chainlit au démarrage ---------------------------------------------
+# `.chainlit/` et `chainlit.md` sont recréés à l'import du module ; les embarquer figerait
+# l'état d'un poste. `compare_root/.chainlit/config.toml` est en revanche VERSIONNÉ et
+# nécessaire (`layout = "wide"`) — il n'est donc pas exclu ici.
+.chainlit/
+chainlit.md
+packages/web_client/compare_root/.files/
+
+# --- Documentation et mesures ------------------------------------------------------------
+# `docs/schema.sql` est SERVI (`settings.schema_doc`, config.py:148) : il est ré-inclus.
+# Docker réévalue les négations sous un répertoire exclu, contrairement à Git.
+docs/*
+!docs/schema.sql
+eval/resultats/
+eval/rapport_*.md
+eval/protocole-mesure.md
+brief22-updated.md
