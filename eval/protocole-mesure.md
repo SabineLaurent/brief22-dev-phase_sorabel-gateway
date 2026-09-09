@@ -476,9 +476,17 @@ Le jeu d'évaluation est du **JSON Lines** — une question par ligne, pas un `.
 
 ```
 eval/questions_rag.jsonl          30 questions fournies — 8 reference_exacte · 14 couverte · 8 hors_corpus
-eval/questions_calibration.jsonl  8 questions hors corpus écrites par nous — CALIBRATION SEULEMENT
+eval/questions_calibration.jsonl  14 questions écrites par nous — 8 hors_corpus · 6 couverte — CALIBRATION SEULEMENT
 eval/questions_sql.jsonl          chantier 2, hors de ce protocole
 ```
+
+**Le jeu de calibration ne porte aucune référence produit** — 0 question sur 14, contre 8 sur
+30 dans le jeu de mesure. Il n'existe que pour placer une frontière couvert / hors-corpus, et
+c'est légitime ; mais il ne teste jamais le point faible d'un modèle sur les identifiants,
+donc il est **non représentatif pour comparer deux modèles**. Les axes 6 et 7 l'ont constaté
+deux fois, en sens contraire : la calibration y a annoncé l'inverse du résultat. La leçon est
+plus précise que « un jeu de réglage ne prédit pas » — **un jeu qui ne contient pas le cas
+difficile ne peut rien dire du cas difficile.**
 
 Le harnais lit `questions_rag.jsonl`, rejoue **chaque question dans chaque configuration**,
 et écrit une ligne de CSV par couple (question, configuration).
@@ -494,8 +502,11 @@ mesurer E6 dès l'étape 2, alors que les tests d'acceptance — qui exigent le 
 ne passeront qu'au chantier 3. Ce sont deux vérifications différentes, sur deux chemins
 différents, et elles n'ont pas le même calendrier.
 
-Le script est `scripts/eval_rag.py`, lancé par chemin comme `scripts/check_index.py` — pas
-un module importable, pour ne pas nommer un paquet `eval`.
+Le script est `packages/rag_machines/evals_and_controls/eval_rag.py`, lancé **en module** :
+`python -m packages.rag_machines.evals_and_controls.eval_rag`. Il a vécu sous `scripts/` et
+« lancé par chemin » le temps du chantier RAG ; la crainte d'alors — nommer un paquet `eval` —
+ne s'applique plus, le paquet s'appelle `evals_and_controls` et le dossier `eval/` ne porte
+que des données et des rapports.
 
 ### Une cible Make par mesure publiée
 
@@ -576,10 +587,25 @@ eval/rapport_refus.md                      axe 4
 eval/rapport_acces.md                      axe 5
 ```
 
-**Le CSV porte le nom de la cible qui l'a produit**, et son en-tête rappelle les quatre
-drapeaux effectifs. Un fichier de résultats dont on ne peut pas relire la configuration n'est
-pas une mesure, c'est un souvenir — et le nom de la cible est la manière la plus courte de la
-relire, puisqu'il suffit de la relancer.
+**Le CSV porte le nom de la cible qui l'a produit**, et son en-tête tient sur **deux lignes de
+commentaire** :
+
+```
+# cible=mesure-hybride config=C text=clean version_filter=on
+# candidats=vivier:20/budget:20/plafond:aucun seuil=0.0530
+```
+
+La première rappelle les quatre drapeaux effectifs. La seconde porte ce dont dépend chaque
+chiffre de la colonne `refused` et que le nom de la cible ne dit pas : la **politique de
+candidats** — vivier récupéré par étage, budget réellement noté par le reranker, plafond de
+places par titre — et le **seuil** appliqué. Elle vaut `candidats=sans-objet` en `A` et en `B`,
+qui ne passent ni par un vivier ni par un reranker.
+
+Un fichier de résultats dont on ne peut pas relire la configuration n'est pas une mesure, c'est
+un souvenir — et le nom de la cible est la manière la plus courte de la relire, puisqu'il suffit
+de la relancer. **Le nom ne suffit pourtant pas quand la configuration change sous un nom
+constant** : c'est exactement ce qui manquait, et deux CSV joués de part et d'autre d'un
+changement de profondeur étaient indiscernables.
 
 Un run d'exploration lancé au script écrit dans `eval/resultats/adhoc-*.csv`, jamais sous un
 nom de cible : ce qui n'est pas reproductible par un `make` ne prend pas la place de ce qui
