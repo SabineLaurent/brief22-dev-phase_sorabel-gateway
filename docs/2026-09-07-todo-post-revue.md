@@ -17,6 +17,9 @@ Après §2 bis (2026-09-08) : **tous les décomptes inchangés** — 83 · 103 �
 sa mesure propre est la fuite d'existence, **4 cellules sur 20 → 1**.
 Après 2bis.11 (2026-09-08) : `check-contrat` 145 → **163** — les descriptions servies, que
 rien ne contrôlait. Les quatre autres suites inchangées, `make test` 12/12, `lint` vert.
+Après 2bis.9 et la moitié de 2bis.10 (2026-09-09) : `check-client` 39 → **75** — le
+renoncement du modèle, qui n'avait ni verdict, ni phrase, ni ligne de journal. Les cinq
+autres suites inchangées, `lint` vert.
 
 **Les mesures citées ici ont été relevées par des scripts jetables**, hors dépôt et non
 conservés : refaire la mesure fait partie de la tâche qui la cite (§2.1, §2.2, §2.3, §2.4,
@@ -730,9 +733,17 @@ la fiche.
 > **Succès** : trois passes sur « REF-5313 » sous `dev` donnent le même tool documentaire, et
 > aucune ne rend `introuvable`.
 
-### 2bis.9 La colonne dit « servi » sur un renoncement — défaut du front
+### 2bis.9 La colonne dit « servi » sur un renoncement — défaut du front — **faite le 2026-09-09**
 
-- [ ] **Faire dépendre le statut de colonne de la réponse, pas seulement des tools appelés.**
+- [x] **Faire dépendre le statut de colonne de la réponse, pas seulement des tools appelés.**
+  *Fait le 2026-09-09* — et **par aucune des trois pistes ci-dessous** : la troisième était
+  fausse sur le cas d'ouverture, `get_schema·ok` rendant bel et bien « un payload de
+  données ». Il manquait un signal, et le seul à pouvoir le donner était le modèle :
+  `declare_no_answer`, tool **local au banc d'essai**, dépose au carnet un verdict
+  `sans_reponse`. `_statut()` ne décide plus rien — la règle vit dans `cli.served_status`,
+  sur le même carnet que `compose_answer`, et `ChatResponse.statut` la transporte : une seule
+  lecture du carnet au lieu de deux. Rejeu 3 passes sous `dev` : `sans_reponse` 3/3, plus de
+  vert. Le front n'a pas eu à juger le contenu. Journal du 2026-09-09.
 
 Relevé sur `SQL-01` (« combien de commandes en avril ? ») par l'utilisatrice, le 2026-09-08 :
 
@@ -769,11 +780,22 @@ client, un texte figé d'un texte rédigé. `frozen_text` le sait — il le jett
 > **Succès** : aucune colonne n'est verte quand l'utilisateur n'a pas obtenu de réponse, et
 > le front n'a pas eu à juger le contenu pour le savoir.
 
-### 2bis.10 La non-réponse d'un profil partiel n'a ni phrase ni chemin stables — **moitié faite le 2026-09-08**
+### 2bis.10 La non-réponse d'un profil partiel n'a ni phrase ni chemin stables — **`SQL-01` fermé le 2026-09-09, `SQL-08` ouvert**
 
-- [ ] **Donner une phrase figée au renoncement, ou un verdict qui la porte.** Reste ouvert :
-  c'est le défaut n°1 ci-dessous (le texte varie), et 2bis.11 ne pouvait pas le fermer — un
-  aiguillage ne fabrique pas un verdict.
+- [x] **Donner une phrase figée au renoncement, ou un verdict qui la porte.** *Fait le
+  2026-09-09 pour `SQL-01`* — `declare_no_answer` **est** ce verdict, et il porte sa phrase
+  (nouvelle et distincte de celle du refus de droits : un renoncement du modèle n'est pas un
+  refus de la matrice). Mesuré 3 passes : même chemin, **même phrase**, et **même ligne de
+  journal** (`aucun_tool_adapte`, décision `allowed` — rien n'a été refusé). Le défaut n°3,
+  l'allusion « à partir du seul schéma », disparaît avec la rédaction qui le portait.
+- [ ] **`SQL-08` sous `dev` reste ouvert**, et c'est le cas que cette section disait le plus
+  sévère. Mesuré le 2026-09-09, 3 passes sur 3 : le modèle appelle `answer_question`, reçoit
+  `hors_corpus`, et **s'arrête là** — il considère avoir répondu, donc il ne renonce pas. La
+  phrase est stable, et **fausse sur le fond** ; la ligne de journal porte le même mensonge.
+  Le fermer côté client demanderait de dire au modèle qu'une non-réponse documentaire ne vaut
+  pas réponse à une question de données. **Risque à mesurer avant de l'écrire** : la même
+  consigne appliquée à une *vraie* question hors corpus remplacerait les huit phrases
+  publiées dans `rapport_refus.md`.
 - [x] **Le défaut n°2 — « le chemin varie aussi » — est fermé par 2bis.11.** C'était « le plus
   gênant » des trois, et pour la raison écrite ici : le tool appelé changeait, donc la ligne de
   journal aussi. Rejeu du 2026-09-08 : **`get_schema·ok` sur trois passes**, une seule ligne de
@@ -1335,8 +1357,8 @@ item est fait, et c'est celui qui fermait une fuite.
 | 6b | **2bis.5** cible Make de la mesure | sans elle, le chiffre de 1b n'est pas rejouable | **ouvert** |
 | 7b | **2bis.4** requête SQL sans table | ni fuite ni reproductible, mais un trou de contrôle nommé | **ouvert** |
 | 8b | ~~**2bis.6** consigne au guide~~ | un intégrateur peut refaire 2bis.3 chez lui | **faite le 2026-09-08** — §5 la consigne, §7 la limite, §4 les descriptions filtrées |
-| 9b | **2bis.9** colonne verte sur un renoncement | le seul défaut **du front lui-même** ; trompeur en démonstration | **ouvert** |
-| 10b | **2bis.10** la non-réponse n'a ni phrase ni chemin stables | même racine que 1b et 9b : un renoncement n'a pas de verdict, donc rien ne le fige | **moitié faite** — le chemin est stable (11b), la phrase ne l'est pas |
+| 9b | ~~**2bis.9** colonne verte sur un renoncement~~ | le seul défaut **du front lui-même** ; trompeur en démonstration | **faite le 2026-09-09** — `check-client` 39 → 75, `sans_reponse` 3/3 sous `dev` |
+| 10b | **2bis.10** la non-réponse n'a ni phrase ni chemin stables | même racine que 1b et 9b : un renoncement n'a pas de verdict, donc rien ne le fige | **`SQL-01` fermé le 2026-09-09** — verdict, phrase et ligne de journal, 3/3 ; **`SQL-08` ouvert**, le modèle s'arrête au `hors_corpus` |
 | 11b | ~~**2bis.11** les descriptions nomment des tools fermés~~ | la cause commune de 2b, 3b et 10b, le seul aiguillage du système, et la seule des onze dont le résultat soit **contrôlable** | **faite le 2026-09-08** — 3b fermée, 2b tranchée de fait, 10b à moitié ; `check-contrat` 145 → 163 |
 
 **Ordre de sacrifice** : 7b, puis 8b, puis 6b. Ne pas sacrifier 2b à 5b — ce sont les quatre
