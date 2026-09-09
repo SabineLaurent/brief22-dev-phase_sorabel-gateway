@@ -61,9 +61,9 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   **La forme du `where` est une disjonction, pas une conjonction** : la clé `theme` est
   omise sur les 320 non-notes, et un `$and` naïf ne rendrait que des notes. C'est la forme
   écrite dans `Q3.md` §8, qui y était « documentée, pas exécutée » — ce chantier l'exécute.
-  `make check-perimetre` : 31 contrôles, décomptes en or 270/318/350 vérifiés contre l'index.
+  `make check-perimetre` : 43 contrôles, décomptes en or 270/318/350 vérifiés contre l'index.
   `make mesure-perimetre` → `eval/rapport_perimetre.md` (axe 3 du protocole) : filtrer après
-  la troncature coûte 0,83 résultat par question à `dev` et décide cinq fois le seuil de
+  la troncature coûte 0,67 résultat par question à `dev` et décide quatre fois le seuil de
   refus sur un document que l'utilisateur ne verrait pas.
 - **Chantier 3, étape 1 — réponse déterministe et journalisation, côté SQL : faite.**
   `text_to_sql_factory/structured_answer.py` (`DbStructuredAnswer`,
@@ -317,6 +317,47 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   le défaut ; les contrôles déterministes comptent donc plus que le rejeu.
   **Écart assumé** : le badge de colonne du comparateur (`_statut`) reste plus strict que le
   texte — à relire avec 2bis.9.
+- **La politique de candidats, et deux mesures du dépôt qui se contredisaient (2bis.1) : faite
+  le 2026-09-09.** `search.py` (`search_pool` le **vivier**, `rerank_candidates` le **budget**,
+  `max_candidates_per_title` le **plafond**, `candidate_policy()`), `eval_candidates.py`,
+  `eval/questions_candidats.jsonl`, trois cibles neuves (`mesure-candidats`,
+  `mesure-candidats-profils`, `calibrer-candidats-c0`), publié dans `eval/rapport_candidats.md`
+  (axe 8).
+  **Un profil à plus de droits obtenait moins de réponses** : `support` (318 éditions) servait
+  2/4 là où `dev` (270) servait 3/4. Sous `C1` (vivier 60, budget 20, plafond 3 par titre) les
+  quatre profils coïncident à **3/4**, et `dev` ne bouge pas.
+  **Le reranker ne se trompait pas : on ne lui montrait pas le document.** Un seul cadran
+  servait de profondeur dense, de profondeur BM25, de troncature RRF *et* de population notée —
+  le vivier de `support` portait **2 titres distincts** sur 20 places (80 notes pour 5 titres,
+  redondance 16×). À 60 il en porte 30. Sur la question du défaut, les titres du top-5 passent
+  de **1 à 5** et le score de rang 1 de 0,0050 à **0,0859**, celui de `dev`.
+  **Le plafond diffère, il n'exclut jamais** — les candidats au-delà repassent en queue, donc le
+  budget reste plein quand le vivier est pauvre en titres. Clé `titre` : ni `theme` (omis sur
+  320 éditions) ni `doc_key` (déjà unique).
+  **Le seuil est stable, pas coïncident** : `calibrer-hybride` sous `C1` et
+  `calibrer-candidats-c0` reproposent tous deux **0,0530**. Aucun confondant de seuil dans la
+  comparaison des deux étages.
+  **Une prédiction démentie** : un vivier plus profond ne fait pas *ajouter* des candidats — le
+  budget reste à 20 — il change **lesquels**. 6 des 38 lignes du jeu partagé baissent, **aucun
+  verdict ne bascule**. RAG-23 retombe à 0,0532 pour un seuil de 0,0530 : deux dix-millièmes,
+  marge nommée.
+  **Le dépôt portait deux mesures contradictoires de la même cellule** : le CSV de la
+  configuration A du 07-09 ne se reproduit pas, celui du 08-09 se reproduit à l'octet.
+  `rapport_gain.md` et `rapport_embeddings.md` se contredisaient. Republié — **le gain E6 était
+  sous-estimé** (A devient plus mauvais). Cause du run du 07-09 **non déterminable** : c'est le
+  trou que l'en-tête de CSV à deux lignes (politique + seuil) vient de fermer.
+  **Limite qui reste** : le critère de succès écrit pour 2bis.1 était « un contrôle interdit
+  qu'un profil à périmètre plus large obtienne moins de réponses ». Ce qui est livré contrôle le
+  **mécanisme** (12 contrôles de diversité du vivier), pas la **propriété** — la monotonie reste
+  à contrôler. Et `CND-02` reste refusée par les quatre profils : `support` y rejoint exactement
+  `dev`, donc c'est le **seuil** qui coupe, pas le périmètre. C'est 2bis.2, passé à l'axe 4.
+  **Reste à republier** : `rapport_rerank.md`, `rapport_embeddings.md` et
+  `rapport_local_vs_distant.md` citent des scores relevés sous `C0` — conclusions intactes,
+  chiffres à reprendre.
+  **Décomptes courants**, relevés en fermant ce lot : check-sql **83**, check-feedback **103**,
+  check-rag-tools **73**, check-perimetre **43**, check-contrat **163**, check-client **75** —
+  540 contrôles déterministes, 558 avec `check-index`. `make lint` vert, `make test` 12/12 en
+  57,85 s.
 - **Reste du chantier 3.** Par ordre d'exigence du brief :
   1. **l'interface graphique splittée par rôle : faite le 2026-09-08** (`make web-compare`,
      port 8101) — un front Chainlit, une colonne par profil, chaque colonne adossée à son

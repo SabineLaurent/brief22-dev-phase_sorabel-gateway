@@ -4420,3 +4420,216 @@ dans sa description, et c'est mesuré), et `support` répond comme avant.
 `check-feedback` 103, `check-rag-tools` 67, `check-perimetre` 31, `check-contrat` 163
 inchangées (aucune ne touche `packages/agent`) · `tests/` ne référence ni `packages.agent` ni
 `packages.web_client` : la suite d'acceptance est indépendante de ce chantier.
+
+## 2026-09-09 — La politique de candidats, et deux mesures du dépôt qui se contredisaient (2bis.1)
+
+Un profil à **plus** de droits obtenait **moins** de réponses. `support` voit 318 éditions
+contre 270 pour `dev` — un surensemble — et servait **2 / 4** là où `dev` servait **3 / 4**.
+C'est E1 qui recule là où la matrice s'élargit, et c'était `2bis.1`, ouvert depuis la revue.
+
+### Le défaut : un seul cadran pour quatre rôles
+
+`depth = rerank_candidates` servait à la fois de profondeur dense, de profondeur BM25, de
+troncature RRF **et** de population notée par le reranker. Un plafond par titre n'avait donc
+aucune matière à repêcher : mesuré, le vivier de `support` à 20 places porte **2 titres
+distincts** — 80 notes internes pour 5 titres, redondance 16× — et la procédure SAV n'y
+entrait jamais. À 60 places, il en porte **30**.
+
+**Le reranker ne se trompait pas : on ne lui montrait pas le document.** C'est le point qui
+distingue ce correctif des trois pistes écrites au TODO, qui déplaçaient toutes le *budget* de
+rerank — le seul étage coûteux. Celui-ci déplace le **vivier** et laisse le budget à 20.
+
+Les deux cadrans sont donc séparés : `search_pool` (le vivier, par étage, avant fusion) et
+`rerank_candidates` (le budget, ce que le reranker note réellement), plus
+`max_candidates_per_title` (le plafond). `_fetch` passe **avant** la troncature, et c'est ce
+qui rend le plafond possible : la fusion RRF ne rend que des identifiants nus, le plafond a
+besoin du `titre`. Un seul aller-retour Chroma dans les deux cas.
+
+**`cap_per_title` diffère, il n'exclut jamais** : les candidats au-delà du plafond repassent en
+queue dans leur ordre. La fonction rend donc toujours autant d'éléments qu'elle en reçoit, et
+le budget reste plein quand le vivier est pauvre en titres. La clé est `titre` — ni `theme`,
+omis sur les 320 non-notes, ni `doc_key`, déjà unique par document : c'est le seul des onze
+champs de métadonnées qui porte la redondance de série, et il vaut pour tout le corpus.
+
+### Livré éteint, puis allumé — deux commits exprès
+
+`search_pool = None` et `max_candidates_per_title = None` reproduisent exactement la forme
+d'avant. La couche est donc relisable **sans être capable de rien casser**, et l'inertie est
+prouvée et non argumentée : mesure hybride rejouée, les 38 lignes de données identiques au bit
+au CSV publié. Le basculement (`60` / `3`) est un commit séparé.
+
+Les deux valeurs sont **mesurées, pas choisies** : à 20 le vivier de `support` porte 2 titres,
+à 60 il en porte 30 ; et 20 places à 3 par titre portent ~7 sujets au lieu de 2. Le vivier doit
+porter au moins `rerank_candidates // max_candidates_per_title` titres pour que le budget se
+remplisse de sujets et non de doublons.
+
+### Le seuil est stable, pas coïncident
+
+L'ordre du protocole exige un seuil recalibré par cellule quand l'échelle change. Ici le
+reranker ne change pas, mais le vivier oui — donc la recalibration était le préalable, pas une
+formalité. `make calibrer-hybride` sous `C1` repropose **0,0530**, la valeur en place, et
+`make calibrer-candidats-c0` — cible neuve — établit que l'ancienne politique proposait la
+même. Rien à reporter dans `.env`, `config.py` ni le Makefile, et **aucun confondant de seuil**
+dans la comparaison des deux étages.
+
+`C1` resserre même la population hors-corpus du jeu de calibration : 0,000–0,016 devient
+0,001–0,004, et la marge de séparation passe de 0,037 à 0,049.
+
+`calibrate_threshold.py` imprime désormais la politique sous laquelle il a tourné. Un seuil dont
+on ne peut pas relire la politique est du même genre que le seuil dont on ne peut pas relire le
+modèle — garde-fou déjà manquant, déjà consigné ; autant ne pas en creuser un second.
+`candidate_policy()` descend donc dans `search.py`, à côté du code qui applique la politique, et
+les deux harnais la partagent.
+
+### Une prédiction du plan, démentie par la mesure
+
+J'avais écrit qu'élargir le vivier ne pouvait que faire **monter** le score du rang 1. Faux. Le
+budget restant à 20, un vivier plus profond ne fait pas *ajouter* des candidats, il change
+**lesquels** : les scores RRF se recomposent sur ≤120 identifiants au lieu de ≤40, et un
+document présent dans les deux listes profondes peut évincer un document qui n'était que dans
+une liste courte.
+
+Sonde sur le jeu de mesure : **6 des 38 lignes bougent, toutes vers le bas** (RAG-19
+0,0049→0,0046 · RAG-23 0,0868→0,0532 · RAG-26 0,0042→0,0038 · RAG-27 0,0027→0,0024 · RAG-29
+0,5175→0,1603 · RAG-30 0,0175→0,0152), et **aucun verdict ni aucun rang ne bascule** — Hit@1
+8/8, MRR 1,000, Recall@5 12/13, refus corrects 5/8. Les chiffres de tête des rapports tiennent
+donc ; ce sont les scores cités nommément qui dérivent.
+
+**Limite à connaître** : RAG-23 retombe à **0,0532 pour un seuil de 0,0530**. Deux
+dix-millièmes. La recalibration l'a pesé et n'a pas bougé, mais la marge est nommée.
+
+### L'axe 8, et pourquoi il a son propre jeu
+
+`eval_candidates.py`, `eval/questions_candidats.jsonl` (4 questions), `make mesure-candidats`
+(les deux cellules sur le jeu partagé) et `make mesure-candidats-profils` (4 profils × 2
+étages). Publié dans `eval/rapport_candidats.md`.
+
+| profil | éditions | `C0` | `C1` |
+|---|---:|---|---|
+| `dev` | 270 | 3 / 4 | 3 / 4 — **témoin, inchangé** |
+| `support` | 318 | 2 / 4 | **3 / 4** |
+| `commercial` | 350 | 2 / 4 | **3 / 4** |
+| `admin` | 350 | 2 / 4 | **3 / 4** |
+
+Le mécanisme tient dans un nombre. Sur « Comment procéder à un retour ? », les titres distincts
+du top-5 de `support` passent de **1 à 5**, et son score de rang 1 de 0,0050 à **0,0859** —
+exactement celui de `dev`, sur le même document, au même rang.
+
+**Le jeu partagé n'a pas reçu ces questions, et c'est une décision.** Il est un invariant du
+protocole (§6), et il est lu par trois harnais qui n'interprètent pas son champ `type` de la
+même façon : `eval_perimeter.py` compte comme « à cible » tout ce qui n'est pas `hors_corpus`,
+donc un type neuf y aurait déplacé **en silence** les chiffres publiés de l'axe 3. Essayé,
+constaté, annulé.
+
+**Ce que la mesure dément** : le jeu partagé ne voit rien de cet axe. Rejoué en `C0` puis `C1`,
+il rend les mêmes Hit@1 8/8, MRR 1,000, Recall@5 12/13 et refus corrects 5/8 — aucun verdict,
+aucun rang. *Un jeu qui ne contient pas le cas difficile ne peut rien dire du cas difficile*,
+troisième fois dans ce dossier.
+
+**Ce qu'il passe à la suite** : `CND-02` reste refusée par les quatre profils sous `C1`, mais
+`support` y rejoint exactement `dev` (0,0021 → 0,0061). L'asymétrie de périmètre est réparée ;
+c'est le **seuil** qui coupe. Sur le même document cible, trois tournures donnent 0,9480 ·
+0,0859 · 0,0061 — **facteur 155**, plus fort que le facteur 100 du §2bis.2. L'axe 8 passe donc
+le cas à l'axe 4, où il se tranche. `2bis.2` reste ouvert, et il est maintenant isolé.
+
+### Le dépôt portait deux mesures contradictoires de la même cellule
+
+Trouvé en rejouant `make mesure`, et **sans rapport avec la politique de candidats** — d'où un
+commit séparé. Les deux CSV de la configuration A ne se reproduisaient plus, alors qu'aucun code
+de recherche n'avait bougé depuis le 2026-09-06 et qu'`uv.lock` datait du 2026-09-03, **tous
+deux antérieurs** au CSV publié le 2026-09-07 :
+
+```
+mesure-dense.csv       (07-09)  RAG-13 rang 1 · 0,8562   RAG-17 rang 1 · 0,8539  servi
+mesure-emb-local-A.csv (08-09)  RAG-13 absent  · 0,8317  RAG-17 absent  · 0,8159  REFUSÉ
+```
+
+Le rejeu du jour reproduit **celui du 08-09 à l'octet**. Deux exécutions à un jour d'écart
+concordent, et celle du 07-09 est l'intruse.
+
+Conséquence publiée : `rapport_gain.md` bâtissait sa colonne A sur le CSV du 07-09, tandis que
+`rapport_embeddings.md` publiait le 08-09 les chiffres de `e5` local. **Les deux rapports du
+dépôt se contredisaient sur la même cellule.** Republier répare la contradiction, il ne
+l'introduit pas.
+
+```
+Recall@5 (couverte) colonne A     11/13 -> 9/13
+RAG simple  Hit@1 réf / fiche      4/8  -> 2/8
+RAG simple  Recall@5              11/13 -> 12/13
+```
+
+**Le gain E6 publié était donc sous-estimé** : A devient plus mauvais, l'écart avec C se creuse.
+B et C ne bougent pas d'une ligne, et les chiffres de tête de C sont inchangés.
+
+**La cause du run du 07-09 n'est pas déterminable depuis le dépôt, et je ne la devine pas** :
+l'index est intact (400 éditions, 350 courantes, empreinte au vert, `check-index` 18/18), la
+collection est la bonne, et `mesure-rag-simple` tourne sur `sorabel_corpus_raw` où aucun index
+Azure n'existe. Ce run a été produit dans des conditions **que le dépôt n'enregistrait pas**.
+
+### Le trou que ce diagnostic a rendu visible, et qui est maintenant fermé
+
+`rerank_candidates` n'était enregistré **nulle part** : ni dans l'en-tête des CSV, ni dans aucun
+rapport. Deux mesures jouées de part et d'autre d'un changement de profondeur étaient
+**indiscernables** — et c'est exactement ce que le correctif de `2bis.1` allait produire.
+
+L'en-tête des CSV passe donc à deux lignes, la seconde portant ce dont dépend chaque chiffre de
+la colonne `refused` : la politique de candidats (vivier, budget, plafond) et le seuil appliqué.
+`candidate_policy()` rend « sans-objet » en A et en B, qui ne passent ni par un vivier ni par un
+reranker — y recopier les nombres ferait croire qu'ils ont joué un rôle.
+
+**Le format est écrit avant le correctif, exprès.** `vivier:20/budget:20/plafond:aucun` est
+exactement vrai le jour où il est écrit ; à l'étape suivante ce sont les valeurs qui bougent,
+pas la forme, et deux CSV restent comparables ligne à ligne. Avec cet en-tête, le diagnostic de
+la section précédente aurait tenu en une ligne de `diff`.
+
+### Trois corrections au protocole de mesure, dont deux étaient fausses
+
+* le jeu de calibration annoncé à « 8 questions hors corpus » en contient **14** (8
+  `hors_corpus` + 6 `couverte`), vérifié sur le fichier — avec la réserve qui va avec :
+  **0 référence produit sur 14**, contre 8 sur 30, ce qui explique les deux renversements
+  calibration → mesure des axes 6 et 7 ;
+* « le script est `scripts/eval_rag.py`, lancé par chemin » : c'est un **module** depuis le
+  déplacement des paquets. Corrigé aussi dans son docstring, qui portait la même contre-vérité ;
+* « son en-tête rappelle les quatre drapeaux effectifs » : remplacé par les deux lignes réelles
+  et leur motif.
+
+L'axe 8 n'a pas été écrit au protocole avant d'exister : son étage `C1` a besoin des deux
+cadrans, et documenter un drapeau sans cible qui le joue produirait le défaut du §2.5 — un champ
+promis et absent.
+
+### Republications
+
+* `rapport_gain.md` — colonne A corrigée (voir plus haut) ; colonne C inchangée ;
+* `rapport_perimetre.md` — **P0 devient moins mauvais** : `dev` 11/30 → **9/30** questions dont
+  le top-5 contient un interdit, `support` 5/30 → **3/30**, seuil décidé sur un interdit 5 →
+  **4**, coût par question 0,83 → **0,67**. *La conclusion tient, sa magnitude diminue* ;
+* `rapport_refus.md` — chiffres de tête identiques (5/8 → 8/8, 1/22 → 3/22) ; une seule ligne
+  bouge, le minimum de `couverte`, 0,0049 → 0,0046 ;
+* `rapport_acces.md` — inchangé, E5 reste **50/50 journalisés, 0 fuite**. Une ligne du CSV bouge
+  sur un scénario SQL (`ask_database` `ok` → `clarification`) : non-déterminisme de modèle, hors
+  de portée de ce correctif.
+
+### Deux affirmations de `CLAUDE.md` qui étaient périmées
+
+Relevé en comptant les contrôles pour cette entrée : `check-perimetre` en compte **43** (annoncé
+31) et `check-rag-tools` **73** (annoncé 67). L'écart vient de ce lot — `+12` contrôles de
+diversité du vivier et `+6` sur le plafond — et il n'avait pas été reporté. Les deux lignes sont
+corrigées, ainsi que les chiffres du périmètre (0,83 → 0,67, cinq → quatre fois).
+
+**Une limite que ce lot ne ferme pas, et qu'il faut nommer** : le critère de succès écrit pour
+`2bis.1` était « un contrôle interdit qu'un profil à périmètre plus large obtienne moins de
+réponses ». Ce qui est livré, c'est la section « Diversité du vivier » — 12 contrôles sur le
+**mécanisme**, pas sur la **propriété**. Le mécanisme peut rester vert pendant que la propriété
+redevient fausse. La monotonie reste donc à contrôler.
+
+### Reste à faire
+
+`rapport_rerank.md`, `rapport_embeddings.md` et `rapport_local_vs_distant.md` citent des scores
+relevés sous `C0`. **Leurs conclusions n'en dépendent pas, leurs chiffres oui.**
+
+### Vérifications
+
+`make lint` vert (`ruff`, puis `mypy` sur 62 fichiers) · `make test` **12/12 en 57,85 s** ·
+check-sql **83**, check-feedback **103**, check-rag-tools **73**, check-perimetre **43**,
+check-contrat **163**, check-client **75** — soit 540 contrôles déterministes, 558 avec
+`check-index`. Régression rejouée à l'étape précédente : plafond à 999 ⇒ 3 contrôles tombent.
