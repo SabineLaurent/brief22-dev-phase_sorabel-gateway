@@ -23,8 +23,8 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 
 | Profil | Questions dont le top-5 contient au moins un résultat interdit |
 |---|---|
-| `dev` | 11 / 30 |
-| `support` | 5 / 30 |
+| `dev` | 9 / 30 |
+| `support` | 3 / 30 |
 | `commercial` | 0 / 30 |
 | `admin` | 0 / 30 |
 
@@ -34,12 +34,12 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 
 | Mesure | P0 — après troncature | P1 — avant troncature |
 |---|---|---|
-| Résultats rendus, moyenne | 4.13 | 5.00 |
+| Résultats rendus, moyenne | 4.33 | 5.00 |
 | Résultats rendus, minimum | 0 | 5 |
-| Questions sans aucun résultat | **3** | 0 |
+| Questions sans aucun résultat | **2** | 0 |
 | … dont questions couvertes | 0 | 0 |
 | Questions couvertes refusées | 1 | 1 |
-| Seuil évalué sur un résultat interdit | **5** | 0 |
+| Seuil évalué sur un résultat interdit | **4** | 0 |
 | Hit@1 | 20 / 21 | 20 / 21 |
 | MRR | 0.952 | 0.952 |
 
@@ -47,9 +47,9 @@ ici. Ce qui change, ce sont les places du top-5 qu'occupent des notes interdites
 
 | Mesure | P0 — après troncature | P1 — avant troncature |
 |---|---|---|
-| Résultats rendus, moyenne | 4.70 | 5.00 |
-| Résultats rendus, minimum | 0 | 5 |
-| Questions sans aucun résultat | **1** | 0 |
+| Résultats rendus, moyenne | 4.83 | 5.00 |
+| Résultats rendus, minimum | 2 | 5 |
+| Questions sans aucun résultat | **0** | 0 |
 | … dont questions couvertes | 0 | 0 |
 | Questions couvertes refusées | 1 | 1 |
 | Seuil évalué sur un résultat interdit | **1** | 0 |
@@ -97,7 +97,7 @@ d'accepter ou de refuser a porté sur une pièce que l'utilisateur ne verra jama
 
 **Ce que la mesure n'établit pas, et qu'il faut dire.** Les questions que P0 vide
 entièrement sont, sur ce jeu, **toutes des questions hors corpus** :
-RAG-27, RAG-29 et RAG-30 pour `dev`, RAG-30 pour `support`. Les refuser est juste, et P0 en refuse 3 sur 4 —
+RAG-29 et RAG-30 pour `dev`. Les refuser est juste, et P0 en refuse 1 sur 2 —
 pour la mauvaise raison, mais avec le bon résultat.
 Le refus indu redouté ne se produit pas ici : il faudrait
 pour cela une question couverte dont tout le top-5 soit interdit, et le jeu n'en

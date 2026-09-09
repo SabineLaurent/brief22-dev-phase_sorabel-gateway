@@ -41,6 +41,7 @@ from packages.rag_machines.retrieval.search import (
     apply_tiebreak,
     search,
 )
+from packages.rag_machines.retrieval.search import candidate_policy as search_policy
 
 #: La racine du dépôt. **parents[3]**, pas [2] : ce module vit un niveau plus bas que
 #: les autres, dans `evals_and_controls/`. Le compte était juste avant ce déplacement,
@@ -203,8 +204,7 @@ def candidate_policy(config: str, settings_: Settings) -> str:
     """
     if config != "C":
         return "sans-objet"
-    depth = settings_.rerank_candidates
-    return f"vivier:{depth}/budget:{depth}/plafond:aucun"
+    return search_policy(settings_)
 
 
 def write_csv(

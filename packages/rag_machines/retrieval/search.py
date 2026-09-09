@@ -165,6 +165,20 @@ def _fetch(collection: Collection, ids: list[str]) -> dict[str, tuple[str, dict]
     }
 
 
+def candidate_policy(settings: Settings = default_settings) -> str:
+    """Les trois nombres solidaires de la politique de candidats, en une ligne.
+
+    Écrite pour être **imprimée** : par l'en-tête des CSV de mesure et par la sortie de
+    la calibration. Un seuil dont on ne peut pas relire la politique qui l'a produit est
+    du même genre qu'un seuil dont on ne peut pas relire le modèle — le garde-fou qui
+    manque déjà (cf. ``rerank_threshold``). Autant ne pas en creuser un second.
+    """
+    depth = settings.rerank_candidates
+    cap = settings.max_candidates_per_title
+    return (f"vivier:{settings.search_pool or depth}/budget:{depth}"
+            f"/plafond:{'aucun' if cap is None else cap}")
+
+
 def cap_per_title(
     candidates: list[tuple[str, str, dict]], cap: int | None
 ) -> list[tuple[str, str, dict]]:

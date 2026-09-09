@@ -27,9 +27,9 @@ adresse déjà au protocole à deux configurations.
 
 **Décision : aucune mesure ne fait varier plus d'un drapeau à la fois.**
 
-## 2. Six drapeaux orthogonaux
+## 2. Sept drapeaux orthogonaux
 
-L'espace de mesure est un produit de six paramètres, pas une collection de pipelines.
+L'espace de mesure est un produit de sept paramètres, pas une collection de pipelines.
 
 | Drapeau | Valeurs | Où il s'applique | Ce qu'il change |
 |---|---|---|---|
@@ -39,6 +39,7 @@ L'espace de mesure est un produit de six paramètres, pas une collection de pipe
 | `--tiebreak` | `on` · `off` | recherche | la règle de départage fiche/notice, en rangs, `FENETRE = 3` ([`Q3`](../docs/conception/1-rag-avance/Q3.md) §5) |
 | `--embeddings` | `local` *(défaut)* · `azure-small` | ingestion **et** recherche | le modèle qui fabrique les vecteurs : `intfloat/multilingual-e5-base` en local, `text-embedding-3-small` sur Azure AI Foundry — **ajouté le 2026-09-08** |
 | `--rerank` | `local` *(défaut)* · `cohere` | recherche seule | le modèle qui classe les candidats : le cross-encoder `mmarco-mMiniLMv2-L12-H384-v1` en local, `Cohere-rerank-v4.0-pro` sur Azure AI Foundry — **ajouté le 2026-09-08** |
+| `--candidats` | `C1` *(défaut)* · `C0` | recherche seule | la **politique de candidats** : ce que chaque étage récupère (le vivier), ce que le reranker note (le budget), et combien de places un même titre peut occuper (le plafond) — **ajouté le 2026-09-09** |
 
 ### Ce que chaque levier change, concrètement
 
@@ -115,23 +116,32 @@ indexé **et le modèle** déterminent les vecteurs : `sorabel_corpus` pour `cle
 `sorabel_corpus_raw` pour `raw`, `sorabel_corpus_azure_small` pour `clean` + `azure-small`.
 Les trois autres drapeaux ne touchent pas à l'index et se règlent à la requête.
 
-**`--embeddings` n'est pas un drapeau du script**, contrairement aux quatre autres : il se
-pose par l'environnement, `CHROMA_COLLECTION` et `AZURE_EMBEDDING_DEPLOYMENT` devant la
-commande — l'environnement primant sur `.env`. Aucune ligne de code ne le connaît, et les
-deux index coexistent, ce qui est la condition pour rejouer la comparaison dans les deux
-sens. La cible Make reste l'interface, comme pour les autres (§10).
+**Trois drapeaux ne sont pas des drapeaux du script** — `--embeddings`, `--rerank` et
+`--candidats` : ils se posent par l'**environnement** devant la commande, qui prime sur
+`.env`. `CHROMA_COLLECTION` et `AZURE_EMBEDDING_DEPLOYMENT` pour le premier, les trois
+`AZURE_RERANK_*` pour le second, `SEARCH_POOL` et `MAX_CANDIDATES_PER_TITLE` pour le
+troisième. Aucune ligne de `eval_rag.py` ne les connaît. Pour `--embeddings`, les deux index
+coexistent, ce qui est la condition pour rejouer la comparaison dans les deux sens. La cible
+Make reste l'interface, comme pour les quatre autres (§10).
 
-> **Le rerank n'est pas ce drapeau-ci.** `AZURE_RERANK_DEPLOYMENT` bascule le reranker sur un
-> LLM-juge sans toucher à l'index — c'est un changement de *classement*, pas d'*espace
+**Ce que ces trois-là ont en commun n'est pas un hasard** : ils désignent des *composants*,
+pas des *comportements*. Un drapeau du script décrit ce que la mesure demande à la
+recherche ; ceux-ci décrivent avec quoi la recherche est construite, et c'est la
+configuration servie qui en décide.
+
+> **Le rerank n'est pas ce drapeau-ci.** `AZURE_RERANK_DEPLOYMENT` bascule le reranker sur
+> **Cohere** sans toucher à l'index — c'est un changement de *classement*, pas d'*espace
 > vectoriel*. Il demande sa propre mesure et sa propre recalibration du seuil hybride ; le
-> mêler à celle-ci ferait varier deux choses à la fois (§1).
+> mêler à celle-ci ferait varier deux choses à la fois (§1). *(Cette phrase nommait un
+> LLM-juge : ce rerank a été retiré le 2026-09-08, n'ayant été ni conçu, ni mesuré, ni
+> calibré.)*
 
 **Le filtre de version est un drapeau de recherche, pas d'ingestion.** Les 400 éditions sont
 indexées dans les deux collections, `is_current` étant une métadonnée
 ([`Q1`](../docs/conception/1-rag-avance/Q1.md) §5). Le désactiver ne demande donc pas un
 second index — c'est ce qui rend l'axe 2 bon marché.
 
-## 3. Les sept axes de mesure
+## 3. Les huit axes de mesure
 
 ### Axe 1 — la recherche, à ingestion constante
 
@@ -354,6 +364,50 @@ une seule ligne par valeur du drapeau, et le seuil hybride est **recalibré pour
 > l'essentiel du travail. Un meilleur reranker ne peut donc y gagner que des places, jamais
 > des documents. C'est sur `couverte`, et sur le **refus** (le score du premier sert de
 > critère), qu'il se joue.
+
+### Axe 8 — la politique de candidats, à modèles constants
+
+**Ajouté le 2026-09-09**, pour le défaut `2bis.1` : un profil à périmètre **plus large**
+obtenait **moins** de réponses qu'un profil plus étroit. La question est **le reranker voit-il
+de quoi trancher ?**
+
+| | Constant | Varie |
+|---|---|---|
+| | `--text clean` · `--config C` · `--embeddings local` · `--rerank local` · `--version-filter on` · `--tiebreak on` · **le seuil** | `--candidats C0` → `C1` |
+
+| étage | vivier (par étage, avant fusion) | budget (noté par le reranker) | plafond par titre |
+|---|---:|---:|---:|
+| `C0` | 20 | 20 | aucun |
+| `C1` | **60** | 20 | **3** |
+
+**Une politique, pas deux drapeaux — et c'est ce qui respecte le §1.** Le vivier et le plafond
+ne veulent rien dire l'un sans l'autre : un plafond sans vivier profond n'a rien à repêcher, un
+vivier profond sans plafond se laisse remplir par la même série. Ils bougent donc ensemble,
+sous un seul nom, exactement comme les étages `P0`/`P1` de l'axe 3 déplacent deux choses
+solidaires.
+
+**Le seuil est constant, et c'est une exception motivée.** Les axes 6 et 7 recalibrent par
+cellule parce que l'**échelle** de score y change de modèle. Ici le reranker est le même : la
+recalibration sous `C1` repropose `0,0530`, la valeur en place — vérifié, et
+`make calibrer-candidats-c0` rejoue le seuil de l'ancienne politique pour l'établir. Comparer
+à seuil recalibré n'aurait donc rien changé, et le déclarer constant est plus honnête que de
+laisser croire à deux réglages.
+
+**Cet axe a son propre jeu**, `eval/questions_candidats.jsonl` (4 questions), et c'est la
+seule fois du protocole. Deux raisons :
+
+- le jeu partagé est un invariant (§6) **lu par trois harnais qui n'interprètent pas son champ
+  `type` de la même façon** : `eval_perimeter.py` compte comme « à cible » tout ce qui n'est pas
+  `hors_corpus`, donc y ajouter un type neuf déplacerait en silence les chiffres publiés de
+  l'axe 3 ;
+- il est joué **sans périmètre**, donc dans les conditions de `commercial`, et aucune de ses
+  cibles n'est enterrable par une série redondante. Rejoué en `C0` puis `C1`, il ne bouge sur
+  aucune métrique.
+
+> **Ce que l'axe ne dira pas.** Le budget reste à 20 : élargir le vivier ne fait pas *ajouter*
+> des candidats, il change *lesquels* — les scores RRF se recomposent sur une union plus large.
+> Un score de rang 1 peut donc **baisser**, et six le font sur le jeu partagé. Aucun n'y change
+> de verdict, mais l'axe ne garantit pas qu'aucun ne le ferait ailleurs.
 
 ## 4. Le « RAG simple » est un coin de l'espace, pas un second projet
 
@@ -585,6 +639,10 @@ eval/rapport_gain.md                       le tableau de synthèse publié
 eval/rapport_perimetre.md                  axe 3
 eval/rapport_refus.md                      axe 4
 eval/rapport_acces.md                      axe 5
+eval/resultats/mesure-candidats-C0.csv     axe 8 — les deux cellules sur le jeu partagé
+eval/resultats/mesure-candidats-C1.csv
+eval/resultats/mesure-candidats-profils.csv  axe 8 — une ligne par (profil, étage, question)
+eval/rapport_candidats.md                  axe 8
 ```
 
 **Le CSV porte le nom de la cible qui l'a produit**, et son en-tête tient sur **deux lignes de

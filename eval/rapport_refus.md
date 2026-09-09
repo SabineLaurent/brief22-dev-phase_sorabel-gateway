@@ -79,7 +79,7 @@ l'escamote — sur l'échelle du reranker :
 | Sous-ensemble | plage du score du 1er résultat |
 |---|---|
 | `reference_exacte` | 0.9998 – 1.0000 |
-| `couverte` | 0.0049 – 0.9997 |
+| `couverte` | 0.0046 – 0.9997 |
 | `hors_corpus` | 0.0015 – 0.8422 |
 
 **C'est la raison d'être de la barrière 2, et il faut la lire dans ce sens.** Tant

@@ -87,7 +87,18 @@ class Settings(BaseSettings):
     #: Ce qui grossit avec ce nombre est un `collection.query` et un
     #: `bm25.get_scores` — qui calcule déjà sur le corpus entier —, jamais le
     #: nombre d'appels au reranker.
-    search_pool: int | None = None
+    #:
+    #: **60 est mesuré, pas choisi** : à 20 le vivier de `support` porte 2 titres
+    #: distincts, à 60 il en porte 30 (`make check-perimetre`). Le vivier doit
+    #: porter au moins `rerank_candidates // max_candidates_per_title` titres pour
+    #: que le budget se remplisse de sujets et non de doublons.
+    #:
+    #: Un vivier plus profond ne fait pas *ajouter* des candidats — le budget est
+    #: fixe — il change *lesquels* : les scores RRF se recomposent sur une union
+    #: plus large, et un document présent dans les deux listes profondes peut
+    #: évincer un document qui n'était que dans une liste courte. Un score de rang
+    #: 1 peut donc baisser, et c'est pourquoi le seuil est recalibré avec.
+    search_pool: int | None = 60
     #: Places maximales par **titre** dans le budget de rerank. `None` désactive le
     #: plafond, ce qui est la forme d'avant le correctif de `2bis.1`.
     #:
@@ -97,7 +108,10 @@ class Settings(BaseSettings):
     #: le corpus. Les candidats au-delà du plafond sont **différés, pas exclus** —
     #: ils repassent en fin de liste, si bien que le budget reste plein quand le
     #: vivier est pauvre en titres.
-    max_candidates_per_title: int | None = None
+    #:
+    #: À 3, les 20 places du budget portent ~7 sujets au lieu de 2. Un plafond
+    #: supérieur à la taille du vivier équivaut à `None` : rien n'est différé.
+    max_candidates_per_title: int | None = 3
 
     # --- Reranker --------------------------------------------------------------
     #: Cross-encoder local, utilisé quand aucun déploiement Azure n'est renseigné.

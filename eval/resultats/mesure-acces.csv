@@ -35,7 +35,7 @@ commercial,doc-fiche,get_document,ok,ok,allowed,,0,1,
 commercial,doc-note-fermee,get_document,ok,introuvable,allowed,,0,1,
 commercial,doc-inventaire,list_sources,ok,ok,allowed,,0,1,
 commercial,sql-nominal,ask_database,ok,ok,allowed,,0,1,
-commercial,sql-marge,ask_database,ok,ok,allowed,,0,1,marge_ht
+commercial,sql-marge,ask_database,clarification,clarification,allowed,,0,1,marge_ht
 commercial,sql-schema,get_schema,ok,ok,allowed,,0,1,prix_achat_ht|marge_pct|marge_ht
 commercial,sql-stock,check_stock,ok,ok,allowed,,0,1,
 commercial,sql-commande,order_status,ok,ok,allowed,,0,1,
@@ -45,7 +45,7 @@ admin,doc-fiche,get_document,ok,ok,allowed,,0,1,
 admin,doc-note-fermee,get_document,ok,introuvable,allowed,,0,1,
 admin,doc-inventaire,list_sources,ok,ok,allowed,,0,1,
 admin,sql-nominal,ask_database,ok,ok,allowed,,0,1,
-admin,sql-marge,ask_database,ok,ok,allowed,,0,1,marge_ht
+admin,sql-marge,ask_database,clarification,clarification,allowed,,0,1,marge_ht
 admin,sql-schema,get_schema,ok,ok,allowed,,0,1,prix_achat_ht|marge_pct|marge_ht
 admin,sql-stock,check_stock,ok,ok,allowed,,0,1,
 admin,sql-commande,order_status,ok,ok,allowed,,0,1,
