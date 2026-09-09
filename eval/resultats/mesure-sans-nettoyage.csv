@@ -1,4 +1,5 @@
 # cible=mesure-sans-nettoyage config=C text=raw version_filter=on
+# candidats=vivier:60/budget:20/plafond:3 seuil=0.0530
 id,type,criterion,rank_with_tiebreak,rank_without_tiebreak,score,refused,code
 RAG-01,reference_exacte,reference,1,1,0.9999,non,ok
 RAG-01,reference_exacte,fiche_technique,1,1,0.9999,non,ok
@@ -26,15 +27,15 @@ RAG-15,couverte,type_attendu,1,1,0.3994,non,ok
 RAG-16,couverte,type_attendu,,,0.5556,non,ok
 RAG-17,couverte,type_attendu,1,1,0.6268,non,ok
 RAG-18,couverte,type_attendu,1,1,0.9537,non,ok
-RAG-19,couverte,type_attendu,1,1,0.0043,oui,hors_corpus
+RAG-19,couverte,type_attendu,3,3,0.0042,oui,hors_corpus
 RAG-20,couverte,type_attendu,1,1,0.9951,non,ok
 RAG-21,couverte,type_attendu,1,1,0.4892,non,ok
 RAG-22,couverte,type_attendu,1,1,0.9995,non,ok
 RAG-23,hors_corpus,refus,,,0.0991,non,ok
 RAG-24,hors_corpus,refus,,,0.8055,non,ok
 RAG-25,hors_corpus,refus,,,0.0118,oui,hors_corpus
-RAG-26,hors_corpus,refus,,,0.0042,oui,hors_corpus
-RAG-27,hors_corpus,refus,,,0.0027,oui,hors_corpus
+RAG-26,hors_corpus,refus,,,0.0037,oui,hors_corpus
+RAG-27,hors_corpus,refus,,,0.0024,oui,hors_corpus
 RAG-28,hors_corpus,refus,,,0.0015,oui,hors_corpus
-RAG-29,hors_corpus,refus,,,0.5175,non,ok
-RAG-30,hors_corpus,refus,,,0.0175,oui,hors_corpus
+RAG-29,hors_corpus,refus,,,0.1603,non,ok
+RAG-30,hors_corpus,refus,,,0.0152,oui,hors_corpus

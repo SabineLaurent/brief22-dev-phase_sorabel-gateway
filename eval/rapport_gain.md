@@ -11,7 +11,7 @@ Texte nettoyé, filtre de version actif, règle de départage appliquée dans le
 | reference_exacte | Hit@1 (référence) | 1/8 | 3/8 | 8/8 |
 | reference_exacte | Hit@1 (fiche technique) | 1/8 | 3/8 | 8/8 |
 | reference_exacte | MRR | 0.271 | 0.688 | 1.000 |
-| couverte | Recall@5 (`attendu_type`, n=13) | 11/13 | 11/13 | 12/13 |
+| couverte | Recall@5 (`attendu_type`, n=13) | 9/13 | 11/13 | 12/13 |
 | hors_corpus | refus corrects | 7/8 | n/a — Q4 §3 | 5/8 |
 
 `B` n'a pas de seuil de refus praticable (aucune échelle bornée sur un score BM25 — Q4 §3) : la case vide est un résultat, pas un trou.
@@ -22,7 +22,7 @@ Texte nettoyé, filtre de version actif, règle de départage appliquée dans le
 
 | configuration | Hit@1 référence (sans / avec) | Hit@1 fiche (sans / avec) | Recall@5 type (sans / avec) |
 |---|---:|---:|---:|
-| A dense | 1/8 / 1/8 | 0/8 / 1/8 | 11/13 / 11/13 |
+| A dense | 1/8 / 1/8 | 0/8 / 1/8 | 9/13 / 9/13 |
 | B lexical | 3/8 / 3/8 | 1/8 / 3/8 | 11/13 / 11/13 |
 | C hybride | 8/8 / 8/8 | 8/8 / 8/8 | 12/13 / 12/13 |
 
@@ -42,7 +42,7 @@ Un point de comparaison lisible, publié **en plus** des deux axes ci-dessus, ja
 
 | | Hit@1 référence | Hit@1 fiche | Recall@5 type |
 |---|---:|---:|---:|
-| RAG simple | 4/8 | 4/8 | 11/13 |
+| RAG simple | 2/8 | 2/8 | 12/13 |
 | RAG avancé | 8/8 | 8/8 | 12/13 |
 
 ## Limites méthodologiques — à lire avant les chiffres ci-dessus

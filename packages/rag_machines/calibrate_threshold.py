@@ -22,7 +22,7 @@ from pathlib import Path
 from config import settings
 from packages.rag_machines.retrieval.embedder import build_embedder
 from packages.rag_machines.retrieval.reranker import build_reranker
-from packages.rag_machines.retrieval.search import Strategy, search
+from packages.rag_machines.retrieval.search import Strategy, candidate_policy, search
 
 CALIBRATION_SET = Path(__file__).resolve().parents[2] / "eval" / "questions_calibration.jsonl"
 
@@ -69,7 +69,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Jeu de calibration : {CALIBRATION_SET.name} — {len(questions)} questions")
     print(f"Configuration {args.config} ({strategy}), filtre de version actif, "
-          f"top_k={settings.search_top_k}\n")
+          f"top_k={settings.search_top_k}")
+    # Un seuil appartient à la politique de candidats qui l'a produit, autant qu'au
+    # modèle : les scores RRF se recomposent quand le vivier change, donc la
+    # distribution sur laquelle ce seuil est placé n'est pas la même. L'imprimer est le
+    # minimum — ce n'est pas un contrôle, mais c'est la trace qui manquait.
+    print(f"Politique de candidats : "
+          f"{candidate_policy(settings) if args.config == 'C' else 'sans-objet'}\n")
 
     # Construits une fois pour les 14 questions : reconstruire le reranker à chaque
     # question rechargerait le cross-encoder 14 fois pour rien (même correctif que

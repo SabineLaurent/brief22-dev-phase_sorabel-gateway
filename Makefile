@@ -2,7 +2,7 @@
 	mesure-dense mesure-lexical mesure-hybride mesure-perimetre mesure-refus mesure-acces mesure-sans-nettoyage mesure-sans-versions \
 	mesure-rag-simple mesure check-rag-tools check-sql check-feedback check-contrat check-client eval-sql test fmt lint serve client \
 	ingest-azure-small calibrer-azure-small calibrer-cohere mesure-rerank mesure-embeddings calibrer-distant mesure-distant \
-	journal api web web-compare
+	journal api web web-compare mesure-candidats mesure-candidats-profils calibrer-candidats-c0
 
 install:
 	uv sync
@@ -110,6 +110,41 @@ mesure-embeddings:
 	  $(EVAL_RAG) --config A --out mesure-emb-azure-A
 	$(RERANK_LOCAL) $(AZURE_ENV) RERANK_THRESHOLD=$(SEUIL_AZURE_C) \
 	  $(EVAL_RAG) --config C --out mesure-emb-azure-C
+
+# Axe 8 — la politique de candidats (2bis.1). Deux étages, et c'est UNE politique qui
+# varie, pas deux drapeaux : le vivier et le plafond ne veulent rien dire l'un sans
+# l'autre — un plafond sans vivier profond n'a rien à repêcher, un vivier profond sans
+# plafond se laisse remplir par la même série. Même précédent que P0/P1 de l'axe 3.
+#
+# Un plafond supérieur à toute taille de vivier équivaut à « aucun plafond » : rien
+# n'est différé, la liste ressort inchangée. C'est ainsi qu'on rejoue C0, une chaîne
+# vide ne se parsant pas en None.
+#
+# Les deux cellules portent le MÊME seuil, et ce n'est pas un raccourci : la
+# recalibration sous C1 repropose 0,0530, vérifié — cf. calibrer-candidats-c0 pour
+# l'« avant ». Il n'y a donc aucun confondant de seuil dans cette comparaison.
+POOL_C0 ?= 20
+PLAFOND_C0 ?= 999
+SEUIL_CANDIDATS ?= 0.0530
+
+mesure-candidats:
+	SEARCH_POOL=$(POOL_C0) MAX_CANDIDATES_PER_TITLE=$(PLAFOND_C0) RERANK_THRESHOLD=$(SEUIL_CANDIDATS) \
+	  $(EVAL_RAG) --config C --out mesure-candidats-C0
+	RERANK_THRESHOLD=$(SEUIL_CANDIDATS) \
+	  $(EVAL_RAG) --config C --out mesure-candidats-C1
+
+# Le même axe, mais là où le défaut vit : sur les profils. Le jeu d'évaluation est joué
+# sans périmètre, donc dans les conditions de `commercial`, et aucune de ses cibles n'est
+# une note interne — les six mesures publiées ne pouvaient pas voir 2bis.1.
+mesure-candidats-profils:
+	uv run python -m packages.rag_machines.evals_and_controls.eval_candidates
+
+# L'« avant » de la recalibration : le seuil que le jeu de calibration proposait sous
+# l'ancienne politique. Il vaut 0,0530 comme sous la nouvelle — le seuil est stable, et
+# c'est ce qui rend l'axe 8 lisible.
+calibrer-candidats-c0:
+	SEARCH_POOL=$(POOL_C0) MAX_CANDIDATES_PER_TITLE=$(PLAFOND_C0) \
+	  uv run python -m packages.rag_machines.calibrate_threshold --config C
 
 mesure-dense:
 	uv run python -m packages.rag_machines.evals_and_controls.eval_rag --config A --text clean --version-filter on --out mesure-dense

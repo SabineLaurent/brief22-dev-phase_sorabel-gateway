@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import sys
 
+from chromadb.api.types import IncludeEnum
+
 from config import settings
 from packages.rag_machines.access_rag import (
     STATUS_FORBIDDEN_PERIMETER,
@@ -43,6 +45,31 @@ _ALL_VERSIONS_BY_PROFILE = {"dev": 320, "support": 368, "commercial": 400, "admi
 #: Les profils que la matrice ferme entièrement. `Xyz` n'existe pas : la matrice est totale,
 #: il retombe sur `default` et doit être refusé de la même façon.
 _FORBIDDEN_PROFILES = ("default", "Xyz")
+
+#: La question de `2bis.1`, celle par laquelle le défaut s'est vu : `dev` la servait,
+#: `support` et `commercial` la refusaient alors qu'ils voient un surensemble du corpus.
+_REDUNDANCY_QUERY = "Comment procéder à un retour ?"
+
+#: Titres **distincts** dans le vivier BM25, par profil, à deux profondeurs. Décomptes en
+#: or, sur le motif de ceux du dessus : ils confrontent à l'index une propriété du corpus
+#: que rien d'autre ne surveille.
+#:
+#: Ils disent le défaut et son remède en deux lignes. À 20 places, `support` voit
+#: **2 titres** — 80 notes internes pour 5 titres, redondance 16×, et deux séries suffisent
+#: à tout remplir. À 60, il en voit **30** : c'est cette matière-là qu'un plafond par titre
+#: repêche, et sans laquelle il n'aurait rien à faire.
+#:
+#: `dev` fait exception dans les deux cas parce que son périmètre exclut les notes : son
+#: vivier n'a aucune série redondante, donc autant de titres que d'éditions.
+#:
+#: **Ces décomptes ne dépendent pas des réglages** — la profondeur est passée en argument,
+#: pas lue dans `settings` — donc ce contrôle vaut de part et d'autre du correctif. Ce
+#: qu'il interdit est qu'une réingestion ou un changement de tokenisation appauvrisse le
+#: vivier en silence.
+_POOL_TITLES = {
+    20: {"dev": 20, "support": 2, "commercial": 2, "admin": 2},
+    60: {"dev": 60, "support": 30, "commercial": 30, "admin": 30},
+}
 
 
 def main() -> int:
@@ -156,6 +183,37 @@ def main() -> int:
         }
         check(f"{profile} — mêmes éditions des deux côtés",
               lexical_ids == ids_for(perimeter, True), True)
+
+    print("\nDiversité du vivier — ce que le reranker a réellement sous les yeux")
+    # BM25 seul : un comptage de termes, aucun modèle, donc un fait reproductible. C'est
+    # aussi l'étage où la redondance frappe le plus fort — les 16 notes d'une série
+    # matchent « retour » à l'identique, et aucun reranker ne peut noter ce qu'il ne
+    # reçoit pas.
+    fetched = collection.get(include=[IncludeEnum.metadatas])
+    titles = {
+        edition_id: str((metadata or {}).get("titre", ""))
+        for edition_id, metadata in zip(
+            fetched.get("ids") or [], fetched.get("metadatas") or []
+        )
+    }
+    for depth, expected_by_profile in _POOL_TITLES.items():
+        for profile, expected in expected_by_profile.items():
+            perimeter = perimeter_for(profile)
+            assert perimeter is not None, profile
+            pool = [i for i, _ in lexical.search(_REDUNDANCY_QUERY, depth, True, perimeter)]
+            check(f"{profile} — titres distincts dans un vivier de {depth}",
+                  len({titles[edition_id] for edition_id in pool}), expected)
+
+    # L'exigence fonctionnelle, et la seule qui vaille indépendamment des chiffres :
+    # pour que 20 places portent des sujets variés à 3 par titre, le vivier doit porter
+    # au moins 20/3 titres. C'est ce que la profondeur de 20 ne tenait pour aucun profil
+    # à notes, et ce que 60 tient pour tous.
+    for profile in _CURRENT_BY_PROFILE:
+        perimeter = perimeter_for(profile)
+        assert perimeter is not None, profile
+        pool = [i for i, _ in lexical.search(_REDUNDANCY_QUERY, 60, True, perimeter)]
+        check(f"{profile} — le vivier profond porte de quoi remplir 20 places de sujets",
+              len({titles[edition_id] for edition_id in pool}) >= 20 // 3, True)
 
     print("\nCohérence du pickle BM25 avec l'index")
     check("éditions dans le pickle", len(lexical.edition_ids), 400)

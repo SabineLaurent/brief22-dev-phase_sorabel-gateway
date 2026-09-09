@@ -49,6 +49,7 @@ from packages.rag_machines.structured_answer import (
     build_rag_structured_answer,
     rag_client_view,
 )
+from packages.rag_machines.retrieval.search import cap_per_title
 from packages.rag_machines.tools import (
     answer_question,
     question_for_writer,
@@ -182,6 +183,33 @@ def _run(settings: Settings, check, verdict) -> int:  # noqa: ANN001 - deux ferm
     check("les codes servis portent blocked_at = 0",
           {code: build_rag_structured_answer(code).blocked_at for code in sorted(SERVED_CODES)},
           {"aucune_ligne": 0, "introuvable": 0, "ok": 0})
+
+    print("\nPlafond de candidats par titre")
+    # Cinq séries de 16 notes datées portent le même titre : sans plafond, deux séries
+    # suffisent à remplir les 20 places du budget de rerank, et le document qui répond
+    # n'est jamais noté (`2bis.1`). Les contrôles portent sur la fonction, pas sur une
+    # question : elle est pure, donc son résultat est un fait et non une observation.
+    serie = [(f"n{i}", "", {"titre": "Alerte qualité fournisseur"}) for i in range(16)]
+    autres = [(f"p{i}", "", {"titre": f"Procédure SAV {i}"}) for i in range(4)]
+    plafonne = cap_per_title(serie + autres, 3)
+    check("rien n'est perdu — différer, jamais exclure",
+          len(plafonne), len(serie + autres))
+    check("le titre redondant n'occupe que ses places",
+          [doc_id for doc_id, _, meta in plafonne[:7]
+           if meta["titre"] == "Alerte qualité fournisseur"],
+          ["n0", "n1", "n2"])
+    check("les autres titres remontent dans le budget",
+          [doc_id for doc_id, _, _ in plafonne[:7]],
+          ["n0", "n1", "n2", "p0", "p1", "p2", "p3"])
+    check("les différés repassent en queue, dans leur ordre",
+          [doc_id for doc_id, _, _ in plafonne[7:]],
+          [f"n{i}" for i in range(3, 16)])
+    check("un vivier pauvre en titres garde le budget plein",
+          len(cap_per_title(serie, 3)), 16)
+    # `None` est le réglage d'avant le correctif, et c'est ce qui rend la couche
+    # inerte : la même liste ressort, identique et dans le même ordre.
+    check("sans plafond, la liste est rendue telle quelle",
+          cap_per_title(serie + autres, None) == serie + autres, True)
 
     print("\nSeuil de refus, par configuration")
     # Les échelles ne sont pas comparables : servir l'un pour l'autre ferait refuser

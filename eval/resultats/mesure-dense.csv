@@ -1,4 +1,5 @@
 # cible=mesure-dense config=A text=clean version_filter=on
+# candidats=sans-objet seuil=0.8308
 id,type,criterion,rank_with_tiebreak,rank_without_tiebreak,score,refused,code
 RAG-01,reference_exacte,reference,3,3,0.8105,oui,hors_corpus
 RAG-01,reference_exacte,fiche_technique,5,5,0.8105,oui,hors_corpus
@@ -20,11 +21,11 @@ RAG-09,couverte,type_attendu_absent,,,0.8695,non,ok
 RAG-10,couverte,type_attendu,1,1,0.8710,non,ok
 RAG-11,couverte,type_attendu,1,1,0.8838,non,ok
 RAG-12,couverte,type_attendu,1,1,0.8453,non,ok
-RAG-13,couverte,type_attendu,1,1,0.8562,non,ok
+RAG-13,couverte,type_attendu,,,0.8317,non,ok
 RAG-14,couverte,type_attendu,1,1,0.8504,non,ok
 RAG-15,couverte,type_attendu,3,3,0.8483,non,ok
 RAG-16,couverte,type_attendu,,,0.8583,non,ok
-RAG-17,couverte,type_attendu,1,1,0.8539,non,ok
+RAG-17,couverte,type_attendu,,,0.8159,oui,hors_corpus
 RAG-18,couverte,type_attendu,,,0.8044,oui,hors_corpus
 RAG-19,couverte,type_attendu,1,1,0.8277,oui,hors_corpus
 RAG-20,couverte,type_attendu,1,1,0.8678,non,ok

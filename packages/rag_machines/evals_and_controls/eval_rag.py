@@ -1,6 +1,6 @@
 """Mesure du gain de la recherche avancée (E6) — ``eval/protocole-mesure.md``.
 
-Deux modes, un seul script lancé par chemin comme ``check_index.py`` :
+Deux modes, un seul module — ``python -m packages.rag_machines.evals_and_controls.eval_rag`` :
 
 * **mode run** — ``--config {A,B,C} --text {clean,raw} --version-filter {on,off}
   [--out NOM]`` : rejoue les 30 questions de ``questions_rag.jsonl`` dans cette
@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from config import settings
+from config import Settings, settings
 from packages.rag_machines.retrieval.embedder import build_embedder
 from packages.rag_machines.retrieval.reranker import build_reranker
 from packages.rag_machines.retrieval.search import (
@@ -41,6 +41,7 @@ from packages.rag_machines.retrieval.search import (
     apply_tiebreak,
     search,
 )
+from packages.rag_machines.retrieval.search import candidate_policy as search_policy
 
 #: La racine du dépôt. **parents[3]**, pas [2] : ce module vit un niveau plus bas que
 #: les autres, dans `evals_and_controls/`. Le compte était juste avant ce déplacement,
@@ -180,19 +181,55 @@ def run_measure(config: str, text: str, version_filter: bool, out_name: str | No
         rows.extend(_rows_for_question(question, hits, hits_tiebreak, threshold))
 
     name = out_name or f"adhoc-{config}-{text}-{'on' if version_filter else 'off'}-{int(time.time())}"
-    path = write_csv(name, config, text, version_filter, rows)
+    path = write_csv(name, config, text, version_filter, rows, threshold)
     print(f"écrit : {path.relative_to(REPO_ROOT)} ({len(rows)} lignes, {len(load_questions())} questions)")
     _print_summary(config, compute_metrics(rows, tiebreak=True))
     return path
 
 
-def write_csv(name: str, config: str, text: str, version_filter: bool, rows: list[Row]) -> Path:
+def candidate_policy(config: str, settings_: Settings) -> str:
+    """La politique de candidats **telle qu'elle s'est appliquée**, pour l'en-tête du CSV.
+
+    Trois nombres solidaires : le *vivier* récupéré par étage avant fusion, le *budget*
+    de documents réellement notés par le reranker, et le *plafond* de places par titre.
+    Ils valent aujourd'hui `rerank_candidates` pour les deux premiers et rien pour le
+    troisième — c'est-à-dire un vivier qui vaut exactement le budget et aucune limite de
+    redondance. Cette forme est écrite **avant** le correctif de `2bis.1` exprès : le
+    format de l'en-tête ne bougera pas quand les valeurs bougeront, et deux CSV joués de
+    part et d'autre du correctif resteront comparables ligne à ligne.
+
+    « sans-objet » sur les configurations `A` et `B` : ni le dense ni BM25 seuls ne
+    passent par un vivier ni par un reranker, et recopier les nombres y ferait croire
+    qu'ils ont joué un rôle.
+    """
+    if config != "C":
+        return "sans-objet"
+    return search_policy(settings_)
+
+
+def write_csv(
+    name: str,
+    config: str,
+    text: str,
+    version_filter: bool,
+    rows: list[Row],
+    threshold: float | None,
+) -> Path:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     path = RESULTS_DIR / f"{name}.csv"
     with path.open("w", encoding="utf-8", newline="") as handle:
+        # Deux lignes de commentaire, et `read_csv` écarte tout ce qui commence par `#` :
+        # la seconde porte ce que la première ne disait pas et dont dépend pourtant
+        # chaque chiffre de la colonne `refused` — la politique de candidats et le seuil.
+        # Sans elles, un CSV joué avant un changement de profondeur est indiscernable
+        # d'un CSV joué après, et le rejeu ne prouve plus rien.
         handle.write(
             f"# cible={name} config={config} text={text} "
             f"version_filter={'on' if version_filter else 'off'}\n"
+        )
+        handle.write(
+            f"# candidats={candidate_policy(config, settings)} "
+            f"seuil={'aucun' if threshold is None else f'{threshold:.4f}'}\n"
         )
         writer = csv.writer(handle)
         writer.writerow(_CSV_FIELDS)
