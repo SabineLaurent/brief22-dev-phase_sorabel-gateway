@@ -51,6 +51,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import SecretStr
 
 from config import llm_base_url, settings
+from packages import journal
 from packages.agent.gateway import Gateway, build_tools, gateway_session
 from packages.text_to_sql_factory.structured_answer import CLIENT_MESSAGES
 
@@ -169,15 +170,23 @@ _CURRENT_CALL: ContextVar[list[CallNote] | None] = ContextVar(
 )
 
 
+#: La question du tour en cours. Elle n'est là que pour le **journal** : un renoncement est
+#: journalisé depuis le tool, qui ne reçoit aucun argument, et une ligne sans la question
+#: obligerait à la reconstituer en remontant les appels voisins.
+_CURRENT_QUESTION: ContextVar[str] = ContextVar("sorabel_current_question", default="")
+
+
 @contextmanager
-def call_record() -> Iterator[list[CallNote]]:
+def call_record(question: str = "") -> Iterator[list[CallNote]]:
     """Ouvre un carnet pour la durée d'un appel, et le referme quoi qu'il arrive."""
     book: list[CallNote] = []
     token = _CURRENT_CALL.set(book)
+    question_token = _CURRENT_QUESTION.set(question)
     try:
         yield book
     finally:
         _CURRENT_CALL.reset(token)
+        _CURRENT_QUESTION.reset(question_token)
 
 
 def _frozen_of(view: dict[str, Any]) -> str:
@@ -207,6 +216,37 @@ def _served(book: list[CallNote]) -> bool:
 #: pas la réponse. La phrase est alors **fausse sur le fond** : la question n'est pas hors
 #: corpus, elle est hors des outils de ce profil.
 _EXPLICIT_VERDICTS = frozenset({"refused", "error", "clarification"})
+
+
+@dataclass(frozen=True)
+class NoAnswer:
+    """Le renoncement, sous la forme que :mod:`packages.journal` sait écrire.
+
+    Elle satisfait le protocole ``Journalable`` **structurellement** — c'est ce pour quoi il
+    a été écrit en protocole et non en classe de base : le SQL et le RAG s'y branchent sans
+    se connaître, et le client s'y branche à son tour sans que le journal ait à le connaître.
+
+    ``refused`` vaut ``False``, et c'est le champ qui compte : ``decision_of`` en tire
+    ``allowed``. Un renoncement du modèle n'est **pas** un refus de la gateway — le compter
+    ``denied`` gonflerait E5 de non-réponses, la faute même que ``REFUSAL_CODES`` évite aux
+    deux non-réponses documentaires. ``etage`` et ``blocked_at`` sont ``None`` pour la même
+    raison : aucune couche n'a bloqué quoi que ce soit. C'est le **code** qui distingue, et
+    lui seul.
+    """
+
+    code: str = NO_ANSWER_CODE
+    status: str = NO_ANSWER_STATUS
+    message: str = NO_ANSWER_MESSAGE
+    cause: str = ""
+    stack: str = ""
+    forbidden: tuple[str, ...] = ()
+    etage: int | None = None
+    blocked_at: int | None = None
+    refused: bool = False
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        return {"code": self.code}
 
 
 def _no_answer_note() -> CallNote:
@@ -435,31 +475,42 @@ def _compose_prompt(gateway: Gateway) -> str:
             f"{gateway.instructions}")
 
 
-async def _declare_no_answer() -> str:
-    """Ce que fait le tool de renoncement : noter, et rendre sa phrase.
-
-    Il ne touche à rien d'autre. Le texte rendu au modèle **est** la phrase servie, et non
-    un accusé de réception : s'il la recopie dans sa rédaction — ce que la consigne du
-    serveur lui demande de faire des ``message`` — il recopie la bonne, et
-    :func:`compose_answer` la servira de toute façon telle quelle.
-    """
-    book = _CURRENT_CALL.get()
-    if book is not None:
-        book.append(_no_answer_note())
-    return NO_ANSWER_MESSAGE
-
-
-def _no_answer_tool() -> StructuredTool:
+def _no_answer_tool(profile: str) -> StructuredTool:
     """Le tool de renoncement, **ajouté au catalogue du serveur, jamais mêlé à lui**.
 
     Sans argument : il n'y a rien à en tirer. Une « raison » rédigée par le modèle serait du
     texte libre de plus à filtrer, et c'est exactement ce dont on cherche à se passer.
+
+    **Il journalise lui-même**, plutôt que de laisser l'API le faire : la CLI et l'API
+    ouvrent toutes deux un carnet, et une journalisation posée dans l'une des deux laisserait
+    l'autre muette sur le même événement. C'est aussi ce qui donne au renoncement la seconde
+    moitié de ce que 2bis.10 demande — non seulement la même phrase à chaque fois, mais la
+    même ligne de journal.
+
+    Le profil vient de la session, jamais du modèle : il est capturé ici à la construction,
+    comme il l'est dans le processus serveur d'en face.
     """
+
+    async def declare() -> str:
+        """Noter, journaliser, et rendre la phrase — dans cet ordre, celui des handlers.
+
+        Le texte rendu au modèle **est** la phrase servie, et non un accusé de réception :
+        s'il la recopie dans sa rédaction — ce que la consigne du serveur lui demande de
+        faire des ``message`` — il recopie la bonne, et :func:`compose_answer` la servira de
+        toute façon telle quelle.
+        """
+        book = _CURRENT_CALL.get()
+        if book is not None:
+            book.append(_no_answer_note())
+        journal.record(NO_ANSWER_TOOL, profile,
+                       {"question": _CURRENT_QUESTION.get()}, NoAnswer())
+        return NO_ANSWER_MESSAGE
+
     return StructuredTool(
         name=NO_ANSWER_TOOL,
         description=_NO_ANSWER_DESCRIPTION,
         args_schema={"type": "object", "properties": {}},
-        coroutine=_declare_no_answer,
+        coroutine=declare,
     )
 
 
@@ -483,7 +534,7 @@ async def build_agent(gateway: Gateway):  # type: ignore[no-untyped-def]
     # Après le catalogue, et seulement s'il n'est pas vide : un profil sans aucun tool n'a
     # pas à *déclarer* qu'il ne peut pas répondre, `EMPTY_CATALOGUE` le dit déjà, et sans
     # dépendre d'un appel de modèle.
-    tools.append(_no_answer_tool())
+    tools.append(_no_answer_tool(gateway.profile))
 
     if not settings.llm_chat_model:
         raise RuntimeError(
@@ -522,7 +573,7 @@ async def run(profile: str) -> None:
                 continue
             if question.lower() in {"exit", "quit"}:
                 break
-            with call_record() as book:
+            with call_record(question) as book:
                 response = await agent.ainvoke(
                     {"messages": [{"role": "user", "content": question}]}
                 )

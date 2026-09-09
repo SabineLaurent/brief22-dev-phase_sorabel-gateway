@@ -36,12 +36,14 @@ from __future__ import annotations
 import sys
 from typing import Any
 
+from packages import journal
 from packages.agent.cli import (
     NO_ANSWER_CODE,
     NO_ANSWER_MESSAGE,
     NO_ANSWER_STATUS,
     NO_ANSWER_TOOL,
     CallNote,
+    NoAnswer,
     compose_answer,
     frozen_notes,
     frozen_text,
@@ -268,13 +270,35 @@ def main() -> int:
     # La description est le seul aiguillage du tool, et elle suit la règle posée pour les
     # huit du serveur : aucun nom de tool dans un corps de description, faute de quoi elle
     # recommanderait ce que la matrice ferme.
-    description = no_answer_tool().description
+    description = no_answer_tool("dev").description
     nommes = [nom for nom in ("ask_database", "answer_question", "get_schema",
                               "check_stock", "order_status", "search_docs",
                               "get_document", "list_sources") if nom in description]
     check("sa description ne nomme aucun tool", nommes, [])
     check("elle n'attend aucun argument",
-          no_answer_tool().args_schema, {"type": "object", "properties": {}})
+          no_answer_tool("dev").args_schema, {"type": "object", "properties": {}})
+
+    print("\nSa ligne de journal — la seconde moitié de ce que 2bis.10 demande")
+    # `entry_for` est pure : elle n'écrit rien, elle met en forme. Le contrôle porte donc sur
+    # la ligne telle qu'elle serait écrite, sans toucher au journal du dépôt.
+    ligne = journal.entry_for(NO_ANSWER_TOOL, "dev", {"question": "SQL-08"}, NoAnswer())
+    check("elle est reconnue journalisable", isinstance(NoAnswer(), journal.Journalable), True)
+    # Le champ qui décide d'E5 : un renoncement du modèle n'est pas un refus de la gateway,
+    # et le compter `denied` gonflerait le taux de refus de non-réponses.
+    check("sa décision est `allowed`, jamais `denied` ni `error`",
+          ligne["decision"], "allowed")
+    check("le code et le statut sont les siens",
+          (ligne["code"], ligne["status"]), (NO_ANSWER_CODE, NO_ANSWER_STATUS))
+    # Aucune couche n'a bloqué : `etage` et `blocked_at` restent vides, et c'est ce qui
+    # distingue cette ligne d'un arrêt à l'étage 2.
+    check("aucune couche n'a bloqué", (ligne["etage"], ligne["blocked_at"], ligne["forbidden"]),
+          (None, None, []))
+    check("le profil et la question y sont",
+          (ligne["profile"], ligne["arguments"]), ("dev", {"question": "SQL-08"}))
+    check("la phrase lue par l'utilisateur y est, mot pour mot",
+          ligne["client_message"], NO_ANSWER_MESSAGE)
+    check("rien de technique n'y a été inventé",
+          (ligne["cause"], ligne["stack"], ligne["sql"]), ("", "", ""))
 
     print()
     if failures:

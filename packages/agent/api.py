@@ -178,7 +178,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
         return ChatResponse(answer="", error=CLIENT_MESSAGES["argument_malforme"])
 
     profile = profile_for_role(request.role)
-    with call_record() as book:
+    with call_record(request.question) as book:
         try:
             agent = await _agent_for(profile)
             # Catalogue vide : pas d'appel possible, donc rien à faire rédiger. La phrase
