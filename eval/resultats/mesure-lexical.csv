@@ -1,4 +1,5 @@
 # cible=mesure-lexical config=B text=clean version_filter=on
+# candidats=sans-objet seuil=aucun
 id,type,criterion,rank_with_tiebreak,rank_without_tiebreak,score,refused,code
 RAG-01,reference_exacte,reference,2,2,5.8782,n/a,ok
 RAG-01,reference_exacte,fiche_technique,3,3,5.8782,n/a,ok
