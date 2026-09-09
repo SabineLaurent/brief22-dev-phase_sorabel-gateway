@@ -137,7 +137,7 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   **Écart décidé** : `--strategy` disparaît (CLI et `ChatRequest`) — les tools MCP
   n'exposent pas d'étage de recherche, le serveur décide. `make mesure-*` reste l'endroit
   pour comparer les étages.
-  `make test` 12/12 ; check-sql 81, check-feedback 102, check-rag-tools 62,
+  `make test` 12/12 ; check-sql 81, check-feedback 103, check-rag-tools 62,
   check-perimetre 31 inchangés.
 - **Vague 1 du TODO post-revue : faite.** `docs/2026-09-07-todo-post-revue.md`.
   Deux mesures publiées de plus — `make mesure-refus` → `eval/rapport_refus.md` (axe 4) et
@@ -318,17 +318,18 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   **Écart assumé** : le badge de colonne du comparateur (`_statut`) reste plus strict que le
   texte — à relire avec 2bis.9.
 - **Reste du chantier 3.** Par ordre d'exigence du brief :
-  1. **l'interface graphique splittée par rôle** — un front Chainlit, une colonne par profil,
-     chaque colonne adossée à son propre processus MCP (custom element React, exécution en
-     `asyncio.gather`). Le registre de sessions par profil (`GatewayRegistry`) est déjà en
-     place pour ça. C'est aussi elle qui porte le livrable « un lien d'une interface graphique
-     du produit fonctionnel » — **l'URL exigée porte sur l'IGU, pas sur le serveur MCP** :
-     stdio tient le livrable serveur (arbitrage consigné au journal le 2026-09-06). C'est le
-     **dernier livrable nommé** qui manque.
+  1. **l'interface graphique splittée par rôle : faite le 2026-09-08** (`make web-compare`,
+     port 8101) — un front Chainlit, une colonne par profil, chaque colonne adossée à son
+     propre processus MCP (custom element React, exécution en `asyncio.gather`), sur le
+     registre de sessions `GatewayRegistry`. C'est elle qui porte le livrable « un lien d'une
+     interface graphique du produit fonctionnel » — **l'URL exigée porte sur l'IGU, pas sur le
+     serveur MCP** : stdio tient le livrable serveur (arbitrage consigné au journal le
+     2026-09-06). **Ce qui manque est l'URL publiée, pas l'interface** : c'est le dernier
+     livrable nommé sans réponse, et c'est un choix d'hébergement, pas du code.
 
   Le reste vit dans `docs/2026-09-07-todo-post-revue.md` — deux décisions ouvertes
-  (`citations` au journal, `search_for_profile()`), l'écriture du contrat de réponse, les
-  écarts au dossier de conception, et le contournement `literalai` à rendre durable.
+  (`citations` au journal, `search_for_profile()`), l'écriture du contrat de réponse, et les
+  écarts au dossier de conception.
 
   Hors périmètre du brief, instruit et journalisé mais **non ouvert** : le passage à un
   service partagé (transport HTTP, annuaire et secrets), et la chaîne de délégation
@@ -338,11 +339,13 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
 **Les douze tests d'acceptance passent** (`make test`, ~47 s). **Ne rien modifier dans
 `tests/`** : la suite est arrivée avec le dépôt et fait foi.
 
-**Un contournement est nécessaire avant chaque `make test`, et il doit être rejoué après
-chaque `uv sync`** : `literalai` (dépendance de `chainlit`) installe un paquet `tests` à la
-racine de `site-packages`, qui masque le `tests/` du dépôt et empêche pytest de collecter.
-Écarter ce dossier — renommage plutôt que suppression — fait repartir la collecte. Ce n'est
-pas un défaut de la suite.
+**Le contournement `literalai` est périmé — vérifié le 2026-09-09.** `literalai`
+(dépendance de `chainlit`) installe bien un paquet `tests` à la racine de `site-packages`,
+mais `make test` passe `--import-mode=importlib`, qui résout la collision : dossier remis à
+son nom, **12/12 en 46,52 s**. Contre-épreuve : sans le drapeau, la collecte meurt sur
+`ModuleNotFoundError: No module named 'tests.conftest'` pour les trois modules. **Plus rien à
+rejouer après un `uv sync`** — mais un `uv run pytest` tapé à la main sans le drapeau échouera
+toujours.
 
 **Lire `docs/journal-developpement.md` avant de reprendre** — il tient les décisions, les
 arbitrages, les écarts constatés et les points ouverts de chaque étape livrée. Y ajouter
@@ -426,7 +429,7 @@ make seed          # génère data/sorabel.db
 make check-sql     # contrôles déterministes du Text-to-SQL (sans appel de modèle)
 make check-feedback # contrôles de la réponse structurée et du journal (sans appel de modèle)
 make check-contrat # contrôles du contrat publié, de la frontière et des descriptions (163)
-make check-client  # contrôles du dernier mètre : substituer ou compléter la réponse (39)
+make check-client  # contrôles du dernier mètre : substituer, compléter, ou dire qu'on renonce (75)
 make mesure-refus  # axe 4 : le refus servi sur les deux barrières -> eval/rapport_refus.md
 make mesure-acces  # axe 5 : E5 chiffrée, étages d'arrêt, colonnes fermées et la
                    #          frontière du serveur -> eval/rapport_acces.md
@@ -434,6 +437,9 @@ make journal       # les 20 dernières entrées de logs/journal.jsonl
 make eval-sql      # les 24 questions SQL -> eval/rapport_sql.md (un appel LLM chacune)
 make serve         # serveur MCP stdio, les huit tools (profil dans SORABEL_PROFILE)
 make client        # client de test : catalogue et appel d'un tool (PROFILE=support|commercial)
+make api           # API du banc d'essai (uvicorn, port 8000) — socle des deux fronts
+make web           # IGU mono-rôle, Chainlit (port 8100)
+make web-compare   # IGU splittée par rôle : une question, quatre profils côte à côte (8101)
 make test          # suite d'acceptance — 12/12
 make lint          # ruff + mypy — au vert
 ```
