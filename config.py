@@ -172,7 +172,18 @@ class Settings(BaseSettings):
 
     @property
     def uses_azure_embeddings(self) -> bool:
-        return bool(self.azure_embedding_deployment and self.azure_ai_endpoint)
+        """Tout ou rien : les **trois**, ou le modèle local — comme pour le rerank.
+
+        La clé entrait dans l'appel sans entrer dans la condition : deux variables sur trois
+        faisaient donc basculer en distant, et l'absence de la troisième n'échouait qu'au
+        premier appel HTTP, en `401`. Une panne de configuration se présentait en panne de
+        réseau. Symétrique de :attr:`uses_azure_rerank`, qui exigeait déjà les trois.
+        """
+        return bool(
+            self.azure_embedding_deployment
+            and self.azure_ai_endpoint
+            and self.azure_ai_api_key
+        )
 
     @property
     def uses_azure_rerank(self) -> bool:

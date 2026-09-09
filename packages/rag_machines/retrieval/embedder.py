@@ -1,9 +1,11 @@
 """Embeddings : une interface, deux implémentations commutables.
 
-Le choix se fait par configuration, pas par le code appelant : si
-``AZURE_EMBEDDING_DEPLOYMENT`` et ``AZURE_AI_ENDPOINT`` sont renseignés, les
-vecteurs sont calculés par Azure AI Foundry ; sinon par ``multilingual-e5-base``
-en local.
+Le choix se fait par configuration, pas par le code appelant : si les **trois**
+variables ``AZURE_EMBEDDING_DEPLOYMENT``, ``AZURE_AI_ENDPOINT`` et
+``AZURE_AI_API_KEY`` sont renseignées, les vecteurs sont calculés par Azure AI
+Foundry ; sinon par ``multilingual-e5-base`` en local. **Tout ou rien**, comme
+pour le rerank : une configuration partielle retombe en local et le dit sur
+``stderr``.
 
 Le module vit dans ``retrieval/`` parce qu'il sert des deux côtés : l'ingestion
 calcule les vecteurs des documents une fois, la recherche calcule celui de
@@ -14,6 +16,7 @@ sur les questions. Confondre les deux dégrade le rappel sans rien signaler.
 
 from __future__ import annotations
 
+import sys
 from functools import lru_cache
 from typing import Protocol, cast
 
@@ -117,8 +120,34 @@ def _embedder(azure: bool, endpoint: str, api_key: str, deployment: str,
     return cast(Embedder, LocalEmbedder(model))
 
 
+@lru_cache(maxsize=None)
+def _warn_partial(deployment: str, endpoint: str, api_key: str) -> None:
+    """Une seule fois par configuration : le repli est voulu, le silence ne l'est pas.
+
+    Symétrique de celui du reranker, et il manquait. Une variable oubliée retombait sur le
+    modèle local **sans un mot** — et dans une image déployée sans PyTorch, ce repli lève un
+    ``ModuleNotFoundError`` cru au milieu d'une requête, à des lieues de sa cause.
+    """
+    posees = [
+        nom
+        for nom, valeur in (
+            ("AZURE_EMBEDDING_DEPLOYMENT", deployment),
+            ("AZURE_AI_ENDPOINT", endpoint),
+            ("AZURE_AI_API_KEY", api_key),
+        )
+        if valeur
+    ]
+    if posees and len(posees) < 3:
+        print(
+            f"embeddings : configuration Azure partielle ({', '.join(posees)} "
+            "renseignée(s) sur trois) — repli sur le modèle local. Les trois sont "
+            "nécessaires.",
+            file=sys.stderr,
+        )
+
+
 def build_embedder(settings: Settings | None = None) -> Embedder:
-    """Rend l'embedder configuré. Azure s'il est renseigné, local sinon.
+    """Rend l'embedder configuré. Azure si les **trois** variables le sont, local sinon.
 
     **Le même objet est rendu à configuration égale**, et c'est nécessaire, pas
     opportuniste : ``LocalEmbedder`` ne charge son ``SentenceTransformer`` qu'au premier
@@ -129,6 +158,11 @@ def build_embedder(settings: Settings | None = None) -> Embedder:
     ``lexical.py``.
     """
     settings = settings or default_settings
+    _warn_partial(
+        settings.azure_embedding_deployment,
+        settings.azure_ai_endpoint,
+        settings.azure_ai_api_key,
+    )
     return _embedder(
         settings.uses_azure_embeddings,
         settings.azure_ai_endpoint,
