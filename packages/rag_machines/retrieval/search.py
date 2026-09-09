@@ -165,6 +165,38 @@ def _fetch(collection: Collection, ids: list[str]) -> dict[str, tuple[str, dict]
     }
 
 
+def cap_per_title(
+    candidates: list[tuple[str, str, dict]], cap: int | None
+) -> list[tuple[str, str, dict]]:
+    """Réordonne des candidats pour qu'aucun **titre** n'occupe plus de ``cap`` places
+    en tête. ``cap=None`` rend la liste inchangée.
+
+    Le corpus est très inégalement redondant : ``procedure_sav`` a 80 documents pour
+    80 titres, ``note_interne`` en a 80 pour **5** — cinq séries de 16 notes datées, même
+    titre. Un vivier trié par pertinence fusionnée se laisse donc remplir par deux séries,
+    et le document qui répond n'atteint jamais le reranker (``2bis.1``).
+
+    **Différer, jamais exclure.** Les candidats au-delà du plafond repassent en fin de
+    liste dans leur ordre d'origine, et la fonction rend donc toujours exactement autant
+    d'éléments qu'elle en reçoit. C'est ce qui permet à l'appelant de tronquer ensuite au
+    budget sans risquer une liste courte : un profil dont le vivier est pauvre en titres
+    (``dev``, qui n'a pas les notes et porte déjà 20 titres distincts) ne perd rien.
+
+    L'ordre relatif est préservé dans les deux groupes — aucun tri, donc aucune
+    comparaison de scores : à ce stade le reranker n'a pas encore noté.
+    """
+    if cap is None:
+        return candidates
+    kept: list[tuple[str, str, dict]] = []
+    deferred: list[tuple[str, str, dict]] = []
+    seen: collections.Counter[str] = collections.Counter()
+    for candidate in candidates:
+        title = str(candidate[2].get("titre", ""))
+        seen[title] += 1
+        (kept if seen[title] <= cap else deferred).append(candidate)
+    return kept + deferred
+
+
 def _reciprocal_rank_fusion(id_lists: list[list[str]], k: int = _RRF_K) -> list[str]:
     """Fusionne des classements sans mélanger leurs scores (``Q3`` §4) : chaque
     identifiant reçoit ``1 / (k + rang)`` par liste où il apparaît, puis le tri se fait
@@ -302,22 +334,31 @@ def _hybrid_search(
         # pas un cas à absorber silencieusement (Python retire les `assert` sous `-O`,
         # ce message resterait, lui, une erreur explicite dans tous les cas).
         raise RuntimeError("_hybrid_search : reranker manquant — passer par search(), pas cette fonction.")
+    # Le **budget** — ce que le reranker note, le seul étage coûteux — et le **vivier**,
+    # ce que chaque étage récupère avant fusion. Les deux ont longtemps été un seul
+    # nombre : le vivier valait le budget, et un plafond par titre n'aurait eu aucune
+    # matière à repêcher (``2bis.1``).
     depth = settings.rerank_candidates
+    pool = settings.search_pool or depth
 
     # Une seule collection, réutilisée pour l'étage dense et le _fetch final : deux
     # allers-retours Chroma évitables pour la même collection dans le même appel.
     collection = get_collection(connect(settings), embedder, settings, text)
     dense_ids = [hit.doc_id
-                 for hit in _dense_query(collection, embedder, query, depth, version_filter, perimeter)]
+                 for hit in _dense_query(collection, embedder, query, pool, version_filter, perimeter)]
     lexical_index = load_lexical_index(bm25_path(collection_name(settings, text)))
-    lexical_ids = [i for i, _ in lexical_index.search(query, depth, version_filter, perimeter)]
+    lexical_ids = [i for i, _ in lexical_index.search(query, pool, version_filter, perimeter)]
 
-    fused_ids = _reciprocal_rank_fusion([dense_ids, lexical_ids])[:depth]
+    fused_ids = _reciprocal_rank_fusion([dense_ids, lexical_ids])
     if not fused_ids:
         return []
 
+    # ``_fetch`` **avant** la troncature, et c'est ce qui rend le plafond possible : la
+    # fusion ne rend que des identifiants nus, alors que le plafond a besoin du `titre`.
+    # Un seul aller-retour dans les deux cas, sur le vivier au lieu du budget.
     found = _fetch(collection, fused_ids)
     ordered = [(edition_id, *found[edition_id]) for edition_id in fused_ids if edition_id in found]
+    ordered = cap_per_title(ordered, settings.max_candidates_per_title)[:depth]
     if not ordered:
         return []
 

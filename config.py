@@ -68,10 +68,36 @@ class Settings(BaseSettings):
     refusal_threshold: float | None = 0.8308
 
     # --- Recherche hybride (étape 3) ------------------------------------------
-    #: Profondeur des listes avant fusion RRF et avant rerank. Le dossier ne fixe
-    #: pas cette valeur ; elle doit dépasser `search_top_k` pour laisser RRF un
-    #: choix entre plusieurs candidats.
+    #: Nombre de documents réellement notés par le reranker — le **budget**. C'est
+    #: le seul étage coûteux de la chaîne, donc le seul nombre qu'on ne veut pas
+    #: laisser grossir. Le dossier ne fixe pas cette valeur ; elle doit dépasser
+    #: `search_top_k` pour laisser RRF un choix entre plusieurs candidats.
     rerank_candidates: int = 20
+    #: Profondeur récupérée **par étage** avant fusion RRF — le **vivier**. `None`
+    #: le fait valoir `rerank_candidates`, c'est-à-dire vivier == budget : la forme
+    #: d'avant le correctif de `2bis.1`, où un seul nombre servait aux deux rôles.
+    #:
+    #: Les séparer est ce qui donne au plafond par titre de la matière à repêcher.
+    #: Un vivier égal au budget n'en laisse aucune : pour le profil `support`, les
+    #: 20 places étaient occupées par 20 documents mais **2 titres** — 80 notes
+    #: internes pour 5 titres distincts, redondance 16× — et la procédure SAV
+    #: n'entrait jamais dans la liste. Le reranker ne se trompait pas, on ne lui
+    #: montrait pas le document.
+    #:
+    #: Ce qui grossit avec ce nombre est un `collection.query` et un
+    #: `bm25.get_scores` — qui calcule déjà sur le corpus entier —, jamais le
+    #: nombre d'appels au reranker.
+    search_pool: int | None = None
+    #: Places maximales par **titre** dans le budget de rerank. `None` désactive le
+    #: plafond, ce qui est la forme d'avant le correctif de `2bis.1`.
+    #:
+    #: La clé est `titre` et non `theme` (omis sur les 320 éditions qui ne sont pas
+    #: des notes) ni `doc_key` (déjà unique par document) : c'est le seul des onze
+    #: champs de métadonnées qui porte la redondance de série, et il vaut pour tout
+    #: le corpus. Les candidats au-delà du plafond sont **différés, pas exclus** —
+    #: ils repassent en fin de liste, si bien que le budget reste plein quand le
+    #: vivier est pauvre en titres.
+    max_candidates_per_title: int | None = None
 
     # --- Reranker --------------------------------------------------------------
     #: Cross-encoder local, utilisé quand aucun déploiement Azure n'est renseigné.
