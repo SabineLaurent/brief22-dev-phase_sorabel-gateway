@@ -36,14 +36,28 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from packages.agent.cli import CallNote, compose_answer, frozen_notes, frozen_text
+from packages.agent.cli import (
+    NO_ANSWER_CODE,
+    NO_ANSWER_MESSAGE,
+    NO_ANSWER_STATUS,
+    NO_ANSWER_TOOL,
+    CallNote,
+    compose_answer,
+    frozen_notes,
+    frozen_text,
+    renounced,
+)
+from packages.agent.cli import _no_answer_note as no_answer_note
+from packages.agent.cli import _no_answer_tool as no_answer_tool
 from packages.rag_machines.structured_answer import (
     RAG_CLIENT_MESSAGES,
+    RAG_STATUS_BY_CODE,
     build_rag_structured_answer,
     rag_client_view,
 )
 from packages.text_to_sql_factory.structured_answer import (
     CLIENT_MESSAGES,
+    DB_STATUS_BY_CODE,
     build_db_structured_answer,
     client_view,
 )
@@ -193,6 +207,74 @@ def main() -> int:
     check("aucune colonne fermée dans le texte servi",
           [motif for motif in ("marge_pct", "prix_achat_ht", "marge_ht") if motif in servi],
           [])
+
+    print("\nLe renoncement du modèle — la seule enveloppe que le client fabrique")
+    # Il existe parce qu'un renoncement n'a pas de verdict : aucun tool n'a échoué, donc
+    # rien ne pouvait figer la phrase ni éteindre le vert de la colonne.
+    renonce = no_answer_note()
+    check("il porte le nom du tool, son code et sa phrase",
+          (renonce.tool, renonce.envelope["payload"]["code"], renonce.envelope["message"]),
+          (NO_ANSWER_TOOL, NO_ANSWER_CODE, NO_ANSWER_MESSAGE))
+    # Le contrôle qui compte : son statut n'est aucun de ceux que les domaines posent. S'il
+    # en devenait un, il serait compté comme un refus (E5) ou comme un service rendu.
+    check("son statut n'est aucun de ceux des deux domaines",
+          NO_ANSWER_STATUS in set(DB_STATUS_BY_CODE.values()) | set(RAG_STATUS_BY_CODE.values()),
+          False)
+    check("sa phrase est distincte de celle d'un refus de droits",
+          NO_ANSWER_MESSAGE in (CLIENT_MESSAGES["tool_interdit"],
+                                RAG_CLIENT_MESSAGES["tool_interdit"]), False)
+    check("il est reconnu au carnet", (renounced([renonce]), renounced([ok_sql])),
+          (True, False))
+
+    print("\nCe que le renoncement remplace, et ce qui garde la parole devant lui")
+    check("seul — sa phrase est servie", compose_answer([renonce], DRAFTED),
+          NO_ANSWER_MESSAGE)
+    # Le cas `SQL-01` sous `dev` : un appel a réussi — pour le modèle — et l'utilisateur
+    # n'a rien obtenu. La rédaction ne passe pas, et c'est ce qui éteint le vert.
+    check("par-dessus un appel servi — sa phrase, pas la rédaction",
+          compose_answer([ok_sql, renonce], DRAFTED), NO_ANSWER_MESSAGE)
+    # Le cas `SQL-08` sous `dev` : le corpus dit honnêtement qu'il ne porte pas la réponse,
+    # et cette phrase est fausse sur le fond — la question est hors des outils du profil.
+    check("par-dessus une non-réponse documentaire — sa phrase, pas celle du corpus",
+          compose_answer([hors, renonce], DRAFTED), NO_ANSWER_MESSAGE)
+    check("par-dessus un contexte insuffisant — la sienne aussi",
+          compose_answer([vide_rag, renonce], DRAFTED), NO_ANSWER_MESSAGE)
+    # Mais un verdict de la gateway nomme la cause : la taire effacerait un refus à l'écran.
+    for label, note, expected in (
+        ("un refus SQL", refus_sql, CLIENT_MESSAGES["perimetre_interdit"]),
+        ("un refus documentaire", refus_rag, RAG_CLIENT_MESSAGES["tool_interdit"]),
+        ("une panne", panne, CLIENT_MESSAGES["erreur_execution"]),
+    ):
+        check(f"{label} garde la parole devant le renoncement",
+              compose_answer([note, renonce], DRAFTED), expected)
+    rendu = compose_answer([clarif, renonce], DRAFTED)
+    check("une clarification aussi, avec ses axes",
+          rendu.startswith(CLIENT_MESSAGES["clarification"]) and "par mois" in rendu, True)
+    check("l'ordre du carnet n'y change rien",
+          compose_answer([renonce, refus_sql], DRAFTED),
+          CLIENT_MESSAGES["perimetre_interdit"])
+
+    print("\nLe renoncement n'ouvre pas de seconde voie")
+    # Une phrase qui remplace ne complète pas : elle sortirait deux fois.
+    for label, book in (
+        ("seul", [renonce]),
+        ("avec un servi", [ok_sql, renonce]),
+        ("avec un refus", [refus_sql, renonce]),
+    ):
+        check(f"{label} — jamais les deux à la fois",
+              frozen_text(book) is not None and bool(frozen_notes(book)), False)
+    check("rien ne se complète sous un renoncement", frozen_notes([ok_sql, hors, renonce]),
+          [])
+    # La description est le seul aiguillage du tool, et elle suit la règle posée pour les
+    # huit du serveur : aucun nom de tool dans un corps de description, faute de quoi elle
+    # recommanderait ce que la matrice ferme.
+    description = no_answer_tool().description
+    nommes = [nom for nom in ("ask_database", "answer_question", "get_schema",
+                              "check_stock", "order_status", "search_docs",
+                              "get_document", "list_sources") if nom in description]
+    check("sa description ne nomme aucun tool", nommes, [])
+    check("elle n'attend aucun argument",
+          no_answer_tool().args_schema, {"type": "object", "properties": {}})
 
     print()
     if failures:

@@ -47,6 +47,7 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
+from langchain_core.tools import StructuredTool
 from pydantic import SecretStr
 
 from config import llm_base_url, settings
@@ -97,6 +98,49 @@ _MAX_DISPLAYED_HITS = 5
 #: domaines s'arrête aux trois clés du contrat : le payload, lui, n'a ni les mêmes clés ni
 #: les mêmes codes, et une seule mise en forme pour les huit mentirait sur l'un des deux.
 _RAG_TOOLS = frozenset({"answer_question", "search_docs", "get_document", "list_sources"})
+
+#: Le tool par lequel le modèle **déclare qu'il ne peut pas répondre**. Il est **local au
+#: banc d'essai** : il n'est pas au catalogue MCP, il n'atteint aucune donnée, et il ne
+#: traverse jamais le protocole. Ce n'est donc pas une entorse à l'étage 1 — la matrice
+#: décide de ce qui touche aux données, et celui-ci ne touche à rien.
+#:
+#: Il existe parce qu'un **renoncement du modèle n'a pas de verdict**, et que rien ne peut
+#: figer ce qui n'en a pas. Mesuré le 2026-09-08 sur ``SQL-01`` sous ``dev`` : quatre
+#: appels, trois tournures différentes, et une colonne verte à l'écran alors que
+#: l'utilisateur n'avait rien obtenu — ``get_schema`` avait réussi, puis le modèle avait
+#: renoncé. Le client ne pouvait pas le savoir sans lire le texte, ce qu'il ne doit pas
+#: faire ; le serveur ne le sait pas non plus, puisque aucun de ses tools n'a échoué. **Le
+#: seul qui le sache est le modèle**, et jusqu'ici rien ne lui permettait de le dire
+#: autrement qu'en rédigeant.
+NO_ANSWER_TOOL = "declare_no_answer"
+
+#: Le code de cette déclaration. Il est **distinct de ``tool_interdit``** — décidé le
+#: 2026-09-09 : un renoncement du modèle n'est pas un refus de la matrice, et leur donner le
+#: même code les confondrait au journal comme à la mesure.
+NO_ANSWER_CODE = "aucun_tool_adapte"
+
+#: Son statut, et il n'est **aucun des cinq du contrat DSI**. C'est voulu, et c'est sans
+#: danger : cette enveloppe est fabriquée ici, elle ne vient pas d'un tool de la gateway et
+#: n'y retourne pas. Lui donner ``refused`` en ferait un refus qu'aucune barrière n'a
+#: prononcé — la faute que ``REFUSAL_CODES`` évite déjà aux deux non-réponses documentaires
+#: ; lui donner ``ok`` rendrait la colonne verte, c'est-à-dire le défaut qu'on corrige.
+NO_ANSWER_STATUS = "sans_reponse"
+
+#: La phrase servie, et elle est **nouvelle** : « Cette information n'est pas accessible
+#: avec votre profil. » était le candidat naturel, mais elle décrit un refus de droits, et
+#: un renoncement n'en est pas un. Deux mécanismes différents, deux phrases.
+NO_ANSWER_MESSAGE = "Aucun outil disponible ne permet de répondre à cette question."
+
+#: La description lue par le modèle — **le seul aiguillage**, comme pour les huit tools du
+#: serveur, et suivant les mêmes cinq rubriques. Deux précautions y sont écrites : ne rien
+#: dire des tools absents (c'est la fuite d'existence fermée le 2026-09-08), et ne pas
+#: appeler ce tool quand une donnée a déjà été rendue — sans quoi il jetterait ce à quoi
+#: l'utilisateur a droit, ce que le correctif du même jour venait d'empêcher.
+_NO_ANSWER_DESCRIPTION = """Objet : déclarer que tu ne peux pas répondre à la question.
+Entrée : aucun argument.
+Sortie : la phrase qui sera servie à l'utilisateur ; elle remplace ce que tu rédigerais.
+Utiliser quand : aucun des outils proposés ne permet d'obtenir ce qui est demandé, ou bien ceux que tu as appelés n'ont rien rendu qui y réponde. Appelle-le au lieu d'expliquer toi-même pourquoi tu ne peux pas répondre, et sans commenter ce dont tu disposes ou non.
+Ne pas utiliser quand : un outil a rendu la donnée demandée — sers-la ; ni pour une salutation ou une question qui ne porte ni sur la documentation ni sur la base."""
 
 
 @dataclass(frozen=True)
@@ -152,6 +196,41 @@ def _served(book: list[CallNote]) -> bool:
     return any(note.envelope["status"] == "ok" for note in book)
 
 
+#: Les statuts qui **expliquent mieux qu'un renoncement**. Un refus, une panne ou une
+#: clarification sont des verdicts prononcés par la gateway : ils nomment la cause, et la
+#: taire derrière la phrase du renoncement effacerait un refus de la matrice à l'écran —
+#: une régression d'E5, lisible par l'utilisateur.
+#:
+#: ``hors_corpus`` n'y est **pas**, et c'est le cœur du correctif : c'est précisément le
+#: verdict que ``SQL-08`` sous ``dev`` fait sortir — le modèle, privé du tool qui lit les
+#: commandes, se rabat sur le corpus, qui répond honnêtement *pour lui-même* qu'il ne porte
+#: pas la réponse. La phrase est alors **fausse sur le fond** : la question n'est pas hors
+#: corpus, elle est hors des outils de ce profil.
+_EXPLICIT_VERDICTS = frozenset({"refused", "error", "clarification"})
+
+
+def _no_answer_note() -> CallNote:
+    """La note que le renoncement dépose au carnet, sous la forme d'une enveloppe.
+
+    **Une enveloppe fabriquée ici, et la seule du module.** Toutes les autres arrivent du
+    protocole. Celle-ci en emprunte la forme pour une raison précise : :func:`frozen_text`,
+    :func:`frozen_notes` et le badge du comparateur lisent tous ``status``, et un renoncement
+    doit passer par le même chemin qu'un verdict — sinon il faudrait une seconde lecture du
+    carnet, et deux lectures finissent par diverger.
+    """
+    return CallNote(
+        NO_ANSWER_TOOL,
+        {"status": NO_ANSWER_STATUS,
+         "payload": {"code": NO_ANSWER_CODE},
+         "message": NO_ANSWER_MESSAGE},
+    )
+
+
+def renounced(book: list[CallNote]) -> bool:
+    """Le modèle a-t-il déclaré, pendant ce tour, qu'il ne pouvait pas répondre ?"""
+    return any(note.envelope["status"] == NO_ANSWER_STATUS for note in book)
+
+
 def frozen_text(book: list[CallNote]) -> str | None:
     """La phrase qui **remplace** la réponse, ou ``None`` s'il y a autre chose à servir.
 
@@ -172,7 +251,22 @@ def frozen_text(book: list[CallNote]) -> str | None:
     (:func:`frozen_notes`). Ce qui est ``ok`` a franchi les étages d'accès — le refuser à
     l'écran ne protège rien, ça prive l'utilisateur de ce à quoi il a droit. Et ce qui n'a
     pas abouti reste dit, **avec sa phrase**, jamais avec celle du modèle.
+
+    **Le renoncement est la seule exception à cette coupure**, et il passe devant tout le
+    reste sauf un verdict de la gateway (:data:`_EXPLICIT_VERDICTS`). C'est le seul cas où
+    le client sait qu'un appel ``ok`` n'a pas répondu à la question — parce que le modèle
+    l'a déclaré, et qu'il est le seul à avoir lu le résultat.
     """
+    if renounced(book):
+        # Un verdict de la gateway explique mieux qu'un renoncement, et il garde donc la
+        # parole ; sinon c'est le renoncement qui parle — y compris par-dessus un appel
+        # servi, et c'est assumé. `get_schema·ok` sous `dev` **a** été servi, au modèle ;
+        # l'utilisateur, lui, n'a rien obtenu, et le seul à savoir lequel des deux est vrai
+        # est celui qui a lu le résultat.
+        for note in book:
+            if note.envelope["status"] in _EXPLICIT_VERDICTS:
+                return _frozen_of(note.envelope)
+        return NO_ANSWER_MESSAGE
     if _served(book):
         return None
     for note in book:
@@ -190,7 +284,7 @@ def frozen_notes(book: list[CallNote]) -> list[str]:
     du même domaine refusés pour le même motif rendent la même phrase, et la répéter
     donnerait à lire une insistance qui n'existe pas.
     """
-    if not _served(book):
+    if renounced(book) or not _served(book):
         return []
     return list(dict.fromkeys(_frozen_of(note.envelope) for note in book
                               if note.envelope["status"] != "ok"))
@@ -341,6 +435,34 @@ def _compose_prompt(gateway: Gateway) -> str:
             f"{gateway.instructions}")
 
 
+async def _declare_no_answer() -> str:
+    """Ce que fait le tool de renoncement : noter, et rendre sa phrase.
+
+    Il ne touche à rien d'autre. Le texte rendu au modèle **est** la phrase servie, et non
+    un accusé de réception : s'il la recopie dans sa rédaction — ce que la consigne du
+    serveur lui demande de faire des ``message`` — il recopie la bonne, et
+    :func:`compose_answer` la servira de toute façon telle quelle.
+    """
+    book = _CURRENT_CALL.get()
+    if book is not None:
+        book.append(_no_answer_note())
+    return NO_ANSWER_MESSAGE
+
+
+def _no_answer_tool() -> StructuredTool:
+    """Le tool de renoncement, **ajouté au catalogue du serveur, jamais mêlé à lui**.
+
+    Sans argument : il n'y a rien à en tirer. Une « raison » rédigée par le modèle serait du
+    texte libre de plus à filtrer, et c'est exactement ce dont on cherche à se passer.
+    """
+    return StructuredTool(
+        name=NO_ANSWER_TOOL,
+        description=_NO_ANSWER_DESCRIPTION,
+        args_schema={"type": "object", "properties": {}},
+        coroutine=_declare_no_answer,
+    )
+
+
 async def build_agent(gateway: Gateway):  # type: ignore[no-untyped-def]
     """Construit l'agent sur le catalogue que **le serveur** sert à ce profil.
 
@@ -358,6 +480,10 @@ async def build_agent(gateway: Gateway):  # type: ignore[no-untyped-def]
     tools = await build_tools(gateway, render)
     if not tools:
         return None
+    # Après le catalogue, et seulement s'il n'est pas vide : un profil sans aucun tool n'a
+    # pas à *déclarer* qu'il ne peut pas répondre, `EMPTY_CATALOGUE` le dit déjà, et sans
+    # dépendre d'un appel de modèle.
+    tools.append(_no_answer_tool())
 
     if not settings.llm_chat_model:
         raise RuntimeError(
