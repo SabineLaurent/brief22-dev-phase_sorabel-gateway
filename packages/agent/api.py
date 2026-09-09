@@ -52,16 +52,18 @@ from .cli import (
 )
 from .gateway import GatewayRegistry
 
-ROLES = ["support", "dev", "commerciale", "sans_role", "admin"]
+ROLES = ["support", "dev", "commercial", "sans_role", "admin"]
 
-#: Les rôles affichés par l'interface ne portent pas les noms des profils de la matrice :
-#: `commerciale` (UI) vaut `commercial` (matrice), et `sans_role` vaut `default` — le profil
-#: à zéro droit, qui est la valeur de repli du modèle et non une exception. C'est le seul
-#: endroit de la conversion : une seconde table finirait par diverger.
+#: Rôle d'interface → profil de matrice. Quatre des cinq portent désormais le même nom des
+#: deux côtés ; la table reste parce que **`sans_role` (UI) vaut `default` (matrice)** — le
+#: profil à zéro droit, qui est la valeur de repli et non une exception —, et surtout parce
+#: qu'elle rend la conversion **totale** : un rôle inconnu tombe sur `default`, jamais sur un
+#: profil inexistant. C'est le seul endroit de la conversion : une seconde table finirait par
+#: diverger.
 _PROFILE_BY_ROLE = {
     "support": "support",
     "dev": "dev",
-    "commerciale": "commercial",
+    "commercial": "commercial",
     "sans_role": "default",
     "admin": "admin",
 }
@@ -73,7 +75,7 @@ _PROFILE_BY_ROLE = {
 _DISPLAY_BY_ROLE = {
     "support": "Support",
     "dev": "Dev",
-    "commerciale": "Commerciale",
+    "commercial": "Commercial",
     "sans_role": "Sans rôle",
     "admin": "Admin",
 }
@@ -131,7 +133,7 @@ GATEWAYS = GatewayRegistry()
 
 #: Un agent par profil. Le profil est dans la clé pour la même raison qu'avant : partagé,
 #: le premier rôle utilisé serait servi à tous les suivants, et un `sans_role` hériterait
-#: des droits d'un `commerciale` passé avant lui. La différence est qu'aujourd'hui cette
+#: des droits d'un `commercial` passé avant lui. La différence est qu'aujourd'hui cette
 #: séparation est **doublée** par celle des processus serveur.
 _AGENTS: dict[str, Any] = {}
 

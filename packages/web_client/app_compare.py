@@ -55,7 +55,7 @@ COLONNES = [
     ("sans_role", "Sans rôle"),
     ("dev", "Dev"),
     ("support", "Support"),
-    ("commerciale", "Commerciale"),
+    ("commercial", "Commercial"),
 ]
 
 #: Panne de l'interface elle-même — API injoignable, réponse illisible. Une phrase figée
@@ -76,11 +76,11 @@ _EVAL_QUESTIONS = load_eval_questions()
 @cl.set_starters  # type: ignore[arg-type]
 async def starters() -> list[cl.Starter]:
     # Une question de chaque famille, choisies parce qu'elles *séparent* les colonnes :
-    # une question de marge oppose support et commerciale, une question documentaire
+    # une question de marge oppose support et commercial, une question documentaire
     # oppose sans_role au reste.
     return [
         cl.Starter(
-            label="Marge — sépare support et commerciale",
+            label="Marge — sépare support et commercial",
             message="Quelle est la marge totale sur les ventes d'avril ?",
         ),
         cl.Starter(
