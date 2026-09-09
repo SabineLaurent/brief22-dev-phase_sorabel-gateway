@@ -53,6 +53,8 @@ COPY data/ ./data/
 COPY eval/ ./eval/
 COPY docs/schema.sql ./docs/
 COPY tests/ ./tests/
+COPY run-api.sh run-web.sh ./
+RUN chmod +x /app/run-api.sh /app/run-web.sh
 
 RUN uv sync --frozen --no-dev
 ENV PATH="/app/.venv/bin:$PATH"
@@ -74,11 +76,20 @@ RUN mkdir -p /app/logs
 # Un utilisateur non-root exigerait un `chown` sur `/app` ; on reste root, ce qui est le
 # défaut de Container Apps.
 
-# Aucun `CMD` : les deux rôles de cette image en ont un différent, posé côté Container Apps.
-#   gateway : uvicorn packages.agent.api:app --host 0.0.0.0 --port 8000
-#   web     : chainlit run packages/web_client/app.py --host 0.0.0.0 --port 8100
-# Ni l'un ni l'autre ne porte `--reload` : son superviseur ajoute un étage de PID et casse
-# la propagation des signaux, donc l'arrêt propre des sous-processus MCP.
+# DEUX SCRIPTS DE LANCEMENT, ET C'EST UNE NÉCESSITÉ, PAS UN RANGEMENT.
+#
+# Le champ « Arguments » d'Azure Container Apps transmet sa valeur comme UN SEUL argument :
+# ni les virgules ni les espaces ne la découpent. Mesuré à l'écran —
+# `packages.agent.api:app --host,0.0.0.0 --port,8000` arrive en un bloc, et uvicorn cherche
+# un attribut littéralement nommé « app --host,0.0.0.0 --port,8000 ». Le conteneur
+# redémarrait en boucle.
+#
+# Un script ne laisse rien à découper :
+#   gateway : Commande = /app/run-api.sh   Arguments = (vide)
+#   web     : Commande = /app/run-web.sh   Arguments = (vide)
+#
+# Aucun `CMD` par défaut : les deux rôles de cette image n'ont pas le même point d'entrée,
+# et un défaut arbitraire ferait démarrer le mauvais si la commande était oubliée.
 
 # ------------------------------------------------------------ cible de contrôle
 # `--no-dev` laisse `pytest` dehors, et c'est juste pour l'image servie. Mais la validation
