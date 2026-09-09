@@ -32,16 +32,20 @@ celui-ci, resté debout.
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 import chainlit as cl
 import httpx
 
-from packages.agent.api import profile_for_role
 from packages.web_client.evals import load_eval_questions
 
-API_URL = "http://127.0.0.1:8000/chat"
-CATALOGUE_URL = "http://127.0.0.1:8000/catalogue"
+#: Même adresse surchargeable que le front mono-rôle, et pour la même raison : le front et
+#: l'API sont deux processus distincts au déploiement.
+API_BASE = os.environ.get("SORABEL_API_URL", "http://127.0.0.1:8000").rstrip("/")
+
+API_URL = f"{API_BASE}/chat"
+CATALOGUE_URL = f"{API_BASE}/catalogue"
 
 #: Les quatre rôles comparés, **par droits croissants** — c'est ce qui rend la grille
 #: lisible de gauche à droite : zéro tool, puis le schéma sans les données, puis les
@@ -96,7 +100,10 @@ def _colonnes_initiales(question: str) -> list[dict[str, Any]]:
         {
             "role": role,
             "libelle": libelle,
-            "profil": profile_for_role(role),
+            # Vide, et rempli par la réponse de `/catalogue` : c'est le serveur qui dit quel
+            # profil un rôle désigne. Le déduire ici demanderait d'importer la conversion du
+            # backend, donc d'en tenir une copie — cf. la docstring de `app.py`.
+            "profil": "",
             # `None` et non `[]` : « pas encore demandé » n'est pas « zéro tool », et la
             # différence se voit — `sans_role` a bel et bien zéro tool, et c'est un fait à
             # afficher, pas une absence de réponse.
@@ -160,8 +167,9 @@ async def _remplir(
     """
     role = colonne["role"]
     try:
-        catalogue = await client.get(CATALOGUE_URL, params={"role": role})
-        colonne["tools"] = catalogue.json()["tools"]
+        catalogue = (await client.get(CATALOGUE_URL, params={"role": role})).json()
+        colonne["tools"] = catalogue["tools"]
+        colonne["profil"] = catalogue["profile"]
         await _publier(element, verrou)
 
         response = await client.post(API_URL, json={"role": role, "question": question})

@@ -6,7 +6,13 @@ de la matrice d'accès, qui décide du droit d'interroger la base et des colonne
 et du droit d'interroger le corpus — collections ouvertes et thèmes de notes.
 
 Écart assumé, le temps du banc d'essai : ici c'est le client qui déclare son rôle, alors que
-la conception veut le profil lu côté serveur. Il disparaît avec le serveur MCP.
+la conception veut le profil lu côté serveur. Il disparaît avec une chaîne d'identité.
+
+**Ce module n'importe rien du backend.** Ni la matrice, ni la conversion rôle → profil : les
+rôles proposés, leurs libellés et leurs droits viennent de ``GET /roles``. C'est la règle déjà
+appliquée au catalogue à l'étape C — *ce que le client affiche des droits, il le demande au
+serveur* — étendue à ce qui restait. Sans elle, un front déployé séparément embarquerait sa
+propre copie de ``matrice.yaml``, et deux exemplaires d'une source d'autorité divergent.
 
 Pour rejouer une question d'un jeu d'évaluation, taper son identifiant (ex. « RAG-03 »,
 « SQL-01 », « CAL-02 ») dans le chat.
@@ -16,16 +22,35 @@ Lancement : uv run chainlit run packages/web_client/app.py
 
 from __future__ import annotations
 
+import os
+
 import chainlit as cl
 import httpx
 
-from packages.agent.api import profile_for_role
-from packages.access import scope_for
 from packages.web_client.evals import load_eval_questions
 
-API_URL = "http://127.0.0.1:8000/chat"
-JOURNAL_URL = "http://127.0.0.1:8000/journal"
-ALLOWED_URL = "http://127.0.0.1:8000/journal/allowed"
+#: L'adresse du backend. Surchargeable parce que le front et l'API sont deux processus
+#: distincts au déploiement : le défaut vaut pour la boucle de développement, où les deux
+#: tournent sur la même machine.
+API_BASE = os.environ.get("SORABEL_API_URL", "http://127.0.0.1:8000").rstrip("/")
+
+API_URL = f"{API_BASE}/chat"
+JOURNAL_URL = f"{API_BASE}/journal"
+ROLES_URL = f"{API_BASE}/roles"
+
+#: Le rôle actif quand le sélecteur n'en a désigné aucun, à l'**ouverture** d'une session.
+#: `support` parce que le brief demande une interface qui démontre la conversation en langue
+#: naturelle sous ce rôle ; c'est aussi le premier de la liste servie, donc celui que
+#: Chainlit propose de lui-même.
+DEFAULT_ROLE = "support"
+
+#: Ce qu'on prend quand une session **avait** un rôle et l'a perdu. Ce n'est PAS le même cas
+#: que ci-dessus, et pas le même défaut : `cl.user_session` vit en mémoire du processus, sans
+#: persistance, donc une reconnexion sur une autre réplique revient ici. Retomber sur
+#: `support` y serait une **élévation de privilèges silencieuse** — un `sans_role` obtiendrait
+#: les droits du support sans que rien ne le signale. `sans_role` en fait un échec fermé :
+#: zéro tool, refus explicite, et la matrice le journalise.
+FALLBACK_ROLE = "sans_role"
 
 #: Le mot tapé au chat pour relire le journal. Un mot plutôt qu'un bouton : l'interface est
 #: un banc d'essai, et un bouton laisserait croire que la lecture est acquise — alors que
@@ -40,6 +65,33 @@ _JOURNAL_FIELDS = ("timestamp", "profile", "tool", "status", "code", "decision",
 
 _EVAL_QUESTIONS = load_eval_questions()
 
+#: Phrase figée quand l'API n'a pas répondu au démarrage. Figée pour la même raison que les
+#: autres : un message d'exception sous les yeux d'un agent du support ne dit rien d'utile.
+API_INDISPONIBLE = ("L'API n'a pas répondu — les rôles n'ont pas pu être chargés. "
+                    "Vérifiez qu'elle est démarrée, puis rechargez la page.")
+
+#: Les droits de chaque rôle, tels que l'API les a dits au démarrage. Un cache d'affichage,
+#: **jamais une autorité** : la matrice tranche côté serveur, appel par appel. Il existe
+#: parce que Chainlit appelle `chat_profiles()` une fois et `on_chat_start()` à chaque
+#: session — refaire l'appel à chacune n'apprendrait rien de neuf.
+_ROLE_SUMMARIES: dict[str, str] = {}
+
+
+async def _fetch_roles() -> list[dict]:
+    """Les rôles servis par l'API, ou une liste vide si elle n'a pas répondu.
+
+    Remplit `_ROLE_SUMMARIES` au passage. Ne lève jamais : un front qui refuse de démarrer
+    parce que le backend n'est pas encore là serait ingérable au déploiement, où l'ordre de
+    lancement des deux processus n'est pas garanti.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            cards = (await client.get(ROLES_URL)).json()["roles"]
+    except Exception:  # noqa: BLE001 - cf. API_INDISPONIBLE, aucune trace à l'écran
+        return []
+    _ROLE_SUMMARIES.update({card["role"]: card["summary"] for card in cards})
+    return list(cards)
+
 
 # `type: ignore[arg-type]` — dette amont, pas la nôtre : les stubs de Chainlit déclarent
 # un rappel prenant un `User | None`, que le décorateur n'envoie pas. La signature sans
@@ -47,21 +99,26 @@ _EVAL_QUESTIONS = load_eval_questions()
 # paramètre jamais fourni la rendrait fausse à l'exécution pour plaire au typeur.
 @cl.set_chat_profiles  # type: ignore[arg-type]
 async def chat_profiles() -> list[cl.ChatProfile]:
-    # `name` est l'identifiant du rôle : c'est lui qui part vers l'API et que
-    # `profile_for_role()` convertit. `display_name` est ce que le sélecteur montre — la
-    # langue du dépôt veut du français en surface, et l'identifiant brut n'en est pas.
-    return [
-        cl.ChatProfile(name="support", display_name="Support",
-                       markdown_description="Rôle **support** (défaut)."),
-        cl.ChatProfile(name="dev", display_name="Dev",
-                       markdown_description="Rôle **dev**."),
-        cl.ChatProfile(name="commerciale", display_name="Commerciale",
-                       markdown_description="Rôle **commerciale**."),
-        cl.ChatProfile(name="sans_role", display_name="Sans rôle",
-                       markdown_description="**Sans rôle**."),
-        cl.ChatProfile(name="admin", display_name="Admin",
-                       markdown_description="Rôle **admin**."),
-    ]
+    """Les rôles du sélecteur, **demandés à l'API**.
+
+    Une liste en dur ici divergerait de la matrice le jour où un profil y est ajouté ou
+    renommé — et le front enverrait alors un rôle inconnu, qui retombe silencieusement sur
+    `default`. C'est le défaut que `scripts/mcp_client.py` a corrigé de son côté.
+
+    `name` est l'identifiant du rôle : c'est lui qui part vers l'API. `display_name` est ce
+    que le sélecteur montre — la langue du dépôt veut du français en surface, et
+    l'identifiant brut n'en est pas.
+    """
+    cards = await _fetch_roles()
+    if not cards:
+        # Repli de démarrage, pas de sécurité : rien ne garantit l'ordre de lancement des
+        # deux processus. Un seul rôle, et l'accueil dira que l'API n'a pas répondu — sans
+        # lui le sélecteur serait vide et l'interface inutilisable.
+        return [cl.ChatProfile(name=DEFAULT_ROLE, display_name="Support",
+                               markdown_description=API_INDISPONIBLE)]
+    return [cl.ChatProfile(name=card["role"], display_name=card["display_name"],
+                           markdown_description=card["summary"])
+            for card in cards]
 
 
 # Même stub Chainlit, même motif qu'au-dessus.
@@ -73,43 +130,18 @@ async def starters() -> list[cl.Starter]:
     ]
 
 
-def _rights_summary(role: str) -> str:
-    """Ce que ce rôle peut faire, dit d'avance plutôt que découvert par un refus.
-
-    Un `sans_role` doit apprendre à l'accueil qu'il n'obtiendra aucun chiffre : le lui
-    laisser découvrir par un refus donnerait l'impression d'une panne.
-    """
-    profile = profile_for_role(role)
-    scope = scope_for(profile)
-    # La documentation se lit dans la matrice, elle ne se promet pas en dur : `default` n'a
-    # aucun tool, `search_docs` compris. L'étage 2 lui est désormais appliqué comme aux
-    # quatre tools SQL, et le périmètre documentaire du profil part dans la requête — la
-    # phrase dit donc ce qui se passe, plus seulement ce qui devrait se passer.
-    docs = (" La documentation reste interrogeable." if "search_docs" in scope.tools
-            else " La documentation ne lui est pas ouverte non plus.")
-    if "ask_database" not in scope.tools:
-        # Le cas de `dev` : il a `get_schema` et aucun tool de lecture de données. La forme
-        # de la base, jamais son contenu — le dire évite de faire passer pour une panne un
-        # schéma qui répond pendant qu'un chiffre est refusé.
-        forme = (" Le **schéma** reste consultable : la forme de la base, pas son contenu."
-                 if "get_schema" in scope.tools else "")
-        return (f"profil `{profile}` — **aucun chiffre** : les questions sur les données "
-                f"seront refusées.{docs}{forme}")
-    sensitive = {("produits", "prix_achat_ht"), ("produits", "marge_pct"),
-                 ("ventes", "marge_ht")}
-    marges = ("marges et prix d'achat compris" if sensitive <= scope.columns
-              else "**sans** les marges ni le prix d'achat")
-    return (f"profil `{profile}` — base interrogeable sur {len(scope.columns)} colonnes, "
-            f"{marges}.")
-
-
 @cl.on_chat_start
 async def on_chat_start() -> None:
-    role = cl.user_session.get("chat_profile") or "support"
+    role = cl.user_session.get("chat_profile") or DEFAULT_ROLE
     cl.user_session.set("role", role)
+    if not _ROLE_SUMMARIES:
+        # Le sélecteur a démarré sur son repli : l'API n'avait pas répondu. Réessayer ici
+        # rattrape le cas fréquent où le backend a fini de monter entre-temps.
+        await _fetch_roles()
+    summary = _ROLE_SUMMARIES.get(role) or API_INDISPONIBLE
     await cl.Message(
         content=(
-            f"Rôle actif : **{role}** — {_rights_summary(role)}\n\n"
+            f"Rôle actif : **{role}** — {summary}\n\n"
             "Posez une question, ou tapez un identifiant d'eval "
             "(ex. `RAG-03`, `SQL-01`, `CAL-02`) pour la rejouer.\n\n"
             f"Tapez `{JOURNAL_COMMAND}` pour relire le journal des appels — la matrice dit "
@@ -156,7 +188,7 @@ async def _show_journal(role: str) -> None:
 
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
-    role = cl.user_session.get("role", "support")
+    role = cl.user_session.get("role", FALLBACK_ROLE)
     typed = message.content.strip()
 
     if typed.lower() == JOURNAL_COMMAND:
