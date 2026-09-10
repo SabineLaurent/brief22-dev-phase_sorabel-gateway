@@ -4633,3 +4633,155 @@ relevés sous `C0`. **Leurs conclusions n'en dépendent pas, leurs chiffres oui.
 check-sql **83**, check-feedback **103**, check-rag-tools **73**, check-perimetre **43**,
 check-contrat **163**, check-client **75** — soit 540 contrôles déterministes, 558 avec
 `check-index`. Régression rejouée à l'étape précédente : plafond à 999 ⇒ 3 contrôles tombent.
+
+## 2026-09-10 — Le dernier livrable : une URL, et cinq obstacles qu'aucun plan n'avait vus
+
+Le brief attendait « un lien d'une interface graphique du produit fonctionnel ». C'était le
+**seul livrable nommé encore sans réponse** — le serveur MCP en stdio tenait déjà le livrable
+serveur, et l'IGU existait ; il lui manquait un hébergement.
+
+```
+https://sorabel-web-demo-sabl.delightfulpond-41840da3.francecentral.azurecontainerapps.io
+```
+
+Le pas-à-pas complet, avec toutes les commandes de paramétrage et de vérification, vit dans
+`docs/2026-09-10-deploiement-azure-pas-a-pas.md`. Cette entrée porte les décisions et ce que
+la mise en production a appris.
+
+### Trois apps, et pourquoi pas le sidecar qui était prévu
+
+Le plan approuvé prévoyait **une** Container App avec Chroma en conteneur voisin, partageant
+la pile réseau — donc `localhost:8002`. Le déploiement a pris trois apps distinctes, jointes
+par leur nom.
+
+**Le motif est la répétition locale, pas une préférence.** `docker-compose.aca.yml` a validé
+la version « hostnames distincts » (`CHROMA_URL=http://chroma:8002`), parce que le compose ne
+sait pas répéter un partage de pile réseau sans contorsions. Déployer le sidecar aurait mis en
+production une configuration **non testée** ; les trois apps sont celle qui l'a été. C'est
+aussi ce que la doc recommande par défaut.
+
+Le coût est nul : `CHROMA_URL` est précisément la variable prévue pour ça.
+
+### Ce que stdio impose, et qui s'est vérifié
+
+Le serveur MCP n'est **pas** une app. Il parle en stdio, donc sans port ni adresse : un
+ingress n'aurait rien vers quoi router. Il reste un **sous-processus** de l'API, ouvert à la
+demande, un par profil. C'est pourquoi la machinerie backend est une seule image, et pourquoi
+`sorabel-gateway` lance `packages.agent.api:app` et non `mcp_server.server`.
+
+Vérifié en production : `ps` n'existant pas dans l'image, les sous-processus se comptent dans
+`/proc` — quatre après quatre rôles, comme en local.
+
+### Cinq obstacles, dont aucun n'était dans le plan
+
+Le plan avait anticipé onze pièges, tous nommés dans `docs/BUGS.md` §11. **Aucun des cinq
+qui ont réellement coûté du temps n'en faisait partie.**
+
+* **DEP-01 — l'architecture.** `docker build` sur Apple Silicon produit du `linux/arm64` ;
+  Container Apps exécute du `linux/amd64`. Le plan mentionnait `az acr build` pour l'éviter,
+  mais `az` n'était pas installé — et l'écueil est revenu par la porte du `docker push`.
+  Corrigé avant le push : `--platform linux/amd64`, architecture vérifiée par
+  `docker image inspect`, et l'image amd64 exercée (chemins absolus, absence de `torch`,
+  dépicklage BM25 à 400 éditions) **avant** d'être envoyée.
+* **DEP-02 — `env_file` réinjectait les chemins relatifs de `.env`.** Trouvé à l'étape de
+  validation locale, pas en production : `settings.sorabel_db` valait `data/sorabel.db` dans
+  le conteneur. Cela « marchait » par coïncidence de CWD.
+* **DEP-03 — mon `.dockerignore` faisait tomber un test d'acceptance.** J'excluais
+  `eval/rapport_*.md` comme documentation ; `tests/acceptance/test_rag.py:57-64` les **exige**,
+  puisque la suite vérifie que la mesure du gain hybride est publiée. 11/12 dans le conteneur.
+* **DEP-05 — le champ « Arguments » du portail ne découpe rien.** Ni les virgules ni les
+  espaces : la valeur part comme **un seul argument**. Deux instructions fausses de ma part
+  avant de le comprendre, et le message le disait déjà —
+  `Attribute "app --host,0.0.0.0 --port,8000"` contient **les séparateurs**, donc il n'y a eu
+  aucun découpage.
+* **`curl` n'existe pas dans l'image.** `python:3.11-slim` est minimal — `curl`, `wget` et `ps`
+  manquent. Toutes mes commandes de test l'utilisaient, et l'échec se présente en
+  `ClusterExecFailure … code: 500`, parfaitement opaque. `httpx` est là, lui.
+
+### Ce que le YAML sait dire, et que ni le portail ni `--args` ne savent
+
+C'est la trouvaille technique de la soirée, et elle vient d'une suggestion de l'utilisatrice —
+« use context7 pourrait peut-être t'aider ».
+
+`command` et `args` sont des **listes** dans l'API Container Apps. Le portail les expose comme
+une chaîne unique, et `az ... --args` refuse les valeurs commençant par un tiret
+(`unrecognized arguments: -c`). **Le YAML est le seul chemin qui les exprime :**
+
+```yaml
+command: [uvicorn]
+args: [packages.agent.api:app, --host, 0.0.0.0, --port, "8000"]
+```
+
+`az containerapp show -o yaml` → édition → `az containerapp update --yaml` préserve les
+variables au passage, ce que `--set-env-vars` ne fait pas.
+
+**Et un fait qui ferme la question pour de bon** : le portail affiche mal une liste
+d'arguments, mais **ne la détruit pas** en réenregistrant — vérifié après une modification de
+variables. On pose la liste une fois par YAML, le reste s'édite au portail.
+
+**Conséquence pour l'image** : `run-api.sh` et `run-web.sh` (commit `0f77194`) restent dans le
+dépôt, mais ne sont **pas** ce qui est déployé. Ils étaient la parade avant que le YAML soit
+trouvé, et ils gardent leur intérêt — une image qui porte son lancement se déploie sans
+YAML, donc en clique-clique intégral. `v2` a été poussée puis supprimée du registre à la
+demande de l'utilisatrice ; le déploiement tourne sur `v1`.
+
+### Deux pièges d'outillage, à connaître avant de perdre une heure
+
+**`secretref:` n'existe qu'en CLI.** Au portail, c'est un **type de champ** — « Référencer un
+secret », avec le nom **nu**. Saisi en valeur manuelle, `secretref:azure-ai-api-key` part comme
+clé d'API de 26 caractères, et Azure rend `401 Access denied due to invalid subscription key`.
+Le diagnostic a pris trois minutes parce que le **journal métier portait la trace complète** —
+`AuthenticationError` avec la ligne d'`openai/_base_client.py`.
+
+**`--set-env-vars` remplace l'ensemble des variables**, il ne les complète pas. Une commande
+qui n'en porte que trois efface les sept autres — constaté, puis relevé par
+`az containerapp show`.
+
+### Ce que la mise en production a démontré, et qui n'était pas garanti
+
+* **La chaîne SQL complète** : `ask_database·ok`, 120 produits, avec le `LIMIT 200` injecté par
+  le validateur et les conventions métier rendues.
+* **La chaîne documentaire en cellule ④** : sur une référence nue, la **fiche et le stock** dans
+  le même tour — le cumul de `2bis.7`, en production. Donc Chroma en HTTP interne, les
+  embeddings `text-embedding-3-small`, le rerank Cohere, et le seuil 0,6203 qui ne refuse pas
+  à tort.
+* **E5 démontrée à l'écran** : `journal` tapé sous `admin` rend les entrées, avec `profile`,
+  `code`, `decision`, `sql`, `n_rows`, `latency_ms`. Le garde-fou est celui de la matrice.
+* **L'étage 3 s'exerce** : `support` demandant une collection inventée (`fiches_techniques`, au
+  pluriel) reçoit `perimetre_interdit`, journalisé avec `etage: 3`, `blocked_at: 3`,
+  `forbidden: ["fiches_techniques"]`.
+
+### Un constat produit, trouvé en production
+
+Le modèle a passé `collections: ["fiches_techniques"]` — un nom qui n'existe pas. La matrice
+connaît `fiche_technique`, au singulier.
+
+**Le refus est le comportement conçu**, et le code le dit (`server.py:497-506`) : `collections`
+est exposé **sans `enum`** pour qu'un nom inventé et un nom fermé rendent le même
+`perimetre_interdit` et ne se distinguent pas — sans quoi une énumération publierait
+l'existence de `note_interne` à un `dev` qui n'y a pas droit.
+
+**Mais le coût produit est réel.** La description dit « omettre pour chercher dans tout le
+périmètre accessible », et le modèle a préféré deviner. L'utilisateur reçoit un refus là où une
+omission aurait répondu. C'est un cousin des défauts `2bis` — un défaut d'**aiguillage**, pas
+de droits — et il reste ouvert.
+
+### Écarts au plan, assumés
+
+* **trois apps au lieu d'un sidecar** (motif ci-dessus) ;
+* **`v1` sans script de lancement** au lieu de `v2` : le YAML a rendu le script inutile pour ce
+  déploiement ;
+* **le journal éphémère précisé** : il survit à un redémarrage — le conteneur est réutilisé —
+  mais disparaît au **remplacement** du conteneur, donc à chaque révision. Constaté en local
+  puis en production.
+
+### Ce qui reste hors périmètre, et nommé
+
+**Aucune authentification.** N'importe qui ouvrant l'URL choisit `Admin` et lit le journal.
+L'ingress interne protège la gateway d'un accès direct, mais c'est du périmètre réseau, pas une
+serrure. La chaîne d'identité reste hors brief.
+
+**Le build ne part pas d'un clone propre** : `.docker-data/chroma`, `data/bm25/` et
+`data/sorabel.db` sont gitignorés, et l'index est le **référent de la calibration** — le
+rebâtir invaliderait le seuil en silence. C'est pourquoi le build n'est pas branché sur
+`quality.yml`.

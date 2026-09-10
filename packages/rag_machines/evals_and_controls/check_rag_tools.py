@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from config import Settings
+from config import CALIBRATED_THRESHOLDS, Settings
 from config import settings as base_settings
 from packages import journal
 from packages.rag_machines.handler import RAG_TOOLS, handle
@@ -49,6 +49,8 @@ from packages.rag_machines.structured_answer import (
     build_rag_structured_answer,
     rag_client_view,
 )
+from packages.rag_machines.retrieval.embedder import build_embedder
+from packages.rag_machines.retrieval.reranker import build_reranker
 from packages.rag_machines.retrieval.search import cap_per_title
 from packages.rag_machines.tools import (
     answer_question,
@@ -217,6 +219,31 @@ def _run(settings: Settings, check, verdict) -> int:  # noqa: ANN001 - deux ferm
     check("dense", threshold_for("dense", settings), settings.refusal_threshold)
     check("hybride", threshold_for("hybrid", settings), settings.rerank_threshold)
     check("lexical n'a pas d'échelle bornée", threshold_for("lexical", settings), None)
+
+    print("\nLe seuil servi appartient-il aux modèles servis ?")
+    # Le garde-fou que les docstrings de `config.py` annonçaient manquant depuis l'axe 7 :
+    # « rien dans le code ne relie ce seuil au modèle qui l'a produit ». Le contrôle d'empreinte
+    # de l'index tient déjà collection <-> modèle (`ingest/index.py`) ; celui-ci tient
+    # modèle <-> seuil, et la chaîne devient complète.
+    #
+    # Aucun réseau, aucun modèle chargé : `build_embedder` et `build_reranker` construisent un
+    # objet dont le `.name` est lisible tout de suite — l'import de `sentence_transformers` vit
+    # à l'intérieur de `_load_model()`, appelé au premier encodage seulement.
+    #
+    # Ce qui est contrôlé est la CONFIGURATION SERVIE, pas une valeur en dur : la même passe
+    # avec l'environnement de la cellule ④ doit échouer si le seuil est resté celui de ①.
+    couple = (build_embedder(base_settings).name, build_reranker(base_settings).name)
+    check("le couple servi est calibré", couple in CALIBRATED_THRESHOLDS, True)
+    # Un couple inconnu n'a pas de seuil de référence : le dire ici plutôt que de comparer à
+    # `None`, qui passerait pour « pas de barrière » alors que c'est « pas de calibration ».
+    attendu = CALIBRATED_THRESHOLDS.get(couple)
+    check(f"et son seuil est celui calibré pour {couple[0]} + {couple[1]}",
+          base_settings.rerank_threshold, attendu)
+    # Les quatre cellules des axes 6 et 7 sont toutes déclarées : sans ça, basculer en distant
+    # ferait échouer le contrôle au lieu de vérifier le seuil.
+    check("les quatre cellules mesurées sont déclarées", len(CALIBRATED_THRESHOLDS), 4)
+    check("et aucune ne partage son seuil avec une autre",
+          len(set(CALIBRATED_THRESHOLDS.values())), 4)
 
     print("\nÉtage 2 — le droit d'appeler le tool")
     view = handle("list_sources", {}, "default", settings)

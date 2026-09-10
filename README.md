@@ -39,6 +39,26 @@ La note de cadrage de la DSI (`docs/cadrage_dsi.md`) **fait foi** sur ce contrat
 elle est rouge tant que le serveur et ses tools ne tiennent pas ce contrat — elle est
 aujourd'hui verte, 12/12.
 
+## Déployé
+
+L'interface graphique est en ligne sur Azure Container Apps :
+
+**<https://sorabel-web-demo-sabl.delightfulpond-41840da3.francecentral.azurecontainerapps.io>**
+
+Trois applications dans l'environnement `cae-sorabel-demo-sabl` — le front (ingress externe),
+la gateway (interne) et Chroma (interne). Le serveur MCP n'en est pas une : il parle en
+**stdio**, donc sans port, et reste un sous-processus de l'API.
+
+Le pas-à-pas complet — commandes de paramétrage, de vérification et les cinq obstacles
+rencontrés — est dans **`docs/2026-09-10-deploiement-azure-pas-a-pas.md`**.
+
+> **Le build ne part pas d'un clone propre.** `.docker-data/chroma`, `data/bm25/*.pkl` et
+> `data/sorabel.db` sont gitignorés et nécessaires à la construction des images. L'index
+> vectoriel n'est pas un artefact de build : c'est le **référent de la calibration** — le
+> reconstruire produirait d'autres vecteurs et invaliderait le seuil de refus en silence. Il
+> faut donc construire depuis une machine qui a joué `make ingest`, et l'erreur serait
+> silencieuse : l'image démarrerait et ne répondrait à aucune question documentaire.
+
 ## Stack
 
 - Python 3.11 (géré avec `uv`)

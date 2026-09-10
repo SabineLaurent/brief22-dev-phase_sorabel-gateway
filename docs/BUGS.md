@@ -314,7 +314,98 @@ imaginée.
 
 ---
 
-## 11. Ce que le registre apprend
+## 11. Déploiement Azure Container Apps (2026-09-09)
+
+Chantier neuf, hors brief au sens strict — il porte le livrable « URL d'une interface
+graphique fonctionnelle ». Trois défauts constatés et corrigés, un point de vigilance ouvert.
+
+**DEP-01 · Les images étaient construites pour la mauvaise architecture.** `docker build` sur
+un Mac Apple Silicon produit du `linux/arm64` ; Container Apps exécute du `linux/amd64`. Les
+images auraient été poussées puis auraient refusé de démarrer, avec un message d'exécution
+sans rapport apparent avec l'architecture. *Correctif* : `--platform linux/amd64` sur les deux
+images, vérifié par `docker image inspect` avant le push, et l'image amd64 exercée avant
+d'être envoyée (chemins absolus, absence de `torch`, dépicklage BM25 à 400 éditions, base à
+120 produits). *Contrôlé par* : rien — la vérification est manuelle, à refaire à chaque
+construction depuis un poste ARM.
+
+**DEP-02 · `env_file` réinjectait les chemins relatifs de `.env`.** L'image ne contient aucun
+`.env` (vérifié), mais le compose de répétition le lisait pour les clés Azure — et `.env` pose
+`SORABEL_DB=data/sorabel.db` et `GATEWAY_JOURNAL=logs/journal.jsonl`, qui écrasent les défauts
+**absolus** de `config.py`. Mesuré dans le conteneur : `settings.sorabel_db` valait
+`data/sorabel.db`. Cela « marchait » tant que le CWD vaut `/app`, donc par coïncidence : un
+sous-processus lancé d'ailleurs aurait écrit un **second journal**, et `make journal` aurait lu
+le mauvais. *Correctif* : les deux variables neutralisées en absolu dans
+`docker-compose.aca.yml`, et **non posées du tout** en Container Apps, où l'absence de `.env`
+rend les défauts déjà justes. *Contrôlé par* : la preuve 1 de l'étape de validation par
+conteneurs (à rejouer à la main).
+
+**DEP-03 · Le `.dockerignore` faisait tomber un test d'acceptance.** J'excluais
+`eval/rapport_*.md` comme « documentation » ; or `tests/acceptance/test_rag.py:57-64` ouvre
+`eval/rapport_gain.md` et exige qu'il existe et soit chiffré — la suite vérifie que la mesure
+du gain hybride est **publiée**. Résultat : 11/12 dans le conteneur. *Correctif* : `eval/`
+ré-inclus en entier ; le test fait foi, et les rapports pèsent une centaine de kilo-octets.
+*Contrôlé par* : `pytest` joué **dans** le conteneur (cible `test` du Dockerfile).
+
+**DEP-04 · Crainte NON FONDÉE, tranchée en production le 2026-09-10 — « Connexions non sécurisées : Non autorisé ».**
+Les trois apps s'appellent entre elles par leur nom en **HTTP** — `http://sorabel-chroma-…`,
+`http://sorabel-gateway-…` — parce que c'est le chemin documenté par Microsoft (« use its name
+prefixed with `http://` ») et que le nom court ne correspondrait à aucun certificat, ce qui
+exclut `https://`. Or l'ingress est créé avec les connexions non sécurisées **refusées**, ce
+qui force une redirection HTTP → HTTPS.
+
+Je crois que cette redirection ne concerne que le trafic externe, **mais ce n'est pas
+vérifié**. Si la gateway ne joint pas Chroma, ou le front la gateway, c'est **le premier
+endroit à regarder** : `<app>` → `Paramètres` → `Entrée` → autoriser les connexions non
+sécurisées. Modifiable en deux clics, sans recréer l'app.
+
+Deux symptômes étaient attendus si c'était la cause : côté Chroma, une erreur « Chroma
+injoignable » (`ingest/index.py:99-102`) ; côté front, la phrase figée `FRONT_INDISPONIBLE`.
+Aucun des deux ne nommait la redirection, ce qui rendait le diagnostic coûteux — d'où la
+consigne écrite d'avance.
+
+**Aucun ne s'est produit.** Sur l'URL déployée, `support` + « REF-8842 » rend la fiche
+documentaire **et** le stock dans le même tour — donc l'appel a traversé
+`http://sorabel-chroma-demo-sabl` en HTTP, les embeddings `text-embedding-3-small` et le
+rerank Cohere. **La redirection HTTP → HTTPS ne s'applique pas au trafic entre apps d'un même
+environnement Container Apps.** `allowInsecure: false` peut donc rester, et l'appel par nom
+court — le chemin documenté par Microsoft — fonctionne tel quel.
+
+*Ce que la crainte a quand même valu* : les deux symptômes étaient écrits avant le
+déploiement, donc le premier échec documentaire aurait été diagnostiqué en une minute au lieu
+d'une heure. Une hypothèse fausse écrite d'avance coûte moins qu'une hypothèse juste trouvée
+après coup.
+
+**DEP-05 · Le champ « Arguments » du portail se découpe sur les ESPACES, pas sur les
+virgules.** Instruction fausse de ma part, signalée comme non vérifiée puis confirmée à
+l'écran : `packages.agent.api:app,--host,0.0.0.0,--port,8000` est passé **littéralement** à
+uvicorn, qui reçoit un seul argument au lieu de cinq. Le conteneur redémarre en boucle
+(« 1/1 Container crashing ») et l'app reste en *Échec* avec 0/1 réplica.
+
+Le message exact, reproduit en local sur l'image poussée avant même de lire les journaux
+Azure :
+
+```
+ERROR: Error loading ASGI app.
+       Attribute "app,--host,0.0.0.0,--port,8000" not found in module "packages.agent.api".
+```
+
+*Correctif* : séparer les arguments par des **espaces**. *Méthode qui a payé* : plutôt
+qu'attendre l'ingestion Log Analytics (1 à 5 minutes), rejouer la commande exacte en local
+sur l'image poussée — le lancement nu réussit (`Uvicorn running on http://0.0.0.0:8000`),
+donc ni le code, ni l'image, ni l'absence de variables ; puis reproduire l'hypothèse en
+passant les arguments comme une chaîne unique, ce qui rend le message à l'identique.
+*Contrôlé par* : rien — configuration de portail.
+
+**Ce qui ne s'est PAS produit, et qu'on croyait probable** : l'audit prédisait qu'un
+sous-processus MCP mort laisserait un zombie sous PID 1 et 30 s de `CALL_TIMEOUT` par question.
+Mesuré : échec en **1,7 s**, statut `error`, phrase figée, ligne de journal
+(`erreur_execution`, `cause=ClosedResourceError`), processus moissonné, et **les autres rôles
+intacts**. Le défaut confirmé est l'absence de relance — un redémarrage de 3 s le lève. C'est
+ce qui a justifié de ne pas le corriger. Cf. §8.
+
+---
+
+## 12. Ce que le registre apprend
 
 - **Les trois défauts les plus graves du projet n'ont pas été trouvés par une suite** : SQL-01
   en instruisant une demande, FUITE-01 en regardant une colonne à l'écran, GAR-01 en cherchant

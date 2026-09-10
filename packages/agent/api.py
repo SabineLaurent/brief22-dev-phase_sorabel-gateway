@@ -35,7 +35,7 @@ from pydantic import BaseModel
 
 from config import settings as gateway_settings
 from packages import journal
-from packages.access import authorize
+from packages.access import authorize, scope_for
 from packages.text_to_sql_factory.handler import read_feedback
 from packages.text_to_sql_factory.structured_answer import (
     CLIENT_MESSAGES,
@@ -52,19 +52,34 @@ from .cli import (
 )
 from .gateway import GatewayRegistry
 
-ROLES = ["support", "dev", "commerciale", "sans_role", "admin"]
+ROLES = ["support", "dev", "commercial", "sans_role", "admin"]
 
-#: Les rôles affichés par l'interface ne portent pas les noms des profils de la matrice :
-#: `commerciale` (UI) vaut `commercial` (matrice), et `sans_role` vaut `default` — le profil
-#: à zéro droit, qui est la valeur de repli du modèle et non une exception. C'est le seul
-#: endroit de la conversion : une seconde table finirait par diverger.
+#: Rôle d'interface → profil de matrice. Quatre des cinq portent désormais le même nom des
+#: deux côtés ; la table reste parce que **`sans_role` (UI) vaut `default` (matrice)** — le
+#: profil à zéro droit, qui est la valeur de repli et non une exception —, et surtout parce
+#: qu'elle rend la conversion **totale** : un rôle inconnu tombe sur `default`, jamais sur un
+#: profil inexistant. C'est le seul endroit de la conversion : une seconde table finirait par
+#: diverger.
 _PROFILE_BY_ROLE = {
     "support": "support",
     "dev": "dev",
-    "commerciale": "commercial",
+    "commercial": "commercial",
     "sans_role": "default",
     "admin": "admin",
 }
+
+#: Ce que le sélecteur de l'interface affiche pour chaque rôle. Une table de **libellés**,
+#: pas une seconde table de conversion : elle ne produit aucun profil et ne peut donc pas
+#: diverger de la matrice. Elle vit ici parce que le front ne doit plus rien savoir des
+#: rôles — il affiche ce que ``/roles`` lui rend.
+_DISPLAY_BY_ROLE = {
+    "support": "Support",
+    "dev": "Dev",
+    "commercial": "Commercial",
+    "sans_role": "Sans rôle",
+    "admin": "Admin",
+}
+
 
 def profile_for_role(role: str) -> str:
     """Le profil de matrice correspondant à un rôle de l'interface.
@@ -75,6 +90,42 @@ def profile_for_role(role: str) -> str:
     return _PROFILE_BY_ROLE.get(role, "default")
 
 
+def rights_summary(role: str) -> str:
+    """Ce que ce rôle peut faire, dit d'avance plutôt que découvert par un refus.
+
+    Un `sans_role` doit apprendre à l'accueil qu'il n'obtiendra aucun chiffre : le lui
+    laisser découvrir par un refus donnerait l'impression d'une panne.
+
+    **Vit ici et non dans le front**, depuis le découplage : la phrase se déduit de la
+    matrice, et un front qui la lirait lui-même en tiendrait une seconde copie — deux
+    exemplaires d'une source d'autorité qui peuvent diverger dès que les deux processus ne
+    partagent plus le même disque. C'est la règle déjà appliquée au catalogue à l'étape C,
+    étendue à ce qui restait.
+    """
+    profile = profile_for_role(role)
+    scope = scope_for(profile)
+    # La documentation se lit dans la matrice, elle ne se promet pas en dur : `default` n'a
+    # aucun tool, `search_docs` compris. L'étage 2 lui est désormais appliqué comme aux
+    # quatre tools SQL, et le périmètre documentaire du profil part dans la requête — la
+    # phrase dit donc ce qui se passe, plus seulement ce qui devrait se passer.
+    docs = (" La documentation reste interrogeable." if "search_docs" in scope.tools
+            else " La documentation ne lui est pas ouverte non plus.")
+    if "ask_database" not in scope.tools:
+        # Le cas de `dev` : il a `get_schema` et aucun tool de lecture de données. La forme
+        # de la base, jamais son contenu — le dire évite de faire passer pour une panne un
+        # schéma qui répond pendant qu'un chiffre est refusé.
+        forme = (" Le **schéma** reste consultable : la forme de la base, pas son contenu."
+                 if "get_schema" in scope.tools else "")
+        return (f"profil `{profile}` — **aucun chiffre** : les questions sur les données "
+                f"seront refusées.{docs}{forme}")
+    sensitive = {("produits", "prix_achat_ht"), ("produits", "marge_pct"),
+                 ("ventes", "marge_ht")}
+    marges = ("marges et prix d'achat compris" if sensitive <= scope.columns
+              else "**sans** les marges ni le prix d'achat")
+    return (f"profil `{profile}` — base interrogeable sur {len(scope.columns)} colonnes, "
+            f"{marges}.")
+
+
 #: Les sessions MCP ouvertes par cette API, une par profil. Vit au niveau du module et non
 #: dans l'état de l'application : ``build_agent`` en a besoin à la construction, et un
 #: registre par instance de ``FastAPI`` n'apporterait rien à un banc d'essai à un processus.
@@ -82,7 +133,7 @@ GATEWAYS = GatewayRegistry()
 
 #: Un agent par profil. Le profil est dans la clé pour la même raison qu'avant : partagé,
 #: le premier rôle utilisé serait servi à tous les suivants, et un `sans_role` hériterait
-#: des droits d'un `commerciale` passé avant lui. La différence est qu'aujourd'hui cette
+#: des droits d'un `commercial` passé avant lui. La différence est qu'aujourd'hui cette
 #: séparation est **doublée** par celle des processus serveur.
 _AGENTS: dict[str, Any] = {}
 
@@ -148,6 +199,30 @@ class CatalogueResponse(BaseModel):
 
     profile: str
     tools: list[str] = []
+
+
+class RoleCard(BaseModel):
+    """Un rôle proposé par l'interface : son identifiant, son libellé, et ses droits en clair.
+
+    ``summary`` est calculé sur la matrice à chaque appel, jamais figé : c'est ce qui permet
+    au front de l'afficher sans jamais lire ``matrice.yaml``.
+    """
+
+    role: str
+    display_name: str
+    summary: str
+
+
+class RolesResponse(BaseModel):
+    """Les rôles que l'interface peut proposer.
+
+    **Le front n'en tient pas de liste.** Une liste en dur y divergerait de la matrice le jour
+    où un profil y est ajouté — c'est exactement le défaut que ``scripts/mcp_client.py`` a
+    corrigé de son côté en ouvrant ``--profile`` aux profils lus dans la matrice. La même
+    règle vaut ici.
+    """
+
+    roles: list[RoleCard] = []
 
 
 class JournalResponse(BaseModel):
@@ -225,6 +300,28 @@ async def chat(request: ChatRequest) -> ChatResponse:
         # — sinon il la complète, et `compose_answer` tranche pour la CLI comme pour ici.
         return ChatResponse(answer=compose_answer(book, response["messages"][-1].content),
                             calls=_calls_of(book), statut=served_status(book))
+
+
+def role_cards() -> list[RoleCard]:
+    """Les rôles servis au front, dans l'ordre de ``ROLES``.
+
+    Fonction pure, sans requête ni session : c'est elle que les contrôles exercent, et c'est
+    ce qui permet de vérifier l'accord avec la matrice sans lancer un serveur.
+    """
+    return [RoleCard(role=role, display_name=_DISPLAY_BY_ROLE.get(role, role),
+                     summary=rights_summary(role))
+            for role in ROLES]
+
+
+@app.get("/roles", response_model=RolesResponse)
+def roles() -> RolesResponse:
+    """Les rôles proposés par l'interface, avec leurs droits en clair.
+
+    Route ajoutée au découplage du front : c'est elle qui remplace les deux imports que
+    ``web_client`` faisait du backend. Elle n'ouvre **aucune** session MCP — contrairement à
+    ``/catalogue`` —, elle est donc appelable à l'accueil sans lancer de sous-processus.
+    """
+    return RolesResponse(roles=role_cards())
 
 
 @app.get("/catalogue", response_model=CatalogueResponse)

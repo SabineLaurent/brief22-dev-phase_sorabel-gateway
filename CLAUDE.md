@@ -358,6 +358,39 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
   check-rag-tools **73**, check-perimetre **43**, check-contrat **163**, check-client **75** —
   540 contrôles déterministes, 558 avec `check-index`. `make lint` vert, `make test` 12/12 en
   57,85 s.
+- **Déploiement Azure Container Apps : fait le 2026-09-10.** `Dockerfile`,
+  `Dockerfile.chroma`, `.dockerignore`, `docker-compose.aca.yml`, `run-api.sh` / `run-web.sh`.
+  Pas-à-pas complet avec toutes les commandes : `docs/2026-09-10-deploiement-azure-pas-a-pas.md`.
+  **L'URL du livrable** :
+  `https://sorabel-web-demo-sabl.delightfulpond-41840da3.francecentral.azurecontainerapps.io`
+  **Trois apps, pas un sidecar** — `sorabel-web` (ingress externe, 8100), `sorabel-gateway`
+  (interne, 8000), `sorabel-chroma` (interne, 8002), dans `cae-sorabel-demo-sabl`. Le plan
+  prévoyait un sidecar ; c'est la version « hostnames distincts » que la répétition locale a
+  validée, et **on ne déploie pas une configuration non testée**.
+  **Le serveur MCP n'est pas une app** : stdio, donc ni port ni adresse — il reste un
+  sous-processus de l'API, un par profil. D'où une seule image pour le front et la gateway.
+  **Cellule ④ servie** : `text-embedding-3-small` + `Cohere-rerank-v4.0-pro`, collection
+  `sorabel_corpus_azure_small`, seuil **0,6203**. Pas de PyTorch dans l'image — 304 Mo.
+  **`command` et `args` se posent par YAML, jamais au portail** : le champ « Arguments »
+  transmet sa valeur comme **un seul argument** (ni virgules ni espaces ne la découpent), et
+  `az --args` refuse les valeurs à tiret. `az containerapp show -o yaml` → édition → `update
+  --yaml` est le seul chemin. Le portail affiche mal la liste mais **ne la détruit pas**.
+  **Deux pièges d'outillage** : `secretref:` n'existe qu'en CLI (au portail c'est un *type de
+  champ*), et `--set-env-vars` **remplace** l'ensemble des variables.
+  **Vérifié en production** : `ask_database·ok` 120 produits · une référence nue rend **fiche +
+  stock** (le cumul de 2bis.7, donc Chroma en HTTP interne, embeddings et rerank distants) ·
+  `journal` sous `admin` affiche les entrées — **E5 démontrée à l'écran**.
+  **Ce que le déploiement a appris**, dans `docs/BUGS.md` §11 : `DEP-01` architecture
+  arm64/amd64 · `DEP-02` `.env` réinjecte des chemins relatifs · `DEP-03` le `.dockerignore`
+  excluait un rapport qu'un test exige · `DEP-04` **crainte non fondée** sur la redirection
+  HTTPS interne · `DEP-05` le champ Arguments ne découpe pas. Plus : `curl`, `wget` et `ps`
+  n'existent pas dans `python:3.11-slim` — `httpx` si.
+  **Le build ne part PAS d'un clone propre** : `.docker-data/chroma`, `data/bm25/` et
+  `data/sorabel.db` sont gitignorés, et l'index est le **référent de la calibration**. C'est
+  pourquoi le build n'est pas branché sur `quality.yml`.
+  **Hors périmètre, nommé** : aucune authentification — le rôle est déclaré par le client, et
+  l'ingress interne est du périmètre réseau, pas une serrure. Journal **éphémère** : il survit
+  à un redémarrage, pas au remplacement du conteneur.
 - **Reste du chantier 3.** Par ordre d'exigence du brief :
   1. **l'interface graphique splittée par rôle : faite le 2026-09-08** (`make web-compare`,
      port 8101) — un front Chainlit, une colonne par profil, chaque colonne adossée à son
@@ -365,8 +398,8 @@ Phase de conception terminée (`docs/conception/LIVRABLES_CONCEPTION/`). Phase d
      registre de sessions `GatewayRegistry`. C'est elle qui porte le livrable « un lien d'une
      interface graphique du produit fonctionnel » — **l'URL exigée porte sur l'IGU, pas sur le
      serveur MCP** : stdio tient le livrable serveur (arbitrage consigné au journal le
-     2026-09-06). **Ce qui manque est l'URL publiée, pas l'interface** : c'est le dernier
-     livrable nommé sans réponse, et c'est un choix d'hébergement, pas du code.
+     2026-09-06). **L'URL publiée existe depuis le 2026-09-10** — le dernier livrable nommé
+     du brief est servi (cf. la puce « Déploiement Azure » ci-dessous).
 
   Le reste vit dans `docs/2026-09-07-todo-post-revue.md` — deux décisions ouvertes
   (`citations` au journal, `search_for_profile()`), l'écriture du contrat de réponse, et les

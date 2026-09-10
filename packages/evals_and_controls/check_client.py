@@ -33,10 +33,14 @@ ils sont faux.
 
 from __future__ import annotations
 
+import ast
 import sys
+from pathlib import Path
 from typing import Any
 
 from packages import journal
+from packages.access import load_matrix
+from packages.agent.api import ROLES, profile_for_role, role_cards
 from packages.agent.cli import (
     NO_ANSWER_CODE,
     NO_ANSWER_MESSAGE,
@@ -327,6 +331,51 @@ def main() -> int:
     verts = [i for i, book in enumerate(carnets)
              if frozen_text(book) is not None and served_status(book) == "ok"]
     check("jamais vert pendant qu'une phrase figée remplace la réponse", verts, [])
+
+    print("\nLes rôles servis — le front n'a plus de liste, ni de lecture de la matrice")
+    # Ce que ces contrôles ancrent : *ce que le client affiche des droits, il le demande au
+    # serveur*. La règle a été posée à l'étape C pour le catalogue et jamais étendue au reste ;
+    # le découplage du front l'a rendue exigible, parce que deux processus séparés ne
+    # partagent plus un `matrice.yaml` sur le même disque.
+    cards = role_cards()
+    check("une carte par rôle, dans l'ordre servi", [c.role for c in cards], ROLES)
+    # Une liste en dur côté front divergerait de la matrice le jour où un profil y est ajouté
+    # ou renommé — et un rôle inconnu retombe SILENCIEUSEMENT sur `default`. C'est le défaut
+    # que `scripts/mcp_client.py` a corrigé de son côté ; ici on interdit qu'il revienne.
+    matrix = load_matrix()
+    inconnus = [c.role for c in cards if profile_for_role(c.role) not in matrix]
+    check("chaque rôle servi désigne un profil qui existe dans la matrice", inconnus, [])
+    check("`sans_role` désigne le profil à zéro droit", profile_for_role("sans_role"),
+          "default")
+    check("un rôle inconnu aussi", profile_for_role("profil-inexistant"), "default")
+    check("chaque carte porte un libellé et une phrase de droits",
+          [c.role for c in cards if not c.display_name or not c.summary], [])
+    # La phrase est calculée sur la matrice, pas écrite : un profil qui n'a pas le tool de
+    # lecture de données doit l'annoncer, sinon un refus passe pour une panne.
+    muets = [c.role for c in cards
+             if "ask_database" not in matrix[profile_for_role(c.role)].tools
+             and "aucun chiffre" not in c.summary]
+    check("un profil sans lecture de données l'annonce", muets, [])
+
+    # Le contrôle structurel, et le seul qui empêche le découplage de se refermer : un import
+    # suffirait à réintroduire une seconde copie de la source d'autorité. Contrôlé sur l'arbre
+    # syntaxique et non par recherche de texte — un commentaire ou une chaîne ne compte pas.
+    front = sorted(Path(__file__).resolve().parents[2].glob("packages/web_client/*.py"))
+    interdits = ("packages.access", "packages.agent", "config", "mcp_server")
+    fautifs = []
+    for module in front:
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                noms = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                noms = [node.module or ""]
+            else:
+                continue
+            if any(nom == bad or nom.startswith(f"{bad}.")
+                   for nom in noms for bad in interdits):
+                fautifs.append(f"{module.name}:{node.lineno}")
+    check("le front n'importe aucune source d'autorité du backend", fautifs, [])
+    check("et il y a bien des modules de front à contrôler", len(front) >= 3, True)
 
     print()
     if failures:
