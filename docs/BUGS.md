@@ -346,7 +346,7 @@ du gain hybride est **publiée**. Résultat : 11/12 dans le conteneur. *Correcti
 ré-inclus en entier ; le test fait foi, et les rapports pèsent une centaine de kilo-octets.
 *Contrôlé par* : `pytest` joué **dans** le conteneur (cible `test` du Dockerfile).
 
-**DEP-04 · Point de vigilance NON VÉRIFIÉ — « Connexions non sécurisées : Non autorisé ».**
+**DEP-04 · Crainte NON FONDÉE, tranchée en production le 2026-09-10 — « Connexions non sécurisées : Non autorisé ».**
 Les trois apps s'appellent entre elles par leur nom en **HTTP** — `http://sorabel-chroma-…`,
 `http://sorabel-gateway-…` — parce que c'est le chemin documenté par Microsoft (« use its name
 prefixed with `http://` ») et que le nom court ne correspondrait à aucun certificat, ce qui
@@ -358,9 +358,22 @@ vérifié**. Si la gateway ne joint pas Chroma, ou le front la gateway, c'est **
 endroit à regarder** : `<app>` → `Paramètres` → `Entrée` → autoriser les connexions non
 sécurisées. Modifiable en deux clics, sans recréer l'app.
 
-Deux symptômes attendus si c'est la cause : côté Chroma, une erreur « Chroma injoignable »
-(`ingest/index.py:99-102`) ; côté front, la phrase figée `FRONT_INDISPONIBLE` — « L'API de
-test n'a pas répondu ». Aucun des deux ne nommera la redirection.
+Deux symptômes étaient attendus si c'était la cause : côté Chroma, une erreur « Chroma
+injoignable » (`ingest/index.py:99-102`) ; côté front, la phrase figée `FRONT_INDISPONIBLE`.
+Aucun des deux ne nommait la redirection, ce qui rendait le diagnostic coûteux — d'où la
+consigne écrite d'avance.
+
+**Aucun ne s'est produit.** Sur l'URL déployée, `support` + « REF-8842 » rend la fiche
+documentaire **et** le stock dans le même tour — donc l'appel a traversé
+`http://sorabel-chroma-demo-sabl` en HTTP, les embeddings `text-embedding-3-small` et le
+rerank Cohere. **La redirection HTTP → HTTPS ne s'applique pas au trafic entre apps d'un même
+environnement Container Apps.** `allowInsecure: false` peut donc rester, et l'appel par nom
+court — le chemin documenté par Microsoft — fonctionne tel quel.
+
+*Ce que la crainte a quand même valu* : les deux symptômes étaient écrits avant le
+déploiement, donc le premier échec documentaire aurait été diagnostiqué en une minute au lieu
+d'une heure. Une hypothèse fausse écrite d'avance coûte moins qu'une hypothèse juste trouvée
+après coup.
 
 **DEP-05 · Le champ « Arguments » du portail se découpe sur les ESPACES, pas sur les
 virgules.** Instruction fausse de ma part, signalée comme non vérifiée puis confirmée à
