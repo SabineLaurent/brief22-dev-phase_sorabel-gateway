@@ -438,3 +438,60 @@ suites ne couvrent pas.
 
 **Le build ne part pas d'un clone propre** (§1). C'est pourquoi il n'est pas branché sur
 `quality.yml` — la CI part d'un clone, et rebâtir l'index invaliderait la calibration.
+
+---
+
+## 11. Reste à faire
+
+**Régénérer le mot de passe admin de l'ACR.** Il a transité en clair pendant le déploiement
+(`docker login … -p …`). Container Apps ne s'en sert pas — le portail a créé une **identité
+managée** avec le rôle *AcrPull* —, donc la régénération ne casse rien côté Azure : seul un
+futur `docker push` local demandera le nouveau. Chemin : `acrsablvelmo` → `Paramètres` →
+`Clés d'accès` → *Régénérer* sur `password`.
+
+**Déployer le comparateur `web-compare`**, si l'on veut montrer les quatre profils côte à côte.
+C'est une quatrième app, identique à `sorabel-web` **sauf sur un point qui décide de tout** :
+
+```
+CHAINLIT_APP_ROOT   packages/web_client/compare_root
+```
+
+Ce dossier porte son `.chainlit/config.toml` (`layout = "wide"` — sans quoi quatre colonnes
+tiennent dans la largeur de lecture) et surtout `public/elements/Comparaison.jsx`, l'élément
+React qui **est** le comparateur. Sans la variable, Chainlit démarre et n'affiche rien d'utile.
+
+Le reste ne change pas : même image `sorabel-app:v1`, ingress **externe**, **port 8101**,
+affinité de session activée, échelle 1/1, `SORABEL_API_URL=http://sorabel-gateway-demo-sabl`.
+Et les arguments par YAML comme les deux autres :
+
+```python
+c['command'] = ['chainlit']
+c['args'] = ['run', 'packages/web_client/app_compare.py',
+             '--host', '0.0.0.0', '--port', '8101', '--headless']
+```
+
+**Améliorer la largeur du comparateur** — piste retenue, non appliquée : un *full-bleed* CSS
+dans le bloc `<style>` déjà présent de `Comparaison.jsx`, plutôt que d'élargir le conteneur de
+Chainlit (qui dépendrait de ses classes internes) :
+
+```css
+.sorabel-comparateur { width: 100vw; margin-left: calc(-50vw + 50%); padding: 0 1rem; }
+```
+
+À compléter d'un `@media (min-width: 1200px)` pour que les colonnes passent en deux rangées sur
+écran étroit — c'est là que la responsivité se règle, pas dans la largeur.
+
+**Valider les cinq rôles sur l'URL publique.** À cette heure : `support` (SQL et documentaire),
+`admin` (journal), `dev` (`get_schema`) et `sans_role` (refus documentaire) sont vérifiés. Le
+documentaire sous `dev` et `commercial` ne l'est pas.
+
+**Les ressources Azure**, pour mémoire :
+
+| | |
+|---|---|
+| abonnement | `REMOTE_WCS_211537_DEV IA` |
+| groupe de ressources | `slaurentRG` |
+| registre | `acrsablvelmo.azurecr.io` — images `sorabel-app:v1`, `sorabel-chroma:v1` |
+| environnement | `cae-sorabel-demo-sabl` (France Central) |
+| apps | `sorabel-web-demo-sabl` · `sorabel-gateway-demo-sabl` · `sorabel-chroma-demo-sabl` |
+| Log Analytics | `log-sabl-sorabel-dev-001` |
