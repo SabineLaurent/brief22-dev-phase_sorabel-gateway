@@ -1,11 +1,10 @@
 # Suite d'acceptance rejouée — local et conteneur
 
-**Date** : 2026-09-13 · branche `deploiement/azure-aca`
+**Date** : 2026-09-13 · branche `deploiement/azure-aca` · code `2d269bb`
 
-Les six sorties sont celles du code de `23e6e14` (l'en-tête de `conftest.py` et sa copie
-dans l'image), les quatre témoins de `e64080e`. Elles ne portent **pas** cette identité
-elles-mêmes : un `.txt` dit contre quelle *configuration* il a été obtenu, pas contre quel
-*commit* ni quelle image — c'est ce compte rendu qui l'affirme, et lui seul.
+Ce commit n'est pas affirmé ici : **chaque sortie le porte elle-même**, relevé de `HEAD`
+en local, d'une empreinte gravée au build côté image. Un compte rendu qui attribue un
+commit à des sorties muettes peut se tromper — celui-ci s'est trompé une fois.
 
 ## Résultat
 
@@ -13,23 +12,24 @@ elles-mêmes : un `.txt` dit contre quelle *configuration* il a été obtenu, pa
 
 | Suite | Local | Image `sorabel-app:test` |
 |---|---|---|
-| `test_rag.py` (E1, E2, E6) | 4 passed — 22,59 s | 4 passed — 10,31 s |
-| `test_sql.py` (E3, E5) | 4 passed — 9,19 s | 4 passed — 9,51 s |
-| `test_mcp.py` (E4, E5) | 4 passed — 14,79 s | 4 passed — 7,66 s |
+| `test_rag.py` (E1, E2, E6) | 4 passed — 23,89 s | 4 passed — 9,48 s |
+| `test_sql.py` (E3, E5) | 4 passed — 9,40 s | 4 passed — 8,94 s |
+| `test_mcp.py` (E4, E5) | 4 passed — 15,01 s | 4 passed — 6,61 s |
 
 Sorties `pytest -v` complètes : `local_*.txt` et `docker_*.txt`.
 
 ## Contre quoi le vert a été obtenu
 
-Un « 12/12 » ne dit rien tant qu'on ignore quel index a été interrogé, avec quel modèle et
-sous quel seuil. Chaque sortie porte donc en en-tête la configuration **réellement lue**,
-extraite à l'exécution par `conftest.py` (racine) — aucun nom n'y est écrit à la main : les
-modèles viennent du `.name` des fabriques que `search()` appelle, la collection et son
-empreinte de l'objet Chroma que la recherche ouvre, les chemins de `config.settings`,
-résolus en absolu.
+Un « 12/12 » ne dit rien tant qu'on ignore quel code a joué, contre quel index, avec quels
+modèles et sous quel seuil. Chaque sortie porte donc en en-tête la configuration
+**réellement lue**, extraite à l'exécution par `conftest.py` (racine) — aucun nom n'y est
+écrit à la main : le commit vient de `git rev-parse` ou de `SORABEL_COMMIT`, les modèles du
+`.name` des fabriques que `search()` appelle, la collection et son empreinte de l'objet
+Chroma que la recherche ouvre, les chemins de `config.settings`, résolus en absolu.
 
 ```
                     local                                   conteneur
+commit     2d269bb                                   2d269bb (gravé au build)
 embedder   intfloat/multilingual-e5-base [local]     text-embedding-3-small [distant]
 reranker   mmarco-mMiniLMv2-L12-H384-v1 [local]      Cohere-rerank-v4.0-pro [distant]
 seuil      0.053 = calibré pour ce couple            0.6203 = calibré pour ce couple
@@ -39,22 +39,26 @@ lexical    data/bm25/sorabel_corpus.pkl              /app/data/bm25/…_azure_sm
 métier     …/data/sorabel.db (156 Kio)               /app/data/sorabel.db (156 Kio)
 ```
 
-Trois appariements y sont lisibles d'un coup d'œil, et ce sont les trois qui rendraient un
-vert mensonger s'ils étaient faux :
+Quatre appariements y sont lisibles d'un coup d'œil, et ce sont ceux qui rendraient un vert
+mensonger s'ils étaient faux :
 
-1. **index ↔ embedder** — l'empreinte inscrite dans la métadonnée de la collection à sa
+1. **quel code** — `HEAD` en local, avec `ARBRE MODIFIÉ` si `config.py`, `conftest.py`,
+   `packages`, `mcp_server` ou `tests` diffèrent ; dans l'image, l'empreinte posée par
+   `--build-arg SORABEL_COMMIT`, parce que `.git` n'y est pas. Sans dépôt ni empreinte,
+   l'en-tête dit `INDISPONIBLE` au lieu d'inventer.
+2. **index ↔ embedder** — l'empreinte inscrite dans la métadonnée de la collection à sa
    construction, comparée au modèle configuré. Déjà **fatale** dans le code
-   (`_check_embedding_model`) ; l'en-tête la rend simplement lisible sans lire le code.
-2. **seuil ↔ couple de modèles** — `CALIBRATED_THRESHOLDS` de `config.py`. C'est le seul
-   des trois qu'aucune exception ne protège à l'exécution : un seuil étranger déplace la
-   barrière de refus **en silence**, et 0,053 contre 0,6203 est plus d'un ordre de grandeur.
-3. **quel fichier** — chemins résolus en absolu, parce que `.env` pose `SORABEL_DB` et
+   (`_check_embedding_model`) ; l'en-tête la rend lisible sans lire le code.
+3. **seuil ↔ couple de modèles** — `CALIBRATED_THRESHOLDS` de `config.py`. Le seul qu'aucune
+   exception ne protège à l'exécution : un seuil étranger déplace la barrière de refus **en
+   silence**, et 0,053 contre 0,6203 est plus d'un ordre de grandeur.
+4. **quel fichier** — chemins résolus en absolu, parce que `.env` pose `SORABEL_DB` et
    `GATEWAY_JOURNAL` en **relatif** : « ça marche » tant que le répertoire courant vaut
    `/app`, donc par coïncidence.
 
-Les deux lignes « configuration Azure partielle » en tête des sorties locales ne sont pas
-un défaut : le poste a l'endpoint et la clé Azure mais aucun nom de déploiement, donc le
-code replie sur les modèles locaux **et le dit**. C'est la cellule ① attendue en local.
+Les deux lignes « configuration Azure partielle » en tête des sorties locales ne sont pas un
+défaut : le poste a l'endpoint et la clé Azure mais aucun nom de déploiement, donc le code
+replie sur les modèles locaux **et le dit**. C'est la cellule ① attendue en local.
 
 L'en-tête décrit le processus pytest ; le serveur MCP que la suite lance est un
 sous-processus qui hérite du même environnement (`tests/conftest.py`), donc de la même
@@ -66,7 +70,7 @@ Quatre exécutions volontairement mal configurées, conservées telles quelles.
 
 | Témoin | Ce qui est faussé | L'en-tête dit | La suite dit |
 |---|---|---|---|
-| `temoin_1_index_etranger.txt` | index `…azure_small` (3-small) lu par `e5-base` | `ILLISIBLE` + la raison | **1 failed en 0,84 s** |
+| `temoin_1_index_etranger.txt` | index `…azure_small` (3-small) lu par `e5-base` | `ILLISIBLE` + la raison | **1 failed en 0,79 s** |
 | `temoin_2_seuil_etranger.txt` | `RERANK_THRESHOLD=0.6203` sur la cellule ① (12× trop haut) | `≠ CALIBRÉ POUR CE COUPLE (0.053)` | **4 passed** |
 | `temoin_3_chroma_injoignable.txt` | `CHROMA_URL=http://localhost:9999` | `ILLISIBLE` + la raison | 3 failed, 1 passed |
 | `temoin_4_seuil_etranger_conteneur.txt` | `RERANK_THRESHOLD=0.053` sur la cellule ④ (12× trop bas) | `≠ CALIBRÉ POUR CE COUPLE (0.6203)` | **4 passed** |
@@ -100,8 +104,8 @@ déployée (④). Même code, mêmes 12 scénarios, chaînes de recherche diffé
 | Cellule | ① les deux modèles en mémoire | ④ les deux modèles distants |
 | PyTorch | présent (extra `[vector]`) | **absent** — l'image ne peut servir que du distant |
 
-L'écart de durée sur le RAG (22,6 s → 10,3 s) vient de là : chargement de deux modèles
-contre deux appels réseau.
+L'écart de durée sur le RAG (23,9 s → 9,5 s) vient de là : chargement de deux modèles contre
+deux appels réseau.
 
 ## Ce que ça prouve, et ce que ça ne prouve pas
 
@@ -122,7 +126,8 @@ for d in rag sql mcp; do
 done
 
 # conteneur — procédure détaillée : docs/2026-09-11-rapport-tests-txt.md
-docker build --target test -t sorabel-app:test .
+docker build --target test --build-arg SORABEL_COMMIT=$(git rev-parse --short HEAD) \
+  -t sorabel-app:test .
 docker compose -f docker-compose.aca.yml -p sorabel-acatest up -d chroma
 for d in rag sql mcp; do
   docker run --rm --network sorabel-acatest_default --env-file .env \
@@ -139,6 +144,9 @@ for d in rag sql mcp; do
 done
 docker compose -f docker-compose.aca.yml -p sorabel-acatest down
 ```
+
+Sans `--build-arg`, tout passe pareil mais l'en-tête du conteneur dit `INDISPONIBLE` : la
+sortie reste vraie, elle cesse d'être traçable.
 
 `--import-mode=importlib` n'est pas décoratif : sans lui, la collecte meurt sur le paquet
 `tests` que `literalai` installe à la racine de `site-packages`.

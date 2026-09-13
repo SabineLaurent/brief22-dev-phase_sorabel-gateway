@@ -4,6 +4,7 @@ rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_
 platform darwin -- Python 3.11.15, pytest-8.4.2, pluggy-1.6.0 -- /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/.venv/bin/python
 cachedir: .pytest_cache
 configuration lue par cette exécution (extraite du code, pas recopiée) :
+  commit    : 2d269bb
   embedder  : intfloat/multilingual-e5-base [local]
   reranker  : cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 [local]
   seuil     : 0.053 = calibré pour ce couple
@@ -40,11 +41,11 @@ E         + error
 
 tests/acceptance/test_rag.py:16: AssertionError
 ----------------------------- Captured stderr call -----------------------------
-[09/13/26 17:01:18] INFO     Processing request of type            server.py:733
+[09/13/26 17:10:23] INFO     Processing request of type            server.py:733
                              CallToolRequest                                    
 embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
 rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
-[09/13/26 17:01:19] INFO     Anonymized telemetry enabled. See     posthog.py:22
+[09/13/26 17:10:24] INFO     Anonymized telemetry enabled. See     posthog.py:22
                              https://docs.trychroma.com/telemetry               
                              for more information.                              
 ____________________ test_hors_corpus_signale_sans_inventer ____________________
@@ -64,7 +65,7 @@ E         + error
 
 tests/acceptance/test_rag.py:33: AssertionError
 ----------------------------- Captured stderr call -----------------------------
-[09/13/26 17:01:19] INFO     Processing request of type            server.py:733
+[09/13/26 17:10:24] INFO     Processing request of type            server.py:733
                              CallToolRequest                                    
 embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
 rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
@@ -85,15 +86,15 @@ E         + error
 
 tests/acceptance/test_rag.py:42: AssertionError
 ----------------------------- Captured stderr call -----------------------------
-[09/13/26 17:01:19] INFO     Processing request of type            server.py:733
+[09/13/26 17:10:24] INFO     Processing request of type            server.py:733
                              CallToolRequest                                    
 embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
 rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
-[09/13/26 17:01:20] INFO     Anonymized telemetry enabled. See     posthog.py:22
+[09/13/26 17:10:25] INFO     Anonymized telemetry enabled. See     posthog.py:22
                              https://docs.trychroma.com/telemetry               
                              for more information.                              
 =========================== short test summary info ============================
 FAILED tests/acceptance/test_rag.py::test_answer_question_cite_ses_sources - ...
 FAILED tests/acceptance/test_rag.py::test_hors_corpus_signale_sans_inventer
 FAILED tests/acceptance/test_rag.py::test_recherche_par_reference_exacte - As...
-========================= 3 failed, 1 passed in 1.82s ==========================
+========================= 3 failed, 1 passed in 1.81s ==========================

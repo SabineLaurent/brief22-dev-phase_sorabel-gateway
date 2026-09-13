@@ -4,6 +4,7 @@ rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_
 platform darwin -- Python 3.11.15, pytest-8.4.2, pluggy-1.6.0 -- /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/.venv/bin/python
 cachedir: .pytest_cache
 configuration lue par cette exécution (extraite du code, pas recopiée) :
+  commit    : 2d269bb
   embedder  : intfloat/multilingual-e5-base [local]
   reranker  : cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 [local]
   seuil     : 0.053 = calibré pour ce couple
@@ -21,4 +22,4 @@ tests/acceptance/test_mcp.py::test_refus_message_clair_et_journalise PASSED [ 50
 tests/acceptance/test_mcp.py::test_briques_du_rag_utilisables_separement PASSED [ 75%]
 tests/acceptance/test_mcp.py::test_journal_exhaustif_autorises_et_refuses PASSED [100%]
 
-============================== 4 passed in 14.79s ==============================
+============================== 4 passed in 15.01s ==============================

@@ -3,6 +3,7 @@ platform linux -- Python 3.11.16, pytest-8.4.2, pluggy-1.6.0 -- /app/.venv/bin/p
 onnxruntime cpuid_info warning: Unknown CPU vendor. cpuinfo_vendor value: 0
 cachedir: .pytest_cache
 configuration lue par cette exécution (extraite du code, pas recopiée) :
+  commit    : 2d269bb (gravé au build)
   embedder  : text-embedding-3-small [distant]
   reranker  : Cohere-rerank-v4.0-pro [distant]
   seuil     : 0.6203 = calibré pour ce couple
@@ -20,4 +21,4 @@ tests/acceptance/test_mcp.py::test_refus_message_clair_et_journalise PASSED [ 50
 tests/acceptance/test_mcp.py::test_briques_du_rag_utilisables_separement PASSED [ 75%]
 tests/acceptance/test_mcp.py::test_journal_exhaustif_autorises_et_refuses PASSED [100%]
 
-============================== 4 passed in 7.66s ===============================
+============================== 4 passed in 6.61s ===============================
