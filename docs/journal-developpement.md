@@ -4785,3 +4785,103 @@ serrure. La chaîne d'identité reste hors brief.
 `data/sorabel.db` sont gitignorés, et l'index est le **référent de la calibration** — le
 rebâtir invaliderait le seuil en silence. C'est pourquoi le build n'est pas branché sur
 `quality.yml`.
+
+---
+
+## 2026-09-13 — Confronter la conception au code servi, puis cesser d'écrire la doc à la main
+
+La journée part d'une question de compréhension — « la matrice appliquée dans le code
+respecte-t-elle celle du diagramme ? » — et finit sur un générateur. Le lien entre les deux est
+le décompte : **sept énoncés faux** trouvés dans des documents soignés, donc le problème n'est
+pas le soin.
+
+### Ce qui a été confronté, et ce qui est tombé
+
+**`05-matrice-acces.drawio` — un écart sur 130 cellules.** Les 36 cellules de collections et
+thèmes, les 32 de colonnes, les deux lignes de décompte (0/270/318/350 et 0/25/25/28) :
+identiques à `matrice.yaml` lu par `load_matrix()`. Le seul désaccord était
+`support × get_schema`, accordé au diagramme, **retiré dans le code** — arbitrage déjà consigné
+(T9, T10, T12 attendent un refus), jamais reporté sur le schéma. Plus une absence : le profil
+`admin` et la ligne `read_journal` n'existaient pas au diagramme.
+
+Les décomptes ont d'abord été recalculés depuis le pickle BM25, Docker étant éteint ; **rejoués
+ensuite contre l'index Chroma** — `make check-perimetre` 43/43, `dev` 270, `support` 318,
+`commercial` 350, `admin` 350.
+
+**`03-catalogue-tools` — six énoncés faux.** Par ordre de coût :
+
+| # | Écrit | Servi |
+|---|---|---|
+| 1 | `search_docs(question)` | `search_docs(query)` |
+| 2 | `get_document(doc_key)` | `get_document(doc_id)` — accepte un `edition_id` ou un `doc_key` |
+| 3 | `check_stock(ref)` | `check_stock(reference)` |
+| 4 | `list_sources` rend un inventaire **par collection**, décomptes et plage de dates | une **liste plate** d'éditions courantes |
+| 5 | le refus d'`ask_database` **nomme la colonne** | phrase figée ; le nom part au journal par `forbidden`, qui ne traverse jamais `client_view()` |
+| 6 | « cinq contrôles » | cinq d'arbre, puis la borne, puis le contrôle 6 `EXPLAIN` |
+
+Les deux premiers étaient consignés. **Le troisième ne l'était nulle part.** Le cinquième n'est
+pas une coquille : la conception promettait ce que le code **refuse** de faire, et pour un motif
+de sécurité écrit dans le code — énumérer les colonnes fermées ferait du refus un oracle.
+
+Corrigés dans `03-catalogue-tools_v2.md` et `03-catalogue-tools_v2.drawio`, les v1 conservées.
+Le §9 de la v2 porte les six écarts avec le fichier et la ligne qui les prouvent, **et les
+quatre qui restent** — noms de champs de l'enveloppe, `isError` code par code, la forme de la
+citation, les listes de codes. Ceux-là demandent une décision, pas une correction de texte.
+
+### Le vrai enseignement : générer plutôt que rédiger
+
+`mcp_server/README.md` annonçait « les vingt réglages » ; `Settings` en porte **26**. Trois
+documents différents, tous relus, tous dérivés. D'où `make doc-tools` →
+`scripts/build_tool_docs.py` → `mcp_server/SMG-guide-d-acces.html`.
+
+**La page est le rendu de ce que le serveur répond**, pas une description de ce qu'il devrait
+répondre : un sous-processus par profil, `initialize`, `tools/list`, et le rendu. Ce qu'elle
+montre et qu'aucun Swagger ne saurait rendre : **le catalogue dépend du profil** — 0 / 5 / 7 /
+8 / 8 — et **les descriptions elles-mêmes diffèrent**. Le générateur détecte les variantes et
+n'affiche que les rubriques qui changent : sous `dev`, `get_schema` perd « Pour obtenir un
+résultat, utiliser `ask_database` ». La démonstration de la matrice tient en trois lignes.
+
+**Un écart calculé plutôt qu'une note** : la page compare ce que `matrice.yaml` déclare à ce que
+`tools/list` rend, et affiche la différence — aujourd'hui `read_journal`, porté par `admin`
+seul, marqué « hors protocole ». Sans cette ligne, `admin` et `commercial` s'affichaient
+identiques à huit tools. Un tool ajouté à la matrice et oublié au serveur y apparaîtrait seul.
+
+**Quatre sections ajoutées ensuite**, dont trois générées : l'enveloppe lue dans
+l'`outputSchema` publié (le texte que reçoit déjà le client, pas une paraphrase), les douze
+codes calculés depuis `DB_STATUS_BY_CODE ∪ RAG_STATUS_BY_CODE`, et **deux réponses réelles** —
+`check_stock REF-8842` sous `support` en `ok`, `get_schema` sous `support` en `refused` /
+`tool_interdit`, payload réduit à `{"code": …}`. Le couple montre l'asymétrie mieux qu'un
+paragraphe. Les deux appels ne touchent que SQLite : la page reste gratuite.
+
+La quatrième — « se brancher » — est **la seule rédigée**, parce qu'aucun schéma ne la porte.
+Elle est autosuffisante à la demande de l'utilisatrice, le guide en prose pouvant changer de
+forme. Ses deux chiffres sont lus : la version de Python dans `pyproject.toml`, le nombre de
+réglages dans `Settings`.
+
+### Le Makefile
+
+248 lignes sans ordre, devenues **dix sections** avec un sommaire, et `make help` qui l'affiche
+au terminal. Le changement qui sert le plus : **toutes les variables en une section**, au lieu
+d'être semées entre les cibles — ce sont les boutons, on les cherche avant de lancer une mesure.
+Et le ✱ marque les huit cibles qui appellent un modèle, donc qui coûtent : rien ne distinguait
+`mesure-hybride` (gratuit) de `mesure-rerank` (payant).
+
+**Vérifié plutôt que supposé** : `make -n` sur les 47 cibles, sortie comparée caractère par
+caractère à la capture d'avant. Aucune recette n'a bougé. 48 cibles, 48 dans `.PHONY`, 48
+décrites.
+
+### Un incident, et sa cause
+
+Pour nettoyer une cible de test, `git checkout -- Makefile` a été lancé : il a restauré la
+version **commitée**, écrasant la réorganisation *et* la cible `doc-tools`, aucune des deux ne
+l'étant. Reconstruit depuis le contexte, et revérifié par la même comparaison `make -n` — mais
+rien ne garantissait que ce soit possible. `git checkout -- <fichier>` ne veut pas dire « annuler
+ma dernière écriture », il veut dire « revenir à HEAD ». Les essais jetables vont dans un
+répertoire temporaire, pas dans un fichier suivi qu'on restaure ensuite.
+
+### Points ouverts
+
+* **le guide ne dit pas qu'il n'y a aucune authentification** — proposé, non ajouté. Sous un
+  titre « Guide d'accès », ce silence se lirait comme une garantie ;
+* **les quatre écarts nommés au §9 de la v2** attendent une décision ;
+* **le rendu des `.drawio` corrigés** n'a pas été vérifié : pas de CLI draw.io sur la machine.
