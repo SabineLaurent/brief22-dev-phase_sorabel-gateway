@@ -13,9 +13,17 @@ exactement le jour où l'on relit un résultat de test.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from config import CALIBRATED_THRESHOLDS, settings
+
+#: Empreinte du commit gravée dans l'image au build (`--build-arg SORABEL_COMMIT`).
+#: Le conteneur n'a pas de `.git` — les `COPY` du Dockerfile sont nommés et ne
+#: l'embarquent pas —, donc sans ce relais une sortie de conteneur ne pourrait pas dire
+#: quel code l'a produite.
+_COMMIT_GRAVE = "SORABEL_COMMIT"
 
 
 def _fichier(chemin: Path) -> str:
@@ -26,6 +34,37 @@ def _fichier(chemin: Path) -> str:
     if not chemin.exists():
         return f"{chemin} — ABSENT"
     return f"{chemin} ({chemin.stat().st_size / 1024:.0f} Kio)"
+
+
+def _code() -> str:
+    """Le commit qui joue — relevé, jamais affirmé par le document qui cite la sortie.
+
+    Le dépôt prime sur l'empreinte gravée : dans un arbre de travail, `HEAD` est la vérité
+    du moment, alors qu'une variable d'environnement peut avoir été posée à la main. Le
+    conteneur n'a pas de `.git` et retombe donc sur l'empreinte du build.
+
+    L'état « modifié » ne regarde que le **code qui produit le comportement testé**, pas
+    `docs/` : les sorties de la suite s'écrivent dans le dépôt, donc un arbre jugé sur tout
+    serait modifié à chaque exécution et le signal ne voudrait plus rien dire.
+    """
+    racine = Path(__file__).resolve().parent
+    if (racine / ".git").exists():
+        try:
+            git = ["git", "-C", str(racine)]
+            tete = subprocess.run(
+                [*git, "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            modifie = subprocess.run(
+                [*git, "status", "--porcelain", "--",
+                 "config.py", "conftest.py", "packages", "mcp_server", "tests"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            return f"{tete} — ARBRE MODIFIÉ" if modifie else tete
+        except (OSError, subprocess.CalledProcessError) as erreur:
+            return f"dépôt illisible : {erreur}"
+    grave = os.environ.get(_COMMIT_GRAVE, "")
+    return f"{grave} (gravé au build)" if grave else "INDISPONIBLE (ni dépôt ni empreinte de build)"
 
 
 def _index(embedder_name: str) -> str:
@@ -69,6 +108,7 @@ def pytest_report_header() -> list[str]:
     distant = {True: "distant", False: "local"}
     return [
         "configuration lue par cette exécution (extraite du code, pas recopiée) :",
+        f"  commit    : {_code()}",
         f"  embedder  : {embedder} [{distant[settings.uses_azure_embeddings]}]",
         f"  reranker  : {reranker} [{distant[settings.uses_azure_rerank]}]",
         f"  seuil     : {seuil}",

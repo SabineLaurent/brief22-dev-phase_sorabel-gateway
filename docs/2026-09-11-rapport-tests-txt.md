@@ -83,7 +83,8 @@ même code que l'image servie, plus `pytest`.
 
 ```bash
 # 1. l'image de contrôle (code + pytest)
-docker build --target test -t sorabel-app:test .
+docker build --target test --build-arg SORABEL_COMMIT=$(git rev-parse --short HEAD) \
+  -t sorabel-app:test .
 
 # 2. le Chroma de la cellule ④ (index cuit dans Dockerfile.chroma), sur un réseau isolé
 #    du Chroma de dev (make up) — nom de projet dédié pour ne rien croiser
