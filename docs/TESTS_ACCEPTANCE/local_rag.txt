@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.15, pytest-8.4.2, pluggy-1.6.0 -- /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway
+configfile: pyproject.toml
+plugins: langsmith-0.12.1, anyio-4.14.2, asyncio-0.26.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 4 items
+
+tests/acceptance/test_rag.py::test_answer_question_cite_ses_sources PASSED [ 25%]
+tests/acceptance/test_rag.py::test_hors_corpus_signale_sans_inventer PASSED [ 50%]
+tests/acceptance/test_rag.py::test_recherche_par_reference_exacte PASSED [ 75%]
+tests/acceptance/test_rag.py::test_gain_hybride_mesure_et_documente PASSED [100%]
+
+============================== 4 passed in 25.69s ==============================
