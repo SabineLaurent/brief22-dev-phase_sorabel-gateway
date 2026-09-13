@@ -12,6 +12,21 @@ dependencies = [
     "pypdf>=4.2,<6",
     "beautifulsoup4>=4.12,<5",
     "rank-bm25>=0.2,<0.3",
+    "sqlglot>=25,<31",
+    "pyyaml>=6,<7",
+    "langchain>=1.3,<2",
+    "langchain-openai>=0.3,<0.4",
+    # Déclarés en DIRECTES parce qu'ils sont utilisés directement, et non par langchain :
+    # `retrieval/azure_client.py` importe `openai` pour l'embedder Azure, `reranker.py`
+    # importe `httpx` pour Cohere, et les deux fronts s'en servent pour appeler l'API. Les
+    # deux n'arrivaient jusqu'ici que transitivement — par `langchain-openai` et par
+    # `chromadb` —, donc toute la chaîne servie en configuration distante reposait sur les
+    # dépendances de quelqu'un d'autre. Un élagage d'image l'aurait cassée sans prévenir.
+    "openai>=1.40,<2",
+    "httpx>=0.27,<1",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.32,<1",
+    "chainlit>=2,<3",
 ]
 
 [project.optional-dependencies]
@@ -25,11 +40,15 @@ dev = [
     "pytest-asyncio>=0.24,<0.30",
     "ruff>=0.6,<0.10",
     "mypy>=1.10,<2",
+    "types-pyyaml>=6,<7",
 ]
+
+[tool.setuptools]
+py-modules = ["config"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["ingest*", "retrieval*", "sql*", "mcp_server*"]
+include = ["packages*", "mcp_server*"]
 
 [build-system]
 requires = ["setuptools>=68"]

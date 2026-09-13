@@ -1,0 +1,82 @@
+# Répétition locale du déploiement Container Apps — ÉTAPE BLOQUANTE.
+#
+# Ce fichier est SÉPARÉ de `docker-compose.yml`, qui reste la boucle de développement :
+# `make up` doit continuer de servir Chroma seul sur 8002, sans rien savoir de ceci.
+#
+# Ce qu'il reproduit fidèlement :
+#   * `gateway` n'a AUCUN port publié — la machine hôte ne peut pas l'atteindre, seul `web`
+#     le peut. C'est l'ingress interne, répété ;
+#   * `web` est le seul exposé : c'est l'URL du livrable ;
+#   * la cellule ④ (embeddings et rerank distants), donc l'image sans PyTorch ;
+#   * le journal éphémère : aucun volume, il repart vide à chaque redémarrage.
+#
+# L'ÉCART ASSUMÉ, ET LE SEUL : en sidecar Container Apps, `chroma` partage la pile réseau
+# de `gateway`, donc `localhost:8002` — le défaut de `config.py`. En compose, les services
+# ont des hostnames distincts, d'où `CHROMA_URL=http://chroma:8002`. C'est précisément la
+# variable prévue pour ça ; ce que le compose ne peut pas répéter, c'est l'absence de
+# résolution DNS, et elle ne change rien au code servi.
+#
+# LES SECRETS : `env_file` lit `.env` pour les clés Azure, et les `environment` ci-dessous
+# les SURCHARGENT pour tout le reste (compose donne la priorité à `environment`). L'image,
+# elle, ne contient aucun `.env` — vérifié. En Container Apps, ces clés deviennent des
+# secrets d'application.
+
+services:
+  chroma:
+    build:
+      context: .
+      dockerfile: Dockerfile.chroma
+    image: sorabel-chroma:local
+    # Aucun port publié : comme en sidecar, seul son voisin le joint.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8002 && echo ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sorabel-app:local
+    # Sans `--reload` : son superviseur ajoute un étage de PID et casse la propagation des
+    # signaux, donc l'arrêt propre des sous-processus MCP. Et `--host 0.0.0.0`, sans quoi
+    # uvicorn se lie à 127.0.0.1 et reste injoignable depuis l'extérieur du conteneur.
+    command: uvicorn packages.agent.api:app --host 0.0.0.0 --port 8000
+    env_file: [.env]
+    environment:
+      # La cellule ④ : les deux modèles en distant, la collection qui leur correspond, et
+      # le seuil calibré POUR EUX. `check-rag-tools` refuse tout autre appariement.
+      CHROMA_URL: http://chroma:8002
+      CHROMA_COLLECTION: sorabel_corpus_azure_small
+      AZURE_EMBEDDING_DEPLOYMENT: text-embedding-3-small
+      AZURE_RERANK_DEPLOYMENT: Cohere-rerank-v4.0-pro
+      RERANK_THRESHOLD: "0.6203"
+      # LES DEUX CHEMINS SONT NEUTRALISÉS EN ABSOLU, et c'est nécessaire ICI seulement.
+      #
+      # `.env` pose `SORABEL_DB=data/sorabel.db` et `GATEWAY_JOURNAL=logs/journal.jsonl` —
+      # des chemins RELATIFS qui écrasent les défauts absolus de `config.py`. L'image n'a
+      # pas de `.env`, mais `env_file` ci-dessus les réinjecte dans l'environnement du
+      # conteneur : mesuré, `settings.sorabel_db` valait `data/sorabel.db`.
+      #
+      # Ça « marche » tant que le CWD vaut `/app`, donc par coïncidence — un sous-processus
+      # lancé d'ailleurs écrirait un SECOND journal, et `make journal` lirait le mauvais.
+      #
+      # En Container Apps ces deux variables ne seront PAS posées du tout : sans `.env`,
+      # les défauts de `config.py` sont déjà absolus. Elles ne sont ici que pour annuler
+      # `env_file`, qui est une commodité de répétition locale et n'existe pas au
+      # déploiement.
+      SORABEL_DB: /app/data/sorabel.db
+      GATEWAY_JOURNAL: /app/logs/journal.jsonl
+    depends_on:
+      chroma: {condition: service_healthy}
+
+  web:
+    image: sorabel-app:local
+    command: chainlit run packages/web_client/app.py --host 0.0.0.0 --port 8100 --headless
+    environment:
+      # Le front ne connaît que cette adresse. Il n'a plus aucun import du backend, donc
+      # rien d'autre à configurer — ni matrice, ni liste de rôles.
+      SORABEL_API_URL: http://gateway:8000
+    ports: ["8100:8100"]
+    depends_on: [gateway]

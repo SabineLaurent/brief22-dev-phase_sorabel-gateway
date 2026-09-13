@@ -1,0 +1,1 @@
+"""Paquets applicatifs du dépôt."""

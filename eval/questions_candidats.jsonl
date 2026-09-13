@@ -1,0 +1,4 @@
+{"id": "CND-01", "type": "couverte_redondance", "question": "Comment procéder à un retour ?", "attendu_type": "procedure_sav", "note": "2bis.1 — dev la servait, support et commercial la refusaient sur un surensemble du corpus"}
+{"id": "CND-02", "type": "couverte_redondance", "question": "que faire en cas de retour d'un article ?", "attendu_type": "procedure_sav", "note": "même cible, tournure differente : les 16 notes « Retour terrain » matchent « retour » a l'identique"}
+{"id": "CND-03", "type": "couverte_redondance", "question": "procédure de retour produit", "attendu_type": "procedure_sav", "note": "formulation nominale, sans verbe"}
+{"id": "CND-04", "type": "couverte", "question": "quelles sont les caractéristiques de la référence REF-8842 ?", "attendu_type": "fiche_technique", "note": "témoin : aucune série redondante sur ce sujet, C0 et C1 doivent coïncider"}

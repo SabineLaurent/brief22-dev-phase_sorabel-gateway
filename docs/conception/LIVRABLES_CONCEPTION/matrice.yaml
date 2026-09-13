@@ -1,0 +1,143 @@
+# matrice.yaml — matrice d'accès de la Sorabel Data Gateway
+#
+# Destination au développement : mcp_server/matrice.yaml
+# Source normative            : 3-exposition-mcp-et-matrice-d-acces/Q3.md §3, §6, §9
+#
+# C'est une DONNÉE DE CONFIGURATION VERSIONNÉE, jamais du code. Elle est lue
+# partout par une fonction unique : autoriser(profil, ressource).
+# Aucun `if profil ==` dans le code métier.
+#
+# Trois propriétés délibérées (Q3 §3) :
+#   1. liste blanche partout — une colonne, une collection ou un thème ajouté
+#      demain est refusé par défaut ;
+#   2. `default` est un profil, pas une exception — matrice.get(profil) or DEFAULT,
+#      jamais de KeyError, jamais de None qui se propage. La matrice est totale :
+#      un profil inconnu produit un refus propre et journalisé ;
+#   3. de la configuration — rouvrir un thème coûte une ligne relue en revue,
+#      sans redéploiement de logique.
+#
+# Le profil ne vient JAMAIS du client : il est lu dans SORABEL_PROFILE, variable
+# d'environnement du lancement, propriété du transport stdio (Q3 §2). Le LLM du
+# client ne peut pas l'écrire — il n'existe nulle part dans ce qu'il manipule.
+# Conséquence : le paramètre `profil` n'apparaît dans aucune signature exposée.
+
+revision: 2026-09-01
+schema_version: 1
+
+profils:
+
+  # ------------------------------------------------------------------ default
+  # Zéro droit. Default deny, moindre privilège. Atteint par tout profil
+  # absent, inconnu ou mal typé. Périmètre vide = refus, jamais intersection muette.
+  default:
+    tools:        []
+    collections:  []
+    themes_notes: []
+    tables:       {}
+
+  # ---------------------------------------------------------------------- dev
+  # L'IDE des développeurs : il cherche SANS générer, il a son propre LLM.
+  # Il a get_schema mais aucun tool de lecture de données (Q3 §9) : get_schema
+  # rend la FORME (DDL commenté, énumérations, plage, conventions), les trois
+  # autres rendent du CONTENU. Un intégrateur a besoin de la première pour coder.
+  #
+  # Son périmètre de tables est celui du support — les trois colonnes sensibles
+  # restent fermées, par cohérence avec la fermeture par dérivation (Q3 §7) :
+  # décrire marge_pct à qui ne doit pas la lire, c'est déjà en publier l'existence.
+  # Un périmètre de tables non vide n'implique pas un accès aux données.
+  dev:
+    tools:
+      - answer_question
+      - search_docs
+      - get_document
+      - list_sources
+      - get_schema
+    collections:  [fiche_technique, notice, procedure_sav]   # pas note_interne
+    themes_notes: []                                          # → 270 éditions courantes
+    tables:
+      produits:  [ref, nom, categorie, fabricant, unite, prix_vente_ht, actif]
+      stocks:    [ref, entrepot, quantite, seuil_reappro]
+      commandes: [id, client_id, date_commande, statut, montant_ht]
+      clients:   [id, raison_sociale, segment, ville]
+      ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct]
+
+  # ------------------------------------------------------------------ support
+  # Le bot Slack du support. Il a les huit tools : ask_database lui est bien
+  # accordé (Q3 §9) — les questions SQL-17 → SQL-20 sont refusées SUR LE
+  # PÉRIMÈTRE, pas sur le tool. Retirer le tool ferait passer les tests pour
+  # la mauvaise raison.
+  support:
+    tools:
+      - answer_question
+      - search_docs
+      - get_document
+      - list_sources
+      - get_schema
+      - ask_database
+      - check_stock
+      - order_status
+    collections:  [fiche_technique, notice, procedure_sav, note_interne]
+    # Liste blanche de thèmes (Q3 §6) : le grain est le THÈME, pas la collection.
+    # Le marqueur « Diffusion restreinte » ne couvre que 16 des 32 notes
+    # sensibles ; et fermer note_interne coûterait au support ses 16 notes
+    # alerte-qualite, son métier même.
+    themes_notes: [alerte-qualite, logistique, retour-terrain]  # → 318 éditions courantes
+    tables:
+      # E5 : ni prix d'achat ni marge ne sortent pour le support.
+      # Fermeture par dérivation (Q3 §7) : prix_achat_ht, marge_pct et marge_ht
+      # sont un seul secret en trois exemplaires — vérifié 120/120 produits,
+      # 993/993 lignes de vente. Les trois sont fermés ensemble ou aucun.
+      produits:  [ref, nom, categorie, fabricant, unite, prix_vente_ht, actif]
+      stocks:    [ref, entrepot, quantite, seuil_reappro]
+      commandes: [id, client_id, date_commande, statut, montant_ht]
+      clients:   [id, raison_sociale, segment, ville]
+      ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct]
+
+  # --------------------------------------------------------------- commercial
+  # Le poste des commerciaux : une réponse prête, et des chiffres.
+  # Seul profil à lire les trois colonnes sensibles.
+  commercial:
+    tools:
+      - answer_question
+      - search_docs
+      - get_document
+      - list_sources
+      - get_schema
+      - ask_database
+      - check_stock
+      - order_status
+    collections:  [fiche_technique, notice, procedure_sav, note_interne]
+    themes_notes:                                              # → 350 éditions courantes
+      - alerte-qualite
+      - logistique
+      - retour-terrain
+      - politique-tarifaire
+      - reunion-achat
+    tables:
+      produits:  [ref, nom, categorie, fabricant, unite, prix_vente_ht, actif,
+                  prix_achat_ht, marge_pct]
+      stocks:    [ref, entrepot, quantite, seuil_reappro]
+      commandes: [id, client_id, date_commande, statut, montant_ht]
+      clients:   [id, raison_sociale, segment, ville]
+      ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct,
+                  marge_ht]
+
+# ---------------------------------------------------------------------------
+# Ce que la matrice ne contient pas, et pourquoi
+#
+# clients.email  — fermée aux QUATRE profils. Motif RGPD, pas E5 : aucune
+#                  question du jeu d'évaluation ne la demande, et une adresse
+#                  n'a pas à traverser un LLM. Elle n'est donc dans aucune
+#                  liste blanche, y compris celle du commercial.
+#
+# stocks.id      — exclues. Ce sont des AUTOINCREMENT sans sens métier : stocks
+# ventes.id        s'adresse par (ref, entrepot), ventes par commande_id.
+#                  Écart signalé : 2-text-to-sql/catalogue-tools.md les décrit
+#                  comme « autorisées mais inutiles ». La matrice est normative,
+#                  la liste blanche les exclut.
+#
+# Décompte de contrôle : la base porte 31 colonnes.
+#   commercial 28  =  31 − email − stocks.id − ventes.id
+#   support    25  =  28 − prix_achat_ht − marge_pct − marge_ht
+#   dev        25  =  support (forme, jamais contenu)
+#   default     0

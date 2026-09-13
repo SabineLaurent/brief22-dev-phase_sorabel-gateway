@@ -1,0 +1,216 @@
+<meta charset="utf-8">
+<title>Sorabel — les deux voies du rendu de réponse</title>
+<style>
+  :root {
+    --ground: #fbfaf8; --ink: #1c1a17; --muted: #6a6459;
+    --rule: #e0dbd2; --card: #ffffff; --accent: #7a4b2a;
+    --client: #1f6f5c; --journal: #8a4a1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #161513; --ink: #ece8e1; --muted: #9c948a;
+      --rule: #2f2c28; --card: #1e1d1a; --accent: #d09a6e;
+      --client: #6cc0a6; --journal: #e0a06a;
+    }
+  }
+  body { background: var(--ground); color: var(--ink); margin: 0;
+         font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 48px 24px 96px; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 .3em; letter-spacing: -.01em; }
+  h2 { font-size: 1.15rem; margin: 3em 0 .2em; padding-top: 1.2em;
+       border-top: 1px solid var(--rule); letter-spacing: -.005em; }
+  h2:first-of-type { border-top: 0; padding-top: 0; }
+  p.lede { color: var(--muted); margin: 0 0 2.5em; max-width: 62ch; }
+  p.note { color: var(--muted); max-width: 68ch; margin: .2em 0 1.6em; }
+  .frame { background: #fdfdfc; border: 1px solid var(--rule); border-radius: 10px;
+           padding: 20px 12px; margin: 1.2em 0 0; overflow-x: auto; }
+  .mermaid { min-width: 640px; }
+  table { border-collapse: collapse; width: 100%; margin: 1.2em 0 0; font-size: .9rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--rule);
+           vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); font-size: .78rem; text-transform: uppercase;
+       letter-spacing: .06em; }
+  code { font: .88em ui-monospace, SFMono-Regular, Menlo, monospace;
+         background: color-mix(in srgb, var(--accent) 12%, transparent);
+         padding: .1em .35em; border-radius: 4px; }
+  .cli { color: var(--client); font-weight: 600; }
+  .jrn { color: var(--journal); font-weight: 600; }
+  footer { color: var(--muted); font-size: .85rem; margin-top: 4em;
+           border-top: 1px solid var(--rule); padding-top: 1.4em; }
+</style>
+
+<main>
+  <h1>Les deux voies du rendu de réponse</h1>
+  <p class="lede">
+    Chantier 3, côté Text-to-SQL. Un seul objet est construit par appel ; il se sépare en deux
+    à un endroit précis, et l'ordre de cette séparation est la garantie.
+    <span class="cli">Vers le client</span> : trois champs, une phrase figée, rien de nommé.
+    <span class="jrn">Vers le journal</span> : tout, y compris la trace d'exception.
+  </p>
+
+  <h2>1 — La bifurcation</h2>
+  <p class="note">
+    Tout appel finit par <code>_deliver()</code>, et <code>_deliver()</code> journalise
+    <em>avant</em> de purger. Journaliser après reviendrait à effacer la cause pour tout le
+    monde, débug compris.
+  </p>
+  <div class="frame"><pre class="mermaid">
+flowchart TB
+    Q["Question de l'utilisateur<br/>Chainlit — rôle converti en profil de matrice"]
+    Q --> API["api.py · POST /chat"]
+    API --> AG["Agent LangChain<br/>le LLM choisit le tool sur les descriptions"]
+    AG --> HD
+
+    subgraph HD["handler.handle&#40;&#41; — point de passage unique"]
+      direction TB
+      E2{"authorize&#40;profil, tool&#41;<br/>étage 2"}
+      E2 -->|refusé| TI["tool_interdit · etage 2"]
+      E2 -->|accordé| TP["tools.py<br/>périmètre → modèle → AST → EXPLAIN → exécution"]
+      TP --> OBJ
+      TI --> OBJ
+      FIL["except Exception<br/>filet de dernier recours"] --> OBJ
+      TP -.->|"exception échappée"| FIL
+      OBJ["<b>DbStructuredAnswer</b><br/>code · payload<br/>cause · stack · forbidden · etage"]
+    end
+
+    OBJ --> DEL{{"_deliver&#40;&#41;<br/>1. journaliser · 2. purger"}}
+
+    DEL -->|"1"| REC["journal.record&#40;&#41;<br/>entrée JSONL complète"]
+    DEL -->|"2"| CV["client_view&#40;&#41;<br/>liste blanche + phrase figée"]
+
+    REC --> FILE[("logs/journal.jsonl<br/>append-only")]
+    CV --> BOOK["carnet de l'appel<br/>call_record&#40;&#41;"]
+    BOOK --> FROZ{"status = ok ?"}
+    FROZ -->|non| ASIS["la phrase figée part<br/><b>sans repasser par le LLM</b>"]
+    FROZ -->|oui| LLM["le LLM rédige<br/>à partir des lignes et de la requête"]
+    ASIS --> ECRAN["Écran Chainlit"]
+    LLM --> ECRAN
+
+    FILE --> RF{"read_feedback&#40;profil&#41;<br/>authorize&#40;read_journal&#41;"}
+    RF -->|"admin seul"| ADMIN["GET /journal<br/>entrées entières, trace comprise"]
+    RF -->|"tout autre profil"| DENY["tool_interdit<br/>et la tentative est journalisée"]
+    ADMIN --> ECRAN
+    DENY --> ECRAN
+
+    classDef client fill:#e7f4ef,stroke:#1f6f5c,stroke-width:1.5px,color:#10352c
+    classDef journal fill:#fbeee2,stroke:#8a4a1f,stroke-width:1.5px,color:#4a2711
+    classDef pivot fill:#ede9f6,stroke:#5b4a8a,stroke-width:2px,color:#241d3d
+    classDef plain fill:#f4f2ee,stroke:#b8b0a3,color:#2a2723
+    class CV,BOOK,FROZ,ASIS,LLM,ECRAN client
+    class REC,FILE,RF,ADMIN,DENY journal
+    class OBJ,DEL pivot
+    class Q,API,AG,E2,TP,TI,FIL plain
+  </pre></div>
+
+  <h2>2 — Ce que chaque voie emporte</h2>
+  <table>
+    <tr><th>Champ de l'objet</th><th class="cli">Client</th><th class="jrn">Journal</th><th>Pourquoi</th></tr>
+    <tr><td><code>code</code></td><td>oui</td><td>oui</td>
+        <td>le motif fin, l'un des neuf. C'est lui qui porte le recours de l'utilisateur.</td></tr>
+    <tr><td><code>status</code></td><td>oui</td><td>oui</td>
+        <td>les cinq valeurs du contrat DSI. Un client écrit un seul aiguillage d'affichage.</td></tr>
+    <tr><td><code>message</code></td><td>phrase figée</td><td>la cause</td>
+        <td>deux lecteurs, deux besoins. Le journal garde aussi <code>client_message</code> :
+            ce que l'utilisateur a réellement lu, pour raccorder un signalement à son appel.</td></tr>
+    <tr><td><code>payload</code></td><td>liste blanche</td><td>oui</td>
+        <td><code>sql</code>, <code>columns</code>, <code>rows</code> sur un résultat ;
+            <code>{code}</code> et rien d'autre sur tout refus.</td></tr>
+    <tr><td><code>cause</code></td><td><b>non</b></td><td>oui</td>
+        <td>le texte du modèle, le message SQLite, <code>str(exc)</code>. C'est ce qui rendait
+            l'énoncé variable, et c'est ce qui sert au débug.</td></tr>
+    <tr><td><code>stack</code></td><td><b>non</b></td><td>oui</td>
+        <td><code>traceback.format_exc()</code>. Un défaut, pas un cas prévu.</td></tr>
+    <tr><td><code>forbidden</code></td><td><b>non</b></td><td>oui</td>
+        <td>les colonnes fermées. Les énumérer au client ferait du refus un oracle : en
+            sondant, on cartographierait la matrice.</td></tr>
+    <tr><td><code>etage</code></td><td><b>non</b></td><td>oui</td>
+        <td>3 matrice/AST · 2 droit au tool · vide quand c'est le modèle qui a refusé — il
+            n'est pas une barrière. C'est ce qui rend la défense en profondeur vérifiable.</td></tr>
+    <tr><td><code>n_rows</code>, <code>latency_ms</code></td><td><b>non</b></td><td>oui</td>
+        <td>du diagnostic. Le client compte les lignes qu'il a reçues.</td></tr>
+  </table>
+  <p class="note">
+    Les quatre « non » ne sont pas des clés retirées à la sortie : ce sont des
+    <b>attributs de dataclass</b>, jamais des clés de dictionnaire. Un <code>json.dumps</code>
+    distrait sur l'objet échoue au lieu de fuir. Le seul sérialiseur est
+    <code>client_view()</code>.
+  </p>
+
+  <h2>3 — Un refus, de bout en bout</h2>
+  <p class="note">
+    Le cas qui motive tout le chantier : le support demande une marge. Trois barrières
+    auraient pu trancher ; c'est la matrice qui le fait, avant l'AST. Le modèle rédige un
+    texte — qui ne sortira jamais.
+  </p>
+  <div class="frame"><pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as Utilisateur
+    participant C as Chainlit
+    participant A as api.py
+    participant L as LLM de chat
+    participant H as handler.handle
+    participant T as tools.py
+    participant J as journal.jsonl
+
+    U->>C: « la marge par produit ? »
+    C->>A: POST /chat · rôle support
+    A->>A: call_record&#40;&#41; — carnet ouvert
+    A->>L: question + descriptions des tools
+    L->>H: ask_to_db&#40;question&#41;
+    H->>H: authorize&#40;support, ask_database&#41; = oui
+    H->>T: ask_database&#40;...&#41;
+    T->>T: la matrice ferme marge_pct — le modèle ne la voit pas
+    T-->>H: perimetre_interdit · cause « pas accès à produits.marge_pct » · etage 3
+    H->>J: entrée complète — cause, forbidden, etage, arguments
+    H-->>L: status refused · payload {code} · phrase figée
+    Note over L: le LLM voit le refus, mais pas sa cause :<br/>il ne peut pas reformuler ce qu'il n'a pas
+    L-->>A: un texte rédigé
+    A->>A: frozen_text&#40;carnet&#41; — un verdict non-ok existe
+    A-->>C: la phrase figée, telle quelle
+    C-->>U: « Cette information n'est pas accessible avec votre profil. »
+  </pre></div>
+  <p class="note">
+    L'étape 15 est celle qui manquait. Sans elle, le refus restait déterministe jusqu'au LLM
+    de chat, qui en rendait une formulation différente à chaque appel — troisième variation
+    après celle du modèle SQL et celle du message d'exception.
+  </p>
+
+  <h2>4 — Où c'est écrit</h2>
+  <table>
+    <tr><th>Fichier</th><th>Rôle</th></tr>
+    <tr><td><code>packages/text_to_sql_factory/structured_answer.py</code></td>
+        <td>l'objet, les phrases figées, la liste blanche, <code>client_view()</code></td></tr>
+    <tr><td><code>packages/text_to_sql_factory/handler.py</code></td>
+        <td>le point de passage unique, l'étage 2, <code>read_feedback()</code></td></tr>
+    <tr><td><code>packages/journal.py</code></td>
+        <td>l'écriture et la relecture JSONL. À la racine : transverse aux huit tools</td></tr>
+    <tr><td><code>packages/agent/cli.py</code></td>
+        <td>les quatre tools de l'agent, le carnet d'appel, <code>frozen_text()</code></td></tr>
+    <tr><td><code>packages/agent/api.py</code></td>
+        <td>le dernier point avant l'écran ; <code>/journal</code> et sa lecture</td></tr>
+    <tr><td><code>packages/text_to_sql_factory/check_feedback.py</code></td>
+        <td>102 contrôles déterministes — <code>make check-feedback</code></td></tr>
+  </table>
+
+  <footer>
+    Sorabel Data Gateway — brief 22. Détail des arbitrages dans
+    <code>docs/journal-developpement.md</code>, entrée du 2026-09-04.
+  </footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>
+  // Script classique et non module : une page ouverte en file:// ne peut pas importer un
+  // module distant, alors qu'un <script src> passe. C'est ce qui permet d'ouvrir ce fichier
+  // d'un double-clic, sans rien installer ni servir.
+  // Thème fixe : les couleurs des nœuds sont posées à la main par `classDef`, et le thème
+  // sombre de mermaid redessinerait les libellés d'arêtes en clair par-dessus des boîtes
+  // claires. Le diagramme se comporte comme une image, sur un cadre clair dans les deux cas.
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'neutral',
+    flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 45, rankSpacing: 55 },
+    sequence: { useMaxWidth: false, wrap: true, width: 170 }
+  });
+</script>

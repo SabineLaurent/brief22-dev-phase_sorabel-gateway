@@ -9,6 +9,13 @@ Exemples :
         --tool ask_database --args '{"question": "combien de commandes en avril ?"}'
     uv run python scripts/mcp_client.py --profile support \
         --tool search_docs --args '{"query": "REF-8842"}'
+    uv run python scripts/mcp_client.py --profile dev        # 5 tools sur 8
+    uv run python scripts/mcp_client.py --profile default    # aucun tool
+
+Les profils acceptés sont **ceux de la matrice**, lus dans ``matrice.yaml`` et non écrits
+ici : le brief ne demande de démontrer que ``support`` et ``commercial``, mais une liste en
+dur diverge de la matrice le jour où un profil y est ajouté — et c'est précisément ce que ce
+client sert à montrer.
 """
 
 from __future__ import annotations
@@ -21,6 +28,9 @@ import sys
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+from config import settings
+from packages.access import load_matrix
 
 
 async def run(profile: str, tool: str | None, args: dict) -> None:
@@ -52,7 +62,7 @@ async def run(profile: str, tool: str | None, args: dict) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Client de test de la Sorabel Data Gateway")
-    parser.add_argument("--profile", default="support", choices=["support", "commercial"])
+    parser.add_argument("--profile", default="support", choices=sorted(load_matrix(settings)))
     parser.add_argument("--tool", default=None, help="Nom du tool à appeler")
     parser.add_argument("--args", default="{}", help="Arguments du tool (JSON)")
     ns = parser.parse_args()

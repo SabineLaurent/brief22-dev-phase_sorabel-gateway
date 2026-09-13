@@ -1,0 +1,43 @@
+# Chroma, avec l'index déjà dedans.
+#
+# POURQUOI L'INDEX EST CUIT DANS L'IMAGE, ET NON MONTÉ NI RECONSTRUIT
+#
+# Ce n'est pas un artefact de build, c'est le RÉFÉRENT D'UNE MESURE. Le seuil de refus
+# servi (`CALIBRATED_THRESHOLDS` dans `config.py`) a été calibré sur CET index ; le
+# reconstruire en produirait un autre — mêmes documents, autres vecteurs — et invaliderait
+# la calibration en silence, c'est-à-dire le défaut même que le contrôle de seuil ferme.
+#
+# Le reconstruire au build exigerait par ailleurs un Chroma vivant ET 400 appels
+# d'embeddings sur Azure, donc les secrets à l'étape de construction. 33 Mo est le prix de
+# la reproductibilité de la mesure.
+#
+# CONSÉQUENCE À CONNAÎTRE : `.docker-data/` est gitignoré. Ce Dockerfile ne peut donc PAS
+# être construit depuis un clone propre — il faut une machine qui a joué `make ingest`.
+# C'est écrit ici parce que l'erreur est silencieuse : l'image se construirait, démarrerait,
+# et ne répondrait à aucune question documentaire.
+FROM chromadb/chroma:0.5.23
+
+# Les trois collections sont embarquées, pas seulement celle de la cellule servie :
+# `sorabel_corpus` (e5, 768 dims), `sorabel_corpus_raw` (index témoin de l'axe 2) et
+# `sorabel_corpus_azure_small` (text-embedding-3-small, 1536 dims). Trier coûterait un
+# script de plus pour économiser quelques mégaoctets, et rendrait l'image incapable de
+# servir un autre étage de mesure. `CHROMA_COLLECTION` décide laquelle est lue, et
+# l'empreinte de collection refuse le mauvais appariement.
+COPY .docker-data/chroma /chroma/chroma
+
+ENV IS_PERSISTENT=TRUE
+ENV ANONYMIZED_TELEMETRY=FALSE
+
+# LE PORT, ET POURQUOI 8002 PLUTÔT QUE 8000
+#
+# En développement, `docker-compose.yml` mappe `8002:8000` — Chroma écoute sur 8000 dans son
+# conteneur, et le mapping fait le reste. En sidecar Azure Container Apps il n'y a AUCUN
+# mapping : les conteneurs d'une même app partagent la pile réseau, et l'API y écoute déjà
+# sur 8000. Les deux entreraient en collision.
+#
+# On déplace donc Chroma, pas l'API : `chroma_url` a déjà pour défaut
+# `http://localhost:8002` (`config.py`), si bien que la configuration déployée devient
+# identique à celle du poste et qu'il n'y a rien à surcharger. La commande de l'image lit ce
+# port dans une variable (`--port ${CHROMA_HOST_PORT}`), donc aucun override d'entrypoint.
+ENV CHROMA_HOST_PORT=8002
+EXPOSE 8002

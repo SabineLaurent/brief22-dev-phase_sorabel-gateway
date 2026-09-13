@@ -1,0 +1,100 @@
+embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
+rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
+============================= test session starts ==============================
+platform darwin -- Python 3.11.15, pytest-8.4.2, pluggy-1.6.0 -- /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/.venv/bin/python
+cachedir: .pytest_cache
+configuration lue par cette exécution (extraite du code, pas recopiée) :
+  commit    : 2d269bb
+  embedder  : intfloat/multilingual-e5-base [local]
+  reranker  : cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 [local]
+  seuil     : 0.053 = calibré pour ce couple
+  vectoriel : http://localhost:9999 · sorabel_corpus — ILLISIBLE : Chroma injoignable sur http://localhost:9999 — lancer `make up` (le service docker expose Chroma sur le port 8002).
+  lexical   : /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/data/bm25/sorabel_corpus.pkl (280 Kio)
+  métier    : /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/data/sorabel.db (156 Kio)
+rootdir: /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway
+configfile: pyproject.toml
+plugins: langsmith-0.12.1, anyio-4.14.2, asyncio-0.26.0
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 4 items
+
+tests/acceptance/test_rag.py::test_answer_question_cite_ses_sources FAILED [ 25%]
+tests/acceptance/test_rag.py::test_hors_corpus_signale_sans_inventer FAILED [ 50%]
+tests/acceptance/test_rag.py::test_recherche_par_reference_exacte FAILED [ 75%]
+tests/acceptance/test_rag.py::test_gain_hybride_mesure_et_documente PASSED [100%]
+
+=================================== FAILURES ===================================
+____________________ test_answer_question_cite_ses_sources _____________________
+
+    async def test_answer_question_cite_ses_sources():
+        # E1 : une question couverte par le corpus reçoit une réponse sourcée
+        # (titre + référence + date), via le tool de haut niveau.
+        result = await call_tool(
+            "support",
+            "answer_question",
+            {"question": "quelle est la procédure de retour d'un produit défectueux sous garantie ?"},
+        )
+>       assert result["status"] == "ok"
+E       AssertionError: assert 'error' == 'ok'
+E         
+E         - ok
+E         + error
+
+tests/acceptance/test_rag.py:16: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[09/13/26 17:10:23] INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    
+embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
+rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
+[09/13/26 17:10:24] INFO     Anonymized telemetry enabled. See     posthog.py:22
+                             https://docs.trychroma.com/telemetry               
+                             for more information.                              
+____________________ test_hors_corpus_signale_sans_inventer ____________________
+
+    async def test_hors_corpus_signale_sans_inventer():
+        # E1 : hors corpus, l'outil ne fabrique pas de réponse et le signale.
+        result = await call_tool(
+            "support",
+            "answer_question",
+            {"question": "quelle est la politique de télétravail chez Sorabel ?"},
+        )
+>       assert result["status"] == "hors_corpus"
+E       AssertionError: assert 'error' == 'hors_corpus'
+E         
+E         - hors_corpus
+E         + error
+
+tests/acceptance/test_rag.py:33: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[09/13/26 17:10:24] INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    
+embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
+rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
+                    INFO     Anonymized telemetry enabled. See     posthog.py:22
+                             https://docs.trychroma.com/telemetry               
+                             for more information.                              
+_____________________ test_recherche_par_reference_exacte ______________________
+
+    async def test_recherche_par_reference_exacte():
+        # E2 : la recherche « REF-8842 » remonte la fiche technique correspondante
+        # en tête des résultats.
+        result = await call_tool("support", "search_docs", {"query": "REF-8842"})
+>       assert result["status"] == "ok"
+E       AssertionError: assert 'error' == 'ok'
+E         
+E         - ok
+E         + error
+
+tests/acceptance/test_rag.py:42: AssertionError
+----------------------------- Captured stderr call -----------------------------
+[09/13/26 17:10:24] INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    
+embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
+rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
+[09/13/26 17:10:25] INFO     Anonymized telemetry enabled. See     posthog.py:22
+                             https://docs.trychroma.com/telemetry               
+                             for more information.                              
+=========================== short test summary info ============================
+FAILED tests/acceptance/test_rag.py::test_answer_question_cite_ses_sources - ...
+FAILED tests/acceptance/test_rag.py::test_hors_corpus_signale_sans_inventer
+FAILED tests/acceptance/test_rag.py::test_recherche_par_reference_exacte - As...
+========================= 3 failed, 1 passed in 1.81s ==========================

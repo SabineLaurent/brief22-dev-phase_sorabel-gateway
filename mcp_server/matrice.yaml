@@ -1,0 +1,212 @@
+# matrice.yaml — matrice d'accès de la Sorabel Data Gateway
+#
+# Destination au développement : mcp_server/matrice.yaml
+# Source normative            : 3-exposition-mcp-et-matrice-d-acces/Q3.md §3, §6, §9
+#
+# C'est une DONNÉE DE CONFIGURATION VERSIONNÉE, jamais du code. Elle est lue
+# partout par une fonction unique : autoriser(profil, ressource).
+# Aucun `if profil ==` dans le code métier.
+#
+# Trois propriétés délibérées (Q3 §3) :
+#   1. liste blanche partout — une colonne, une collection ou un thème ajouté
+#      demain est refusé par défaut ;
+#   2. `default` est un profil, pas une exception — matrice.get(profil) or DEFAULT,
+#      jamais de KeyError, jamais de None qui se propage. La matrice est totale :
+#      un profil inconnu produit un refus propre et journalisé ;
+#   3. de la configuration — rouvrir un thème coûte une ligne relue en revue,
+#      sans redéploiement de logique.
+#
+# Le profil ne vient JAMAIS du client : il est lu dans SORABEL_PROFILE, variable
+# d'environnement du lancement, propriété du transport stdio (Q3 §2). Le LLM du
+# client ne peut pas l'écrire — il n'existe nulle part dans ce qu'il manipule.
+# Conséquence : le paramètre `profil` n'apparaît dans aucune signature exposée.
+
+revision: 2026-09-01
+schema_version: 1
+
+profils:
+
+  # ------------------------------------------------------------------ default
+  # Zéro droit. Default deny, moindre privilège. Atteint par tout profil
+  # absent, inconnu ou mal typé. Périmètre vide = refus, jamais intersection muette.
+  default:
+    tools:        []
+    collections:  []
+    themes_notes: []
+    tables:       {}
+
+  # ---------------------------------------------------------------------- dev
+  # L'IDE des développeurs : il cherche SANS générer, il a son propre LLM.
+  # Il a get_schema mais aucun tool de lecture de données (Q3 §9) : get_schema
+  # rend la FORME (DDL commenté, énumérations, plage, conventions), les trois
+  # autres rendent du CONTENU. Un intégrateur a besoin de la première pour coder.
+  #
+  # Son périmètre de tables est celui du support — les trois colonnes sensibles
+  # restent fermées, par cohérence avec la fermeture par dérivation (Q3 §7) :
+  # décrire marge_pct à qui ne doit pas la lire, c'est déjà en publier l'existence.
+  # Un périmètre de tables non vide n'implique pas un accès aux données.
+  dev:
+    tools:
+      - answer_question
+      - search_docs
+      - get_document
+      - list_sources
+      - get_schema
+    collections:  [fiche_technique, notice, procedure_sav]   # pas note_interne
+    themes_notes: []                                          # → 270 éditions courantes
+    tables:
+      produits:  [ref, nom, categorie, fabricant, unite, prix_vente_ht, actif]
+      stocks:    [ref, entrepot, quantite, seuil_reappro]
+      commandes: [id, client_id, date_commande, statut, montant_ht]
+      clients:   [id, raison_sociale, segment, ville]
+      ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct]
+
+  # ------------------------------------------------------------------ support
+  # Le bot Slack du support. `ask_database` lui est bien accordé (Q3 §9) — les
+  # questions SQL-17 → SQL-20 sont refusées SUR LE PÉRIMÈTRE, pas sur le tool.
+  # Retirer le tool ferait passer les tests pour la mauvaise raison.
+  #
+  # `get_schema` en revanche lui est RETIRÉ, et c'est l'arbitrage déjà consigné au
+  # journal de développement (tableau conception ↔ tests, ligne `get_schema` pour
+  # `support`) : T9, T10 et T12 attendent un `refused`. Il n'avait aucun effet tant
+  # que rien n'exerçait l'étage 2 ; le handler du chantier 3 l'exerce, donc la
+  # matrice doit dire la même chose que les tests. Le support lit des DONNÉES, il
+  # n'a pas à lire la FORME de la base : décrire une colonne à qui ne doit pas la
+  # lire, c'est déjà en publier l'existence (même motif que pour `dev`).
+  support:
+    tools:
+      - answer_question
+      - search_docs
+      - get_document
+      - list_sources
+      - ask_database
+      - check_stock
+      - order_status
+    collections:  [fiche_technique, notice, procedure_sav, note_interne]
+    # ÉCART AU CADRAGE, ASSUMÉ. `docs/cadrage_dsi.md` §matrice ne donne pas
+    # `notes_internes` à `support` ; ici la collection est ouverte, sur trois thèmes.
+    #
+    # Liste blanche de thèmes (Q3 §6) : le grain est le THÈME, pas la collection.
+    # Le marqueur « Diffusion restreinte » ne couvre que 16 des 32 notes
+    # sensibles — s'y fier laisserait passer les 16 autres. Et fermer note_interne
+    # coûterait au support ses 16 notes alerte-qualite, son métier même. Fermer la
+    # collection est donc à la fois trop et pas assez : le thème est le seul grain
+    # qui sépare ce que le support doit lire de ce qu'il ne doit pas.
+    themes_notes: [alerte-qualite, logistique, retour-terrain]  # → 318 éditions courantes
+    tables:
+      # E5 : ni prix d'achat ni marge ne sortent pour le support.
+      # Fermeture par dérivation (Q3 §7) : prix_achat_ht, marge_pct et marge_ht
+      # sont un seul secret en trois exemplaires — vérifié 120/120 produits,
+      # 993/993 lignes de vente. Les trois sont fermés ensemble ou aucun.
+      produits:  [ref, nom, categorie, fabricant, unite, prix_vente_ht, actif]
+      stocks:    [ref, entrepot, quantite, seuil_reappro]
+      commandes: [id, client_id, date_commande, statut, montant_ht]
+      clients:   [id, raison_sociale, segment, ville]
+      # ÉCART AU CADRAGE, ASSUMÉ. `docs/cadrage_dsi.md` §matrice écrit pour `support` :
+      # « ventes.* (table non accessible) ». Ici la table est OUVERTE, `marge_ht` fermée.
+      #
+      # Le motif est la nature de la fermeture : E5 ferme TROIS COLONNES, pas une table.
+      # Le secret est en trois exemplaires — marge_ht donne prix_achat_ht sur 993 lignes
+      # de vente sur 993, qui donne marge_pct sur 120 produits sur 120. Ce sont les
+      # colonnes qui sont fermées ensemble ; la table qui les porte n'est pas le grain.
+      #
+      # Et le fermer déplacerait le refus du bon contrôle vers le mauvais. Fermer `ventes`
+      # ferait attraper la requête au contrôle 5a (« table hors périmètre »), qui est
+      # antérieur ; le cas `SUM(v.marge_ht) FROM ventes v` de check_sql.py — le seul cas
+      # `support` qui exerce la RÉSOLUTION D'ALIAS du contrôle 5b — passerait alors
+      # au vert sans jamais parcourir 5b. Un contrôle vert pour la mauvaise raison ne
+      # contrôle plus rien. Même argument que pour `ask_database` ci-dessus, un étage plus bas.
+      ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct]
+
+  # --------------------------------------------------------------- commercial
+  # Le poste des commerciaux : une réponse prête, et des chiffres.
+  # Seul profil à lire les trois colonnes sensibles.
+  commercial:
+    tools:
+      - answer_question
+      - search_docs
+      - get_document
+      - list_sources
+      - get_schema
+      - ask_database
+      - check_stock
+      - order_status
+    collections:  [fiche_technique, notice, procedure_sav, note_interne]
+    themes_notes:                                              # → 350 éditions courantes
+      - alerte-qualite
+      - logistique
+      - retour-terrain
+      - politique-tarifaire
+      - reunion-achat
+    tables:
+      produits:  [ref, nom, categorie, fabricant, unite, prix_vente_ht, actif,
+                  prix_achat_ht, marge_pct]
+      stocks:    [ref, entrepot, quantite, seuil_reappro]
+      commandes: [id, client_id, date_commande, statut, montant_ht]
+      clients:   [id, raison_sociale, segment, ville]
+      ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct,
+                  marge_ht]
+
+  # -------------------------------------------------------------------- admin
+  # Le poste d'administration, et le rôle du même nom dans l'interface de test.
+  # Ajouté au chantier 2 bis : sans lui, le rôle `admin` de l'UI retombait sur
+  # `default` et n'avait aucun droit — comportement juste au sens de la matrice,
+  # mais illisible dans une interface qui affiche « admin ».
+  #
+  # Il a les huit tools et les 28 colonnes du commercial, marges et prix d'achat
+  # compris. Il n'a PAS plus, et c'est délibéré : `clients.email` reste fermée aux
+  # cinq profils. Son motif n'est pas E5 mais le RGPD — une adresse n'a pas à
+  # traverser un LLM, et c'en est un qui appelle ces tools. `stocks.id` et
+  # `ventes.id` restent exclues au même titre : clés techniques sans sens métier.
+  admin:
+    tools:
+      - answer_question
+      - search_docs
+      - get_document
+      - list_sources
+      - get_schema
+      - ask_database
+      - check_stock
+      - order_status
+      # Neuvième ligne, et le seul profil qui la porte : la lecture du journal. Ce n'est
+      # pas un tool du catalogue DSI — c'est la surface de débug des équipes métier, et
+      # elle rend les entrées entières, trace d'exception comprise. Elle est donc plus
+      # sensible que les huit autres réunis : le journal contient les colonnes refusées de
+      # tous les profils, donc la matrice elle-même en creux. D'où un seul lecteur.
+      - read_journal
+    collections:  [fiche_technique, notice, procedure_sav, note_interne]
+    themes_notes:
+      - alerte-qualite
+      - logistique
+      - retour-terrain
+      - politique-tarifaire
+      - reunion-achat
+    tables:
+      produits:  [ref, nom, categorie, fabricant, unite, prix_vente_ht, actif,
+                  prix_achat_ht, marge_pct]
+      stocks:    [ref, entrepot, quantite, seuil_reappro]
+      commandes: [id, client_id, date_commande, statut, montant_ht]
+      clients:   [id, raison_sociale, segment, ville]
+      ventes:    [commande_id, ref, quantite, prix_unitaire_ht, remise_pct,
+                  marge_ht]
+
+# ---------------------------------------------------------------------------
+# Ce que la matrice ne contient pas, et pourquoi
+#
+# clients.email  — fermée aux CINQ profils. Motif RGPD, pas E5 : aucune
+#                  question du jeu d'évaluation ne la demande, et une adresse
+#                  n'a pas à traverser un LLM. Elle n'est donc dans aucune
+#                  liste blanche, y compris celles du commercial et de l'admin.
+#
+# stocks.id      — exclues. Ce sont des AUTOINCREMENT sans sens métier : stocks
+# ventes.id        s'adresse par (ref, entrepot), ventes par commande_id.
+#                  Écart signalé : 2-text-to-sql/catalogue-tools.md les décrit
+#                  comme « autorisées mais inutiles ». La matrice est normative,
+#                  la liste blanche les exclut.
+#
+# Décompte de contrôle : la base porte 31 colonnes.
+#   commercial 28  =  31 − email − stocks.id − ventes.id
+#   admin      28  =  commercial (le RGPD ne se lève pas pour un rôle d'administration)
+#   support    25  =  28 − prix_achat_ht − marge_pct − marge_ht
+#   dev        25  =  support (forme, jamais contenu)
+#   default     0
