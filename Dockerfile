@@ -46,6 +46,11 @@ RUN uv sync --frozen --no-dev --no-install-project
 # DUR dans le pickle : l'arborescence doit être préservée à l'identique, sans quoi le
 # dépicklage lève un `ModuleNotFoundError` qui ne dira pas que le pickle est en cause.
 COPY config.py ./
+# `conftest.py` voyage AVEC `tests/`, jamais sans : il n'ajoute aucun test, il imprime
+# en en-tête la configuration réellement lue — embedder, reranker, seuil, collection et
+# son empreinte, chemins résolus. Une suite jouée dans le conteneur sans lui rendrait
+# un vert dont personne ne pourrait dire contre quel index il a été obtenu.
+COPY conftest.py ./
 COPY packages/ ./packages/
 COPY mcp_server/ ./mcp_server/
 COPY scripts/ ./scripts/
@@ -69,6 +74,22 @@ RUN python scripts/seed.py
 # exister et être inscriptible — `packages/journal.py` fait bien un `mkdir(parents=True)`,
 # mais un dossier non inscriptible transformerait une erreur déjà gérée en 500 non géré.
 RUN mkdir -p /app/logs
+
+# L'EMPREINTE DU COMMIT, gravée ici et NULLE PART AILLEURS dans les couches précédentes.
+#
+# `.git/` est exclu du contexte et les `COPY` sont nommés : une sortie de la suite jouée
+# dans un conteneur ne peut donc pas relever elle-même le code qui l'a produite. Sans ce
+# relais, seul un document extérieur pouvait l'affirmer — donc se tromper.
+#
+# La place dans le fichier est le point : posée en tête, cette valeur change à chaque
+# commit et invaliderait le cache de `uv sync`, donc reconstruirait les dépendances pour
+# rien. En dernière couche de `base`, elle ne coûte rien et les deux cibles en héritent.
+#
+#   docker build --target test --build-arg SORABEL_COMMIT=$(git rev-parse --short HEAD) .
+#
+# Non renseigné, l'en-tête dit INDISPONIBLE plutôt que d'inventer.
+ARG SORABEL_COMMIT=""
+ENV SORABEL_COMMIT=${SORABEL_COMMIT}
 
 # `/app` RESTE INSCRIPTIBLE, et ce n'est pas de la négligence : Chainlit fait
 # `FILES_DIRECTORY.mkdir(exist_ok=True)` À L'IMPORT du module, sans `parents=True`, et

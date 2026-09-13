@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="Protocole de mesure" id="protocole-mesure">
-        <mxGraphModel dx="1770" dy="1218" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1180" math="0" shadow="0">
+        <mxGraphModel dx="1018" dy="546" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1180" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -104,7 +104,11 @@
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="e_corpus_ingestbrut" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="corpus" target="ingest_brut" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="355" y="290"/>
+                        </Array>
+                    </mxGeometry>
                 </mxCell>
                 <mxCell id="e_ingestbrut_collraw" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;" parent="1" source="ingest_brut" target="coll_raw" edge="1">
                     <mxGeometry relative="1" as="geometry"/>

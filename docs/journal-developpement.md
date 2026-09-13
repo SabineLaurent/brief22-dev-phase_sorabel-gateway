@@ -4785,3 +4785,253 @@ serrure. La chaîne d'identité reste hors brief.
 `data/sorabel.db` sont gitignorés, et l'index est le **référent de la calibration** — le
 rebâtir invaliderait le seuil en silence. C'est pourquoi le build n'est pas branché sur
 `quality.yml`.
+
+---
+
+## 2026-09-13 — Confronter la conception au code servi, puis cesser d'écrire la doc à la main
+
+La journée part d'une question de compréhension — « la matrice appliquée dans le code
+respecte-t-elle celle du diagramme ? » — et finit sur un générateur. Le lien entre les deux est
+le décompte : **sept énoncés faux** trouvés dans des documents soignés, donc le problème n'est
+pas le soin.
+
+### Ce qui a été confronté, et ce qui est tombé
+
+**`05-matrice-acces.drawio` — un écart sur 130 cellules.** Les 36 cellules de collections et
+thèmes, les 32 de colonnes, les deux lignes de décompte (0/270/318/350 et 0/25/25/28) :
+identiques à `matrice.yaml` lu par `load_matrix()`. Le seul désaccord était
+`support × get_schema`, accordé au diagramme, **retiré dans le code** — arbitrage déjà consigné
+(T9, T10, T12 attendent un refus), jamais reporté sur le schéma. Plus une absence : le profil
+`admin` et la ligne `read_journal` n'existaient pas au diagramme.
+
+Les décomptes ont d'abord été recalculés depuis le pickle BM25, Docker étant éteint ; **rejoués
+ensuite contre l'index Chroma** — `make check-perimetre` 43/43, `dev` 270, `support` 318,
+`commercial` 350, `admin` 350.
+
+**`03-catalogue-tools` — six énoncés faux.** Par ordre de coût :
+
+| # | Écrit | Servi |
+|---|---|---|
+| 1 | `search_docs(question)` | `search_docs(query)` |
+| 2 | `get_document(doc_key)` | `get_document(doc_id)` — accepte un `edition_id` ou un `doc_key` |
+| 3 | `check_stock(ref)` | `check_stock(reference)` |
+| 4 | `list_sources` rend un inventaire **par collection**, décomptes et plage de dates | une **liste plate** d'éditions courantes |
+| 5 | le refus d'`ask_database` **nomme la colonne** | phrase figée ; le nom part au journal par `forbidden`, qui ne traverse jamais `client_view()` |
+| 6 | « cinq contrôles » | cinq d'arbre, puis la borne, puis le contrôle 6 `EXPLAIN` |
+
+Les deux premiers étaient consignés. **Le troisième ne l'était nulle part.** Le cinquième n'est
+pas une coquille : la conception promettait ce que le code **refuse** de faire, et pour un motif
+de sécurité écrit dans le code — énumérer les colonnes fermées ferait du refus un oracle.
+
+Corrigés dans `03-catalogue-tools_v2.md` et `03-catalogue-tools_v2.drawio`, les v1 conservées.
+Le §9 de la v2 porte les six écarts avec le fichier et la ligne qui les prouvent, **et les
+quatre qui restent** — noms de champs de l'enveloppe, `isError` code par code, la forme de la
+citation, les listes de codes. Ceux-là demandent une décision, pas une correction de texte.
+
+### Le vrai enseignement : générer plutôt que rédiger
+
+`mcp_server/README.md` annonçait « les vingt réglages » ; `Settings` en porte **26**. Trois
+documents différents, tous relus, tous dérivés. D'où `make doc-tools` →
+`scripts/build_tool_docs.py` → `mcp_server/SMG-guide-d-acces.html`.
+
+**La page est le rendu de ce que le serveur répond**, pas une description de ce qu'il devrait
+répondre : un sous-processus par profil, `initialize`, `tools/list`, et le rendu. Ce qu'elle
+montre et qu'aucun Swagger ne saurait rendre : **le catalogue dépend du profil** — 0 / 5 / 7 /
+8 / 8 — et **les descriptions elles-mêmes diffèrent**. Le générateur détecte les variantes et
+n'affiche que les rubriques qui changent : sous `dev`, `get_schema` perd « Pour obtenir un
+résultat, utiliser `ask_database` ». La démonstration de la matrice tient en trois lignes.
+
+**Un écart calculé plutôt qu'une note** : la page compare ce que `matrice.yaml` déclare à ce que
+`tools/list` rend, et affiche la différence — aujourd'hui `read_journal`, porté par `admin`
+seul, marqué « hors protocole ». Sans cette ligne, `admin` et `commercial` s'affichaient
+identiques à huit tools. Un tool ajouté à la matrice et oublié au serveur y apparaîtrait seul.
+
+**Quatre sections ajoutées ensuite**, dont trois générées : l'enveloppe lue dans
+l'`outputSchema` publié (le texte que reçoit déjà le client, pas une paraphrase), les douze
+codes calculés depuis `DB_STATUS_BY_CODE ∪ RAG_STATUS_BY_CODE`, et **deux réponses réelles** —
+`check_stock REF-8842` sous `support` en `ok`, `get_schema` sous `support` en `refused` /
+`tool_interdit`, payload réduit à `{"code": …}`. Le couple montre l'asymétrie mieux qu'un
+paragraphe. Les deux appels ne touchent que SQLite : la page reste gratuite.
+
+La quatrième — « se brancher » — est **la seule rédigée**, parce qu'aucun schéma ne la porte.
+Elle est autosuffisante à la demande de l'utilisatrice, le guide en prose pouvant changer de
+forme. Ses deux chiffres sont lus : la version de Python dans `pyproject.toml`, le nombre de
+réglages dans `Settings`.
+
+### Le Makefile
+
+248 lignes sans ordre, devenues **dix sections** avec un sommaire, et `make help` qui l'affiche
+au terminal. Le changement qui sert le plus : **toutes les variables en une section**, au lieu
+d'être semées entre les cibles — ce sont les boutons, on les cherche avant de lancer une mesure.
+Et le ✱ marque les huit cibles qui appellent un modèle, donc qui coûtent : rien ne distinguait
+`mesure-hybride` (gratuit) de `mesure-rerank` (payant).
+
+**Vérifié plutôt que supposé** : `make -n` sur les 47 cibles, sortie comparée caractère par
+caractère à la capture d'avant. Aucune recette n'a bougé. 48 cibles, 48 dans `.PHONY`, 48
+décrites.
+
+### Un incident, et sa cause
+
+Pour nettoyer une cible de test, `git checkout -- Makefile` a été lancé : il a restauré la
+version **commitée**, écrasant la réorganisation *et* la cible `doc-tools`, aucune des deux ne
+l'étant. Reconstruit depuis le contexte, et revérifié par la même comparaison `make -n` — mais
+rien ne garantissait que ce soit possible. `git checkout -- <fichier>` ne veut pas dire « annuler
+ma dernière écriture », il veut dire « revenir à HEAD ». Les essais jetables vont dans un
+répertoire temporaire, pas dans un fichier suivi qu'on restaure ensuite.
+
+### Points ouverts
+
+* **le guide ne dit pas qu'il n'y a aucune authentification** — proposé, non ajouté. Sous un
+  titre « Guide d'accès », ce silence se lirait comme une garantie ;
+* **les quatre écarts nommés au §9 de la v2** attendent une décision ;
+* **le rendu des `.drawio` corrigés** n'a pas été vérifié : pas de CLI draw.io sur la machine.
+
+## 2026-09-13 (soir) — Le rejeu de `make mesure`, et la colonne A qui bouge pour la seconde fois
+
+`make mesure` rejoué à la demande, six passes puis le rapport. **B lexical, C hybride et les
+deux passes de l'axe 2 se rejouent identiques à l'octet.** Seules bougent les deux passes
+denses — `mesure-dense` et `mesure-rag-simple` —, et elles bougent en sens contraire.
+
+| | publié le 09-09 (`da305f7`) | rejoué le 13-09 |
+|---|---:|---:|
+| A dense — Hit@1 référence | 1/8 | **3/8** |
+| A dense — MRR | 0,271 | **0,542** |
+| A dense — Recall@5 `attendu_type` | 9/13 | **12/13** |
+| RAG simple — Hit@1 référence | 2/8 | **1/8** |
+
+**Le gain E6 publié rétrécit** : l'« avant » s'améliore, 1/8 → 3/8 face à 8/8. C'est l'inverse
+du mouvement du 07-09, où l'« avant » avait empiré et où le gain était donc sous-estimé. La
+conclusion du chantier ne bouge pas — C reste 8/8, MRR 1,000 — mais l'écart qu'elle chiffre,
+si.
+
+### Ce qui a été écarté, vérifié
+
+* **la passe est stable dans la session** — `make mesure-dense` joué deux fois de suite rend un
+  CSV identique à l'octet. L'instabilité est *entre* sessions, pas dans la mesure ;
+* **l'index est intact** — `make check-index` au vert, décomptes en or tenus ; les trois
+  collections portent 400 éditions et le bon `embedding_model` dans leurs métadonnées ;
+* **aucune surcharge de configuration** — `search_top_k=5`, `search_pool=60`,
+  `rerank_candidates=20`, `max_candidates_per_title=3`, collection `sorabel_corpus` : tous
+  égaux aux défauts du code, relevés à l'exécution et comparés champ à champ ;
+* **le chemin dense n'a pas changé** — les deux seuls commits touchant la recherche depuis
+  `da305f7` sont `cc634ea` (politique de candidats) et `af41ea9` (bascule des embeddings), et
+  `_dense_search` n'utilise ni `search_pool` ni `max_candidates_per_title` ; `top_k` vaut
+  toujours `settings.search_top_k`.
+
+### La piste, et pourquoi elle n'est pas une conclusion
+
+`chroma.sqlite3` — les documents, les métadonnées et les vecteurs — n'a pas été écrit depuis le
+08-09 20:08. En revanche les segments HNSW (`data_level0.bin`, `header.bin`) ont été réécrits le
+13-09 : 15:20 pour l'une des collections, **18:32 pour celle qui est interrogée ici**, c'est-à-dire
+pendant le rejeu. Le conteneur Chroma avait redémarré environ trois heures plus tôt.
+
+**Déduit, pas vérifié** : la différence vient du côté Chroma — seul élément qui ait changé — et
+plus probablement de l'état du graphe HNSW que du corpus ou du code. La démonstration manque :
+il faudrait figer un graphe, le rejouer, puis le reconstruire et rejouer encore. Tant que ce
+n'est pas fait, la cause reste au même niveau qu'au 07-09, où le journal la dit « non
+déterminable ».
+
+Le motif, lui, est le même les deux fois : **seule la colonne A bouge**. En hybride, RRF et le
+rerank absorbent une différence de vivier qui reste visible en dense seul — c'est exactement ce
+que l'axe 6 avait déjà constaté pour le changement d'embedder (« en configuration servie,
+l'embedder est invisible »). La conséquence est désagréable : **l'étage le moins bon est aussi
+le seul instable**, donc le chiffre de référence du gain est le moins solide des trois.
+
+### La contradiction que ce rejeu rouvre — nommée, pas refermée
+
+`da305f7` s'appelait « la colonne A de `rapport_gain.md` contredisait `rapport_embeddings.md` ».
+Vérifié aujourd'hui : les lignes de données de `mesure-emb-local-A.csv` et du `mesure-dense.csv`
+**commité** sont identiques — même cellule, mesurée deux fois, deux cibles. En republiant
+`mesure-dense`, on remet les deux en désaccord : `rapport_embeddings.md` continue d'annoncer
+1/8, MRR 0,271, Recall 9/13 pour `e5` en dense seul.
+
+**Non corrigé, et c'est un choix** : rejouer `make mesure-embeddings` appelle Azure, et la
+question posée était de republier `make mesure`. Les conclusions de `rapport_embeddings.md`
+tiennent — l'écart entre les deux embedders y est lu *à index constant, dans la même session* —
+mais **ses chiffres de la colonne ① sont à reprendre**, comme le sont déjà ceux de
+`rapport_rerank.md` et de `rapport_local_vs_distant.md` depuis l'axe 8.
+
+Une copie des sept sorties est déposée dans `docs/DENSE_VS_HYBRIDE_+_RERANK/`, avec un
+`PROVENANCE.md` qui porte la configuration lue, l'écart et la piste.
+
+### Points ouverts
+
+* **la cause de l'instabilité de la colonne A**, deux fois constatée, jamais démontrée — le
+  protocole ne dit pas ce qui doit être figé entre deux mesures denses, et l'en-tête de CSV à
+  deux lignes ne capte ni l'état du graphe ni la date du dernier redémarrage de Chroma ;
+* **`rapport_embeddings.md` ① à republier**, avec `rapport_rerank.md` et
+  `rapport_local_vs_distant.md`.
+
+## 2026-09-13 (soir, suite) — Le profil de mesure était une étiquette, il devient un paramètre
+
+Constat parti d'une remarque de l'utilisatrice : « le profil d'essai par défaut doit être
+`support` ». Vérifié : **le code servi le fait déjà** — `mcp_server/server.py:62`
+(`os.environ.get("SORABEL_PROFILE", "support")`), `scripts/mcp_client.py:65`,
+`packages/agent/cli.py:629`, `Makefile:109`. La phrase exacte n'est pas dans
+`brief22-updated.md` mais dans `docs/cadrage_dsi.md` §5, que le brief publie.
+
+**L'écart était ailleurs, et il était plus grave.** `eval_rag.py` n'appliquait **aucun**
+périmètre documentaire — `search()` appelée avec `perimeter=None` —, et le rapport annonçait
+pourtant « Profil `commercial` ». Le mot apparaissait une seule fois dans le module, ligne
+358, **dans la prose**. La mesure portait donc sur les 400 éditions : ni le périmètre de
+`commercial` (350), ni celui de `support` (318). Une condition de mesure affirmée et non
+appliquée, dans le rapport qui chiffre E6.
+
+### Ce qui est livré
+
+`--profile`, **défaut `support`** (`DEFAULT_PROFILE`), et le périmètre résolu par
+`perimeter_for()` — **la fonction qu'appellent les tools servis**, pas une seconde
+implémentation. Trois décisions de forme :
+
+* **un profil sans périmètre arrête la mesure** (`SystemExit`) au lieu de la jouer. `default`
+  rend `None`, et mesurer dans ce cas publierait les chiffres du corpus entier sous un nom de
+  profil : exactement l'écart qu'on vient de fermer, reconduit par le bas ;
+* **le profil entre dans l'en-tête du CSV** (`profile=support`), pour la raison qui y avait
+  déjà mis la politique de candidats et le seuil : sans lui, deux CSV joués de part et d'autre
+  de ce lot sont indiscernables ;
+* **le rapport relit le profil dans les six en-têtes** au lieu de le recevoir en argument.
+  Rien ne garantit que six CSV aient été joués sous le même profil — s'ils divergent, le
+  rapport le dit au lieu de choisir. `profile_in_header()` rend « inconnu » sur un CSV
+  antérieur au champ : une valeur qui se voit, plutôt qu'un défaut qui se confondrait avec une
+  mesure réellement jouée.
+
+### Ce que le périmètre déplace
+
+| | sans périmètre | sous `support` |
+|---|---:|---:|
+| A dense — Hit@1 référence · MRR | 3/8 · 0,542 | 3/8 · **0,562** |
+| B lexical — Hit@1 référence · MRR | 3/8 · 0,688 | **5/8** · **0,812** |
+| C hybride — Hit@1 référence · MRR | 8/8 · 1,000 | inchangé |
+| Recall@5 type (A · B · C) | 12/13 · 11/13 · 12/13 | inchangés |
+| RAG simple | 1/8 · 1/8 · 11/13 | inchangé |
+
+**C'est B qui bouge le plus, et c'est cohérent** : restreindre le périmètre retire des
+concurrents du classement BM25 sans rien apporter au bon document. Le gain E6 se lit donc sur
+un « avant » plus fort — 3/8 en dense, 5/8 en lexical, contre 8/8 en hybride. La conclusion
+du chantier ne bouge pas ; la marge qu'elle chiffre, encore une fois, si.
+
+### La réserve, écrite dans le rapport lui-même
+
+**Les seuils de refus n'ont pas été recalibrés sous `support`.** `make calibrer` et
+`make calibrer-hybride` ne prennent pas de profil, et le protocole §1 interdit de comparer
+deux configurations à seuil constant quand l'échelle bouge. La colonne « refus corrects » est
+donc un indicatif, et le rapport le dit en encadré — les lignes de rang, elles, ne dépendent
+d'aucun seuil. C'est la limite la plus visible de ce lot, et elle est nommée plutôt que
+corrigée en douce : recalibrer touche à une valeur servie.
+
+### Effet de bord assumé
+
+Le défaut vaut pour **toutes** les cibles qui appellent `eval_rag` — `mesure-embeddings`,
+`mesure-rerank`, `mesure-distant` compris. Leurs CSV actuels ont été joués sans périmètre ;
+un rejeu les fera passer sous `support`, et l'en-tête permettra de les distinguer. Rien n'est
+rejoué ici : ces trois cibles appellent Azure, et la demande portait sur `make mesure`.
+
+Vérifié : `make lint` vert, `make test` **12/12 en 50,00 s**.
+
+### Points ouverts
+
+* **`make calibrer` et `make calibrer-hybride` ne prennent pas de profil** — tant que c'est le
+  cas, aucun seuil du dépôt n'est calibré sous le périmètre où il s'exerce ;
+* **`rapport_embeddings.md`, `rapport_rerank.md`, `rapport_local_vs_distant.md` à republier**,
+  désormais pour deux raisons : la politique de candidats (axe 8) et le profil ;
+* **la cause de l'instabilité de la colonne A** reste non démontrée (entrée précédente).

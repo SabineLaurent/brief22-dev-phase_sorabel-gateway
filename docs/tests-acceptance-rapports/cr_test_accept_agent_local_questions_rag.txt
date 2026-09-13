@@ -1,0 +1,203 @@
+Agent conversationnel (packages/agent), en local, contre questions_rag
+API : http://127.0.0.1:8000 — Chroma dev (localhost:8002) — data/sorabel.db
+30 questions rejouées.
+
+--- [PASS] RAG-01 (reference_exacte) — rôle=commercial ---
+question : 'REF-8842'
+attendu  : {'attendu_reference': 'REF-8842'}
+observé  : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]  (14.06s)
+réponse  : '**REF-8842 — Disjoncteur tétrapolaire triphasé 40 A, courbe C**\n\n- Fabricant : Voltane  \n- Catégorie : Protection électrique  \n- Tension assignée : 230/400 V AC  \n- Pouvoir de coupure : 6 kA  \n- Norme : NF EN 60898-1  \n- Montage : rail DIN 35 mm  \n- Réseau : triphasé 400 V tétrapolaire (3P+N)  \n- Us'
+
+--- [PASS] RAG-02 (reference_exacte) — rôle=commercial ---
+question : 'fiche technique REF-8842'
+attendu  : {'attendu_reference': 'REF-8842'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (6.23s)
+réponse  : 'Disjoncteur tétrapolaire triphasé 40 A courbe C — **REF-8842**  \nFabricant : Voltane · Catégorie : Protection électrique\n\n- Tension assignée : 230/400 V AC  \n- Pouvoir de coupure : 6 kA  \n- Norme : NF EN 60898-1  \n- Montage : rail DIN 35 mm  \n- Réseau : triphasé 400 V, tétrapolaire 3P+N  \n- Calibre '
+
+--- [PASS] RAG-03 (reference_exacte) — rôle=commercial ---
+question : 'REF-5313'
+attendu  : {'attendu_reference': 'REF-5313'}
+observé  : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]  (6.43s)
+réponse  : '**REF-5313 — Perceuse à colonne 500 W**\n\n- Fabricant : Torqua  \n- Catégorie : Outillage électroportatif  \n- Garantie fabricant : 2 ans  \n- Conditionnement : unité  \n- Fabrication : UE  \n- Prix public HT : 118,30 EUR / pièce  \n\n**Source documentaire :** [REF-5313] *Perceuse à colonne 500 W*\n\n**Stock '
+
+--- [PASS] RAG-04 (reference_exacte) — rôle=commercial ---
+question : 'REF-8836'
+attendu  : {'attendu_reference': 'REF-8836'}
+observé  : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]  (6.8s)
+réponse  : '**REF-8836 — Pince à sertir embouts 0,25-10 mm²**\n\n- Fabricant : Ferrix  \n- Catégorie : Outillage à main  \n- Garantie fabricant : 2 ans  \n- Conditionnement : à l’unité  \n- Fabrication : UE  \n- Prix public HT : 393,3 EUR / pièce  \n- Fiche technique : version 1.0, datée du 13/01/2023  \n\n**Stock total '
+
+--- [PASS] RAG-05 (reference_exacte) — rôle=commercial ---
+question : 'REF-5719'
+attendu  : {'attendu_reference': 'REF-5719'}
+observé  : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]  (7.74s)
+réponse  : '**REF-5719 — Interrupteur différentiel 30 mA type AC**  \n- Marque : Protec+  \n- Tension assignée : 230 V AC  \n- Norme : NF EN 61008-1  \n- Montage : rail DIN 35 mm  \n- Prix public HT : 334,07 EUR / pièce  \n\nUne alerte qualité concerne le lot en cours : les expéditions sont bloquées et un contrôle ren'
+
+--- [PASS] RAG-06 (reference_exacte) — rôle=commercial ---
+question : 'REF-5603'
+attendu  : {'attendu_reference': 'REF-5603'}
+observé  : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]  (6.65s)
+réponse  : '**REF-5603 — Visseuse plaquiste 550 W**\n\n- Fabricant : Ferrix  \n- Puissance : 550 W  \n- Catégorie : outillage électroportatif  \n- Garantie fabricant : 2 ans  \n- Conditionnement : à l’unité  \n- Fabrication : UE  \n- Prix public : 473.02 EUR HT / pièce  \n\n**Stock disponible : 328 unités**\n\n| Entrepôt |'
+
+--- [PASS] RAG-07 (reference_exacte) — rôle=commercial ---
+question : 'REF-4581'
+attendu  : {'attendu_reference': 'REF-4581'}
+observé  : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]  (7.99s)
+réponse  : '**REF-4581 — Visseuse sans fil 12 V**  \nFabricant : Torqua · Catégorie : Outillage électroportatif  \nGarantie : 2 ans · Conditionnement : unitaire · Fabrication : UE  \nPrix public HT : **445,97 EUR** par pièce. (Version 1.0 du 07/06/2023)\n\n**Stock :**\n\n| Entrepôt | Quantité | Seuil de réapprovisionn'
+
+--- [PASS] RAG-08 (reference_exacte) — rôle=commercial ---
+question : 'REF-9382'
+attendu  : {'attendu_reference': 'REF-9382'}
+observé  : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]  (6.84s)
+réponse  : '**REF-9382 — Câble R2V 3G2,5 mm² (50 m)**  \nFabricant : Cablor · Catégorie : Câblage · Prix public HT : **69,46 EUR** par conditionnement.  \nÂme cuivre nu massif, isolation PVC, norme NF C 32-321, température de service de -5 à +70 °C.\n\n**Stock total : 273 unités**\n- Lille : 80 (seuil : 20)\n- Lyon :'
+
+--- [PASS] RAG-09 (couverte) — rôle=commercial ---
+question : 'quel disjoncteur pour un départ moteur en triphasé ?'
+attendu  : {'attendu_reference': 'REF-8842'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (4.96s)
+réponse  : 'Utilisez le **disjoncteur tétrapolaire triphasé 40 A, courbe C**, référence **REF-8842**. Il est prévu pour les départs moteurs et circuits de force sur réseau **400 V triphasé (3P+N)**.\n\n**Source :** [REF-8842] *Disjoncteur tétrapolaire triphasé 40 A courbe C*'
+
+--- [PASS] RAG-10 (couverte) — rôle=commercial ---
+question : 'que faire quand un disjoncteur déclenche de façon répétée ?'
+attendu  : {'attendu_type': 'procedure_sav'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (7.98s)
+réponse  : 'Vérifier que le produit a été acheté chez Sorabel, que la facture est retrouvable et que la garantie fabricant est encore valide. Demander la référence exacte du produit et la date d’achat, puis ouvrir un dossier SAV dans l’outil interne avec des photos et une description de la panne.\n\nSelon le diag'
+
+--- [PASS] RAG-11 (couverte) — rôle=commercial ---
+question : "quelle est la procédure de retour d'un produit défectueux sous garantie ?"
+attendu  : {'attendu_type': 'procedure_sav'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (7.47s)
+réponse  : '1. Vérifier l’éligibilité : achat chez Sorabel, facture retrouvable et garantie fabricant valide — 2 ans par défaut.  \n2. Relever la référence exacte du produit et la date d’achat.  \n3. Ouvrir un dossier SAV interne avec photos et description de la panne.  \n4. Après diagnostic, décider d’un renvoi e'
+
+--- [PASS] RAG-12 (couverte) — rôle=commercial ---
+question : 'quel est le délai annoncé au client pour un échange standard ?'
+attendu  : {'attendu_type': 'procedure_sav'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (5.87s)
+réponse  : 'Le délai annoncé au client pour un échange standard est de **5 jours ouvrés**.\n\nSources :\n- [sav/proc-echange-mauvaise-reference-08] *Procédure SAV — Échange suite à une erreur de référence (08)*\n- [sav/proc-echange-mauvaise-reference-02] *Procédure SAV — Échange suite à une erreur de référence (02)'
+
+--- [FAIL] RAG-13 (couverte) — rôle=commercial ---
+question : "quelles précautions avant d'installer un produit électrique ?"
+attendu  : {'attendu_type': 'notice'}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (2.8s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+échec : attendu servi (ok), observé hors_corpus
+
+--- [PASS] RAG-14 (couverte) — rôle=commercial ---
+question : "que vérifier 48 heures après la mise en service d'une installation ?"
+attendu  : {'attendu_type': 'notice'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (5.1s)
+réponse  : 'Vérifier le **serrage des bornes** après 48 heures de fonctionnement.\n\nSources : [REF-2387] *Multimètre numérique TRMS* ; [REF-8729] *Tableau électrique 4 rangées 52 modules* ; [REF-8443] *Multimètre numérique TRMS* ; [REF-8641] *Multimètre de chantier IP54* ; [REF-7527] *Tableau électrique 4 rangée'
+
+--- [PASS] RAG-15 (couverte) — rôle=commercial ---
+question : "quelle norme s'applique aux disjoncteurs modulaires ?"
+attendu  : {'attendu_type': 'fiche_technique'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (5.24s)
+réponse  : 'La norme applicable indiquée pour les disjoncteurs modulaires est **NF EN 60898-1**.\n\nSources :  \n- [REF-4937] *Disjoncteur monophasé 10 A courbe C*  \n- [REF-8904] *Disjoncteur monophasé 16 A courbe C*  \n- [REF-6394] *Disjoncteur monophasé 20 A courbe C*  \n- [REF-4727] *Disjoncteur monophasé 16 A co'
+
+--- [PASS] RAG-16 (couverte) — rôle=commercial ---
+question : 'quelle est la garantie fabricant par défaut sur le catalogue ?'
+attendu  : {'attendu_type': 'fiche_technique'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (5.59s)
+réponse  : "La garantie fabricant par défaut du catalogue est de **2 ans**.\n\nSources :\n- [sav/proc-retour-produit-defectueux-05] *Procédure SAV — Retour d'un produit défectueux sous garantie (05)*\n- [sav/proc-retour-produit-defectueux-06] *Procédure SAV — Retour d'un produit défectueux sous garantie (06)*\n- [sa"
+
+--- [PASS] RAG-17 (couverte) — rôle=commercial ---
+question : 'que faire si un colis arrive endommagé ?'
+attendu  : {'attendu_type': 'procedure_sav'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (6.55s)
+réponse  : 'Pour un colis reçu endommagé :\n\n1. Vérifier l’achat chez Sorabel, la facture et la validité de la garantie fabricant.\n2. Recueillir la référence exacte, la date d’achat, des photos et une description du dommage.\n3. Ouvrir un dossier SAV.\n4. Selon le diagnostic, organiser un retour atelier, un échang'
+
+--- [FAIL] RAG-18 (couverte) — rôle=commercial ---
+question : 'comment demander un duplicata de facture ?'
+attendu  : {'attendu_type': 'procedure_sav'}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·contexte_insuffisant]  (4.95s)
+réponse  : 'Les documents trouvés ne portent pas la réponse à cette question.'
+échec : attendu servi (ok), observé hors_corpus
+
+--- [FAIL] RAG-19 (couverte) — rôle=commercial ---
+question : 'quel différentiel choisir pour un circuit avec plaque de cuisson ?'
+attendu  : {'attendu_type': 'fiche_technique'}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (3.15s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+échec : attendu servi (ok), observé hors_corpus
+
+--- [FAIL] RAG-20 (couverte) — rôle=commercial ---
+question : 'quelle section de conducteur pour un disjoncteur 40 A ?'
+attendu  : {'attendu_type': 'notice'}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·contexte_insuffisant]  (4.39s)
+réponse  : 'Les documents trouvés ne portent pas la réponse à cette question.'
+échec : attendu servi (ok), observé hors_corpus
+
+--- [PASS] RAG-21 (couverte) — rôle=commercial ---
+question : "un client peut-il faire réparer une batterie d'outillage sans fil ?"
+attendu  : {'attendu_type': 'procedure_sav'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (5.61s)
+réponse  : 'Oui. Si l’outillage a été acheté chez Sorabel, que la facture est retrouvable et que la garantie fabricant est encore valable (2 ans par défaut), un dossier SAV peut être ouvert avec photos et description de la panne. Le diagnostic peut mener à un renvoi en atelier pour réparation, avec un délai ann'
+
+--- [PASS] RAG-22 (couverte) — rôle=commercial ---
+question : "quelle est la température de service d'un câble R2V ?"
+attendu  : {'attendu_type': 'fiche_technique'}
+observé  : statut=ok  calls=[answer_question·ok·ok]  (5.34s)
+réponse  : 'La température de service d’un câble R2V est de **−5 à +70 °C**.\n\nSources : [REF-9382] *Câble R2V 3G2,5 mm² (50 m)* ; [REF-9677] *Câble R2V 5G6 mm² (50 m)* ; [REF-1903] *Câble R2V 3G1,5 mm² (100 m)* ; [REF-5136] *Câble R2V 3G1,5 mm² (100 m)* ; [REF-3659] *Câble R2V 5G6 mm² (50 m)*.'
+
+--- [PASS] RAG-23 (hors_corpus) — rôle=commercial ---
+question : 'quelle est la politique de télétravail chez Sorabel ?'
+attendu  : {}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (3.05s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+
+--- [FAIL] RAG-24 (hors_corpus) — rôle=commercial ---
+question : "quel est le chiffre d'affaires de Sorabel en 2025 ?"
+attendu  : {}
+observé  : statut=ok  calls=[ask_database·ok·aucune_ligne, ask_database·ok·ok, ask_database·ok·ok]  (17.68s)
+réponse  : "Le chiffre d’affaires 2025 est de **1\u202f376\u202f956,51 € HT**.\n\n**Requête SQL exécutée :**\n```sql\nSELECT SUM(commandes.montant_ht) AS montant_total_ht\nFROM commandes AS commandes\nWHERE commandes.statut <> 'annulee'\n  AND commandes.date_commande >= '2025-01-01'\n  AND commandes.date_commande < '2026-01-01'\n"
+échec : attendu refus/non-réponse, observé ok (donnée servie)
+
+--- [PASS] RAG-25 (hors_corpus) — rôle=commercial ---
+question : 'comment configurer le VPN interne ?'
+attendu  : {}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (2.42s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+
+--- [PASS] RAG-26 (hors_corpus) — rôle=commercial ---
+question : 'quelles sont les grilles de salaires des techniciens ?'
+attendu  : {}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (2.97s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+
+--- [PASS] RAG-27 (hors_corpus) — rôle=commercial ---
+question : 'quel est le planning des congés du service logistique ?'
+attendu  : {}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (3.6s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+
+--- [PASS] RAG-28 (hors_corpus) — rôle=commercial ---
+question : 'quelle est la procédure de recrutement des alternants ?'
+attendu  : {}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (2.91s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+
+--- [PASS] RAG-29 (hors_corpus) — rôle=commercial ---
+question : "comment résilier le contrat d'électricité de l'entrepôt de Lyon ?"
+attendu  : {}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·contexte_insuffisant]  (4.53s)
+réponse  : 'Les documents trouvés ne portent pas la réponse à cette question.'
+
+--- [PASS] RAG-30 (hors_corpus) — rôle=commercial ---
+question : 'quelle est la politique RSE du groupe ?'
+attendu  : {}
+observé  : statut=hors_corpus  calls=[answer_question·hors_corpus·hors_corpus]  (2.83s)
+réponse  : 'Le corpus documentaire ne couvre pas cette question.'
+
+============================================================
+BILAN : 25 passed, 5 failed, 0 non notés (sur 30)
+
+Tout ce qui n'est pas PASS (5) :
+  - [FAIL] RAG-13 (couverte, rôle=commercial) : attendu servi (ok), observé hors_corpus
+    question : "quelles précautions avant d'installer un produit électrique ?"
+  - [FAIL] RAG-18 (couverte, rôle=commercial) : attendu servi (ok), observé hors_corpus
+    question : 'comment demander un duplicata de facture ?'
+  - [FAIL] RAG-19 (couverte, rôle=commercial) : attendu servi (ok), observé hors_corpus
+    question : 'quel différentiel choisir pour un circuit avec plaque de cuisson ?'
+  - [FAIL] RAG-20 (couverte, rôle=commercial) : attendu servi (ok), observé hors_corpus
+    question : 'quelle section de conducteur pour un disjoncteur 40 A ?'
+  - [FAIL] RAG-24 (hors_corpus, rôle=commercial) : attendu refus/non-réponse, observé ok (donnée servie)
+    question : "quel est le chiffre d'affaires de Sorabel en 2025 ?"
