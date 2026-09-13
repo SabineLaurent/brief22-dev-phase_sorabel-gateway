@@ -4,13 +4,15 @@ Généré par `make mesure` à partir des CSV de `eval/resultats/` — voir `eva
 
 ## Axe 1 — la recherche, à ingestion constante (E6)
 
-Texte nettoyé, filtre de version actif, règle de départage appliquée dans les trois configurations (`eval/protocole-mesure.md` §1). Profil `commercial` — périmètre documentaire complet, le cas le plus difficile pour le refus (Q5 §5).
+Texte nettoyé, filtre de version actif, règle de départage appliquée dans les trois configurations (`eval/protocole-mesure.md` §1). Profil `support` — son périmètre documentaire filtre la recherche, lu dans l'en-tête des CSV et non répété ici de mémoire.
+
+> **Les seuils de refus n'ont pas été recalibrés sous ce profil.** Ils ont été réglés sur le corpus entier, et le protocole (§1) interdit de comparer deux configurations à seuil constant quand l'échelle bouge. La colonne « refus corrects » est donc à lire comme un indicatif tant que `make calibrer` et `make calibrer-hybride` ne prennent pas de profil ; les lignes de rang, elles, ne dépendent d'aucun seuil.
 
 | sous-ensemble | métrique | A dense | B lexical | C hybride |
 |---|---|---:|---:|---:|
-| reference_exacte | Hit@1 (référence) | 3/8 | 3/8 | 8/8 |
-| reference_exacte | Hit@1 (fiche technique) | 3/8 | 3/8 | 8/8 |
-| reference_exacte | MRR | 0.542 | 0.688 | 1.000 |
+| reference_exacte | Hit@1 (référence) | 3/8 | 5/8 | 8/8 |
+| reference_exacte | Hit@1 (fiche technique) | 3/8 | 5/8 | 8/8 |
+| reference_exacte | MRR | 0.562 | 0.812 | 1.000 |
 | couverte | Recall@5 (`attendu_type`, n=13) | 12/13 | 11/13 | 12/13 |
 | hors_corpus | refus corrects | 7/8 | n/a — Q4 §3 | 5/8 |
 
@@ -23,7 +25,7 @@ Texte nettoyé, filtre de version actif, règle de départage appliquée dans le
 | configuration | Hit@1 référence (sans / avec) | Hit@1 fiche (sans / avec) | Recall@5 type (sans / avec) |
 |---|---:|---:|---:|
 | A dense | 3/8 / 3/8 | 2/8 / 3/8 | 12/13 / 12/13 |
-| B lexical | 3/8 / 3/8 | 1/8 / 3/8 | 11/13 / 11/13 |
+| B lexical | 5/8 / 5/8 | 1/8 / 5/8 | 11/13 / 11/13 |
 | C hybride | 8/8 / 8/8 | 8/8 / 8/8 | 12/13 / 12/13 |
 
 ## Axe 2 — l'ingestion, à recherche constante

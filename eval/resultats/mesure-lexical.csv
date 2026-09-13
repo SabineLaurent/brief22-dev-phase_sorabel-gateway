@@ -1,10 +1,10 @@
-# cible=mesure-lexical config=B text=clean version_filter=on
+# cible=mesure-lexical config=B text=clean version_filter=on profile=support
 # candidats=sans-objet seuil=aucun
 id,type,criterion,rank_with_tiebreak,rank_without_tiebreak,score,refused,code
-RAG-01,reference_exacte,reference,2,2,5.8782,n/a,ok
-RAG-01,reference_exacte,fiche_technique,3,3,5.8782,n/a,ok
-RAG-02,reference_exacte,reference,2,2,5.8782,n/a,ok
-RAG-02,reference_exacte,fiche_technique,3,3,5.8782,n/a,ok
+RAG-01,reference_exacte,reference,1,1,4.2104,n/a,ok
+RAG-01,reference_exacte,fiche_technique,1,2,4.2104,n/a,ok
+RAG-02,reference_exacte,reference,1,1,5.1684,n/a,ok
+RAG-02,reference_exacte,fiche_technique,1,2,5.1684,n/a,ok
 RAG-03,reference_exacte,reference,2,2,6.4846,n/a,ok
 RAG-03,reference_exacte,fiche_technique,3,3,6.4846,n/a,ok
 RAG-04,reference_exacte,reference,1,1,5.4733,n/a,ok
@@ -31,11 +31,11 @@ RAG-19,couverte,type_attendu,,,5.3153,n/a,ok
 RAG-20,couverte,type_attendu,2,2,11.0476,n/a,ok
 RAG-21,couverte,type_attendu,1,1,10.4177,n/a,ok
 RAG-22,couverte,type_attendu,1,1,11.7018,n/a,ok
-RAG-23,hors_corpus,refus,,,7.5136,n/a,ok
+RAG-23,hors_corpus,refus,,,4.9823,n/a,ok
 RAG-24,hors_corpus,refus,,,5.2410,n/a,ok
 RAG-25,hors_corpus,refus,,,1.0725,n/a,ok
 RAG-26,hors_corpus,refus,,,3.4883,n/a,ok
 RAG-27,hors_corpus,refus,,,5.4880,n/a,ok
 RAG-28,hors_corpus,refus,,,4.5730,n/a,ok
 RAG-29,hors_corpus,refus,,,9.0652,n/a,ok
-RAG-30,hors_corpus,refus,,,5.9800,n/a,ok
+RAG-30,hors_corpus,refus,,,2.7128,n/a,ok

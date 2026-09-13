@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Callable
 
 from config import Settings, settings
+from packages.rag_machines.access_rag import perimeter_for
 from packages.rag_machines.retrieval.embedder import build_embedder
 from packages.rag_machines.retrieval.reranker import build_reranker
 from packages.rag_machines.retrieval.search import (
@@ -51,6 +52,12 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 QUESTIONS_SET = REPO_ROOT / "eval" / "questions_rag.jsonl"
 RESULTS_DIR = REPO_ROOT / "eval" / "resultats"
 REPORT_PATH = REPO_ROOT / "eval" / "rapport_gain.md"
+
+#: Le profil d'essai par défaut. `docs/cadrage_dsi.md` §5 le fixe pour le service —
+#: « SORABEL_PROFILE (`support` ou `commercial`, défaut `support`) » — et la mesure suit
+#: le même défaut que ce qui est servi, faute de quoi elle chiffre autre chose que le
+#: produit.
+DEFAULT_PROFILE = "support"
 
 _STRATEGY_BY_CONFIG: dict[str, Strategy] = {"A": "dense", "B": "lexical", "C": "hybrid"}
 _CSV_FIELDS = (
@@ -153,8 +160,21 @@ def _rows_for_question(
     return [Row(question["id"], q_type, "refus", None, None, score, refused, code)]
 
 
-def run_measure(config: str, text: str, version_filter: bool, out_name: str | None) -> Path:
+def run_measure(config: str, text: str, version_filter: bool, out_name: str | None,
+                profile: str) -> Path:
     strategy = _STRATEGY_BY_CONFIG[config]
+
+    # Le périmètre du profil, résolu par la fonction que les tools servis appellent —
+    # pas une seconde implémentation. Un profil sans périmètre rend `None`, et mesurer
+    # dans ce cas reviendrait à mesurer le corpus entier sous une étiquette de profil :
+    # exactement l'écart que cette mesure vient fermer. On s'arrête au lieu de publier.
+    perimeter = perimeter_for(profile, settings)
+    if perimeter is None:
+        raise SystemExit(
+            f"le profil « {profile} » n'a aucun périmètre documentaire : il n'y a rien à "
+            "mesurer. Mesurer sans périmètre publierait les chiffres du corpus entier "
+            "sous son nom."
+        )
     threshold = {"A": settings.refusal_threshold, "B": None, "C": settings.rerank_threshold}[config]
 
     # Construits une fois pour les 30 questions : reconstruire l'embedder ou le
@@ -175,13 +195,14 @@ def run_measure(config: str, text: str, version_filter: bool, out_name: str | No
             settings=settings,
             embedder=embedder,
             reranker=reranker,
+            perimeter=perimeter,
         )
         hits = result.hits
         hits_tiebreak = apply_tiebreak(list(hits))
         rows.extend(_rows_for_question(question, hits, hits_tiebreak, threshold))
 
     name = out_name or f"adhoc-{config}-{text}-{'on' if version_filter else 'off'}-{int(time.time())}"
-    path = write_csv(name, config, text, version_filter, rows, threshold)
+    path = write_csv(name, config, text, version_filter, rows, threshold, profile)
     print(f"écrit : {path.relative_to(REPO_ROOT)} ({len(rows)} lignes, {len(load_questions())} questions)")
     _print_summary(config, compute_metrics(rows, tiebreak=True))
     return path
@@ -214,6 +235,7 @@ def write_csv(
     version_filter: bool,
     rows: list[Row],
     threshold: float | None,
+    profile: str,
 ) -> Path:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     path = RESULTS_DIR / f"{name}.csv"
@@ -225,7 +247,7 @@ def write_csv(
         # d'un CSV joué après, et le rejeu ne prouve plus rien.
         handle.write(
             f"# cible={name} config={config} text={text} "
-            f"version_filter={'on' if version_filter else 'off'}\n"
+            f"version_filter={'on' if version_filter else 'off'} profile={profile}\n"
         )
         handle.write(
             f"# candidats={candidate_policy(config, settings)} "
@@ -244,6 +266,26 @@ def write_csv(
                 ]
             )
     return path
+
+
+def profile_in_header(path: Path) -> str:
+    """Le profil sous lequel ce CSV a été joué, lu dans sa première ligne.
+
+    Le rapport ne le reçoit pas en argument : il relit six CSV, et rien ne garantit
+    qu'ils aient tous été joués sous le même profil. Le lire ici est ce qui permet au
+    rapport de nommer la condition réelle au lieu de la répéter de mémoire — c'est la
+    même raison qui a mis la politique de candidats et le seuil dans l'en-tête.
+
+    « inconnu » pour un CSV antérieur à ce champ : une valeur qui se voit, plutôt qu'un
+    défaut qui se confondrait avec une mesure réellement jouée sous ce profil.
+    """
+    with path.open(encoding="utf-8", newline="") as handle:
+        first = handle.readline()
+    for token in first.lstrip("#").split():
+        key, _, value = token.partition("=")
+        if key == "profile":
+            return value
+    return "inconnu"
 
 
 def read_csv(path: Path) -> list[Row]:
@@ -336,6 +378,13 @@ def build_report() -> str:
         )
     rows_by_target = {name: _load_target(name) or [] for name in TARGETS}
     metrics = {name: compute_metrics(rows, tiebreak=True) for name, rows in rows_by_target.items()}
+    profiles = {name: profile_in_header(RESULTS_DIR / f"{name}.csv") for name in TARGETS}
+    profile_said = (
+        f"Profil `{next(iter(set(profiles.values())))}`" if len(set(profiles.values())) == 1
+        else "**Profils mélangés** — " + ", ".join(
+            f"`{name}` sous `{value}`" for name, value in sorted(profiles.items())
+        )
+    )
 
     def cell(name: str, key: str, kind: str) -> str:
         value = metrics[name][key]
@@ -355,8 +404,16 @@ def build_report() -> str:
         "## Axe 1 — la recherche, à ingestion constante (E6)",
         "",
         "Texte nettoyé, filtre de version actif, règle de départage appliquée dans les "
-        "trois configurations (`eval/protocole-mesure.md` §1). Profil `commercial` — "
-        "périmètre documentaire complet, le cas le plus difficile pour le refus (Q5 §5).",
+        "trois configurations (`eval/protocole-mesure.md` §1). " + profile_said + " — son "
+        "périmètre documentaire filtre la recherche, lu dans l'en-tête des CSV et non "
+        "répété ici de mémoire.",
+        "",
+        "> **Les seuils de refus n'ont pas été recalibrés sous ce profil.** Ils ont été "
+        "réglés sur le corpus entier, et le protocole (§1) interdit de comparer deux "
+        "configurations à seuil constant quand l'échelle bouge. La colonne « refus "
+        "corrects » est donc à lire comme un indicatif tant que `make calibrer` et "
+        "`make calibrer-hybride` ne prennent pas de profil ; les lignes de rang, elles, "
+        "ne dépendent d'aucun seuil.",
         "",
         "| sous-ensemble | métrique | A dense | B lexical | C hybride |",
         "|---|---|---:|---:|---:|",
@@ -469,6 +526,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--text", choices=("clean", "raw"), default="clean")
     parser.add_argument("--version-filter", choices=("on", "off"), default="on")
     parser.add_argument("--out", help="nom de la cible — écrit eval/resultats/<NOM>.csv")
+    parser.add_argument(
+        "--profile", default=DEFAULT_PROFILE,
+        help="profil de la matrice dont le périmètre documentaire filtre la recherche "
+             f"(défaut : {DEFAULT_PROFILE}, celui de docs/cadrage_dsi.md).",
+    )
     parser.add_argument("--report", action="store_true", help="régénère eval/rapport_gain.md")
     args = parser.parse_args(argv)
 
@@ -484,7 +546,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.config is None:
         parser.error("--config est requis hors du mode --report")
     try:
-        run_measure(args.config, args.text, args.version_filter == "on", args.out)
+        run_measure(args.config, args.text, args.version_filter == "on", args.out,
+                    args.profile)
     except RuntimeError as error:
         # Chroma injoignable, index BM25 manquant (collection ingérée avant cette
         # étape) : même style que ingest/cli.py — un message actionnable, pas une

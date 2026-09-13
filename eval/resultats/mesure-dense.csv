@@ -1,4 +1,4 @@
-# cible=mesure-dense config=A text=clean version_filter=on
+# cible=mesure-dense config=A text=clean version_filter=on profile=support
 # candidats=sans-objet seuil=0.8308
 id,type,criterion,rank_with_tiebreak,rank_without_tiebreak,score,refused,code
 RAG-01,reference_exacte,reference,2,2,0.8105,oui,hors_corpus
@@ -9,8 +9,8 @@ RAG-03,reference_exacte,reference,,,0.8027,oui,hors_corpus
 RAG-03,reference_exacte,fiche_technique,,,0.8027,oui,hors_corpus
 RAG-04,reference_exacte,reference,,,0.8008,oui,hors_corpus
 RAG-04,reference_exacte,fiche_technique,,,0.8008,oui,hors_corpus
-RAG-05,reference_exacte,reference,3,3,0.8153,oui,hors_corpus
-RAG-05,reference_exacte,fiche_technique,4,4,0.8153,oui,hors_corpus
+RAG-05,reference_exacte,reference,2,2,0.8153,oui,hors_corpus
+RAG-05,reference_exacte,fiche_technique,3,3,0.8153,oui,hors_corpus
 RAG-06,reference_exacte,reference,1,1,0.7953,oui,hors_corpus
 RAG-06,reference_exacte,fiche_technique,1,1,0.7953,oui,hors_corpus
 RAG-07,reference_exacte,reference,1,1,0.8004,oui,hors_corpus
@@ -34,8 +34,8 @@ RAG-22,couverte,type_attendu,1,1,0.8962,non,ok
 RAG-23,hors_corpus,refus,,,0.8146,oui,hors_corpus
 RAG-24,hors_corpus,refus,,,0.8276,oui,hors_corpus
 RAG-25,hors_corpus,refus,,,0.8123,oui,hors_corpus
-RAG-26,hors_corpus,refus,,,0.8297,oui,hors_corpus
+RAG-26,hors_corpus,refus,,,0.8172,oui,hors_corpus
 RAG-27,hors_corpus,refus,,,0.8180,oui,hors_corpus
-RAG-28,hors_corpus,refus,,,0.7976,oui,hors_corpus
+RAG-28,hors_corpus,refus,,,0.7961,oui,hors_corpus
 RAG-29,hors_corpus,refus,,,0.8449,non,ok
-RAG-30,hors_corpus,refus,,,0.8021,oui,hors_corpus
+RAG-30,hors_corpus,refus,,,0.7930,oui,hors_corpus

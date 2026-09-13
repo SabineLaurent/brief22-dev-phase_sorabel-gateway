@@ -1,0 +1,71 @@
+<mxfile host="65bd71144e">
+    <diagram name="RAG simple vs RAG avancé" id="rag-simple-vs-avance">
+        <mxGraphModel dx="1018" dy="546" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="700" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+
+                <mxCell id="title" value="RAG simple contre RAG avancé — eval/rapport_gain.md (E6)" style="text;html=1;fontSize=18;fontStyle=1;align=left;verticalAlign=middle;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="20" width="820" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="subtitle" value="30 questions de eval/questions_rag.jsonl · profil support (le défaut du cadrage) · rejeu du 2026-09-13" style="text;html=1;fontSize=11;align=left;verticalAlign=middle;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="48" width="820" height="20" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="h0" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontSize=13;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="40" y="86" width="220" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="h1" value="Hit@1 référence" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontSize=13;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="260" y="86" width="200" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="h2" value="Hit@1 fiche" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontSize=13;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="460" y="86" width="200" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="h3" value="Recall@5 type" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e6e6e6;strokeColor=#666666;fontSize=13;fontStyle=1" parent="1" vertex="1">
+                    <mxGeometry x="660" y="86" width="200" height="44" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="r1c0" value="RAG simple" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;align=left;spacingLeft=14" parent="1" vertex="1">
+                    <mxGeometry x="40" y="130" width="220" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1c1" value="1/8" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=14;align=right;spacingRight=14" parent="1" vertex="1">
+                    <mxGeometry x="260" y="130" width="200" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1c2" value="1/8" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=14;align=right;spacingRight=14" parent="1" vertex="1">
+                    <mxGeometry x="460" y="130" width="200" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r1c3" value="11/13" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=14;align=right;spacingRight=14" parent="1" vertex="1">
+                    <mxGeometry x="660" y="130" width="200" height="44" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="r2c0" value="RAG avancé" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;align=left;spacingLeft=14" parent="1" vertex="1">
+                    <mxGeometry x="40" y="174" width="220" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r2c1" value="8/8" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#666666;fontSize=14;fontStyle=1;align=right;spacingRight=14" parent="1" vertex="1">
+                    <mxGeometry x="260" y="174" width="200" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r2c2" value="8/8" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#666666;fontSize=14;fontStyle=1;align=right;spacingRight=14" parent="1" vertex="1">
+                    <mxGeometry x="460" y="174" width="200" height="44" as="geometry"/>
+                </mxCell>
+                <mxCell id="r2c3" value="12/13" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#666666;fontSize=14;fontStyle=1;align=right;spacingRight=14" parent="1" vertex="1">
+                    <mxGeometry x="660" y="174" width="200" height="44" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="config" value="Les deux configurations comparées&#xa;&#xa;RAG simple : RAG dense, sans reranker&#xa;RAG avancé : RAG hybride, avec reranker" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="248" width="820" height="100" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="def-hit" value="Hit@1&#xa;&#xa;« Le bon document sort-il en PREMIÈRE position ? »&#xa;&#xa;Une question compte pour 1 si le document attendu est&#xa;au rang 1, pour 0 sinon. Métrique binaire et sévère :&#xa;un document au rang 2 vaut zéro, comme un document&#xa;absent. Elle dit si la recherche est JUSTE.&#xa;&#xa;Dénominateur : 8 questions par référence exacte." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="366" width="400" height="200" as="geometry"/>
+                </mxCell>
+                <mxCell id="def-recall" value="Recall@5&#xa;&#xa;« Le bon document est-il QUELQUE PART dans les&#xa;5 résultats rendus ? »&#xa;&#xa;Le rang ne compte plus, seule la présence. Le « 5 »&#xa;est search_top_k : au-delà, aucun rang n'est noté.&#xa;Elle dit si la recherche est SUFFISANTE.&#xa;&#xa;Dénominateur : 13 questions couvertes." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="460" y="366" width="400" height="200" as="geometry"/>
+                </mxCell>
+
+                <mxCell id="note" value="Les deux colonnes ne portent pas sur les mêmes questions : elles ne se comparent pas ligne à ligne.&#xa;Un bon Recall@5 avec un Hit@1 nul signifie « le document est là, mais noyé » — c'est ce que le reranker répare en réordonnant." style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="584" width="820" height="50" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

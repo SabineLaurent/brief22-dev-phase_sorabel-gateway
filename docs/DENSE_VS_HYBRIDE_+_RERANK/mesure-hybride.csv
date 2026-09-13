@@ -1,4 +1,4 @@
-# cible=mesure-hybride config=C text=clean version_filter=on
+# cible=mesure-hybride config=C text=clean version_filter=on profile=support
 # candidats=vivier:60/budget:20/plafond:3 seuil=0.0530
 id,type,criterion,rank_with_tiebreak,rank_without_tiebreak,score,refused,code
 RAG-01,reference_exacte,reference,1,1,0.9999,non,ok
@@ -31,11 +31,11 @@ RAG-19,couverte,type_attendu,1,1,0.0046,oui,hors_corpus
 RAG-20,couverte,type_attendu,1,1,0.9951,non,ok
 RAG-21,couverte,type_attendu,1,1,0.4178,non,ok
 RAG-22,couverte,type_attendu,1,1,0.9997,non,ok
-RAG-23,hors_corpus,refus,,,0.0532,non,ok
+RAG-23,hors_corpus,refus,,,0.0771,non,ok
 RAG-24,hors_corpus,refus,,,0.8422,non,ok
 RAG-25,hors_corpus,refus,,,0.0118,oui,hors_corpus
 RAG-26,hors_corpus,refus,,,0.0038,oui,hors_corpus
 RAG-27,hors_corpus,refus,,,0.0024,oui,hors_corpus
-RAG-28,hors_corpus,refus,,,0.0015,oui,hors_corpus
+RAG-28,hors_corpus,refus,,,0.0027,oui,hors_corpus
 RAG-29,hors_corpus,refus,,,0.1603,non,ok
-RAG-30,hors_corpus,refus,,,0.0152,oui,hors_corpus
+RAG-30,hors_corpus,refus,,,0.0048,oui,hors_corpus

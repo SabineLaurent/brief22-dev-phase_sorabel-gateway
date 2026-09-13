@@ -4961,3 +4961,77 @@ Une copie des sept sorties est déposée dans `docs/DENSE_VS_HYBRIDE_+_RERANK/`,
   deux lignes ne capte ni l'état du graphe ni la date du dernier redémarrage de Chroma ;
 * **`rapport_embeddings.md` ① à republier**, avec `rapport_rerank.md` et
   `rapport_local_vs_distant.md`.
+
+## 2026-09-13 (soir, suite) — Le profil de mesure était une étiquette, il devient un paramètre
+
+Constat parti d'une remarque de l'utilisatrice : « le profil d'essai par défaut doit être
+`support` ». Vérifié : **le code servi le fait déjà** — `mcp_server/server.py:62`
+(`os.environ.get("SORABEL_PROFILE", "support")`), `scripts/mcp_client.py:65`,
+`packages/agent/cli.py:629`, `Makefile:109`. La phrase exacte n'est pas dans
+`brief22-updated.md` mais dans `docs/cadrage_dsi.md` §5, que le brief publie.
+
+**L'écart était ailleurs, et il était plus grave.** `eval_rag.py` n'appliquait **aucun**
+périmètre documentaire — `search()` appelée avec `perimeter=None` —, et le rapport annonçait
+pourtant « Profil `commercial` ». Le mot apparaissait une seule fois dans le module, ligne
+358, **dans la prose**. La mesure portait donc sur les 400 éditions : ni le périmètre de
+`commercial` (350), ni celui de `support` (318). Une condition de mesure affirmée et non
+appliquée, dans le rapport qui chiffre E6.
+
+### Ce qui est livré
+
+`--profile`, **défaut `support`** (`DEFAULT_PROFILE`), et le périmètre résolu par
+`perimeter_for()` — **la fonction qu'appellent les tools servis**, pas une seconde
+implémentation. Trois décisions de forme :
+
+* **un profil sans périmètre arrête la mesure** (`SystemExit`) au lieu de la jouer. `default`
+  rend `None`, et mesurer dans ce cas publierait les chiffres du corpus entier sous un nom de
+  profil : exactement l'écart qu'on vient de fermer, reconduit par le bas ;
+* **le profil entre dans l'en-tête du CSV** (`profile=support`), pour la raison qui y avait
+  déjà mis la politique de candidats et le seuil : sans lui, deux CSV joués de part et d'autre
+  de ce lot sont indiscernables ;
+* **le rapport relit le profil dans les six en-têtes** au lieu de le recevoir en argument.
+  Rien ne garantit que six CSV aient été joués sous le même profil — s'ils divergent, le
+  rapport le dit au lieu de choisir. `profile_in_header()` rend « inconnu » sur un CSV
+  antérieur au champ : une valeur qui se voit, plutôt qu'un défaut qui se confondrait avec une
+  mesure réellement jouée.
+
+### Ce que le périmètre déplace
+
+| | sans périmètre | sous `support` |
+|---|---:|---:|
+| A dense — Hit@1 référence · MRR | 3/8 · 0,542 | 3/8 · **0,562** |
+| B lexical — Hit@1 référence · MRR | 3/8 · 0,688 | **5/8** · **0,812** |
+| C hybride — Hit@1 référence · MRR | 8/8 · 1,000 | inchangé |
+| Recall@5 type (A · B · C) | 12/13 · 11/13 · 12/13 | inchangés |
+| RAG simple | 1/8 · 1/8 · 11/13 | inchangé |
+
+**C'est B qui bouge le plus, et c'est cohérent** : restreindre le périmètre retire des
+concurrents du classement BM25 sans rien apporter au bon document. Le gain E6 se lit donc sur
+un « avant » plus fort — 3/8 en dense, 5/8 en lexical, contre 8/8 en hybride. La conclusion
+du chantier ne bouge pas ; la marge qu'elle chiffre, encore une fois, si.
+
+### La réserve, écrite dans le rapport lui-même
+
+**Les seuils de refus n'ont pas été recalibrés sous `support`.** `make calibrer` et
+`make calibrer-hybride` ne prennent pas de profil, et le protocole §1 interdit de comparer
+deux configurations à seuil constant quand l'échelle bouge. La colonne « refus corrects » est
+donc un indicatif, et le rapport le dit en encadré — les lignes de rang, elles, ne dépendent
+d'aucun seuil. C'est la limite la plus visible de ce lot, et elle est nommée plutôt que
+corrigée en douce : recalibrer touche à une valeur servie.
+
+### Effet de bord assumé
+
+Le défaut vaut pour **toutes** les cibles qui appellent `eval_rag` — `mesure-embeddings`,
+`mesure-rerank`, `mesure-distant` compris. Leurs CSV actuels ont été joués sans périmètre ;
+un rejeu les fera passer sous `support`, et l'en-tête permettra de les distinguer. Rien n'est
+rejoué ici : ces trois cibles appellent Azure, et la demande portait sur `make mesure`.
+
+Vérifié : `make lint` vert, `make test` **12/12 en 50,00 s**.
+
+### Points ouverts
+
+* **`make calibrer` et `make calibrer-hybride` ne prennent pas de profil** — tant que c'est le
+  cas, aucun seuil du dépôt n'est calibré sous le périmètre où il s'exerce ;
+* **`rapport_embeddings.md`, `rapport_rerank.md`, `rapport_local_vs_distant.md` à republier**,
+  désormais pour deux raisons : la politique de candidats (axe 8) et le profil ;
+* **la cause de l'instabilité de la colonne A** reste non démontrée (entrée précédente).
