@@ -4885,3 +4885,79 @@ répertoire temporaire, pas dans un fichier suivi qu'on restaure ensuite.
   titre « Guide d'accès », ce silence se lirait comme une garantie ;
 * **les quatre écarts nommés au §9 de la v2** attendent une décision ;
 * **le rendu des `.drawio` corrigés** n'a pas été vérifié : pas de CLI draw.io sur la machine.
+
+## 2026-09-13 (soir) — Le rejeu de `make mesure`, et la colonne A qui bouge pour la seconde fois
+
+`make mesure` rejoué à la demande, six passes puis le rapport. **B lexical, C hybride et les
+deux passes de l'axe 2 se rejouent identiques à l'octet.** Seules bougent les deux passes
+denses — `mesure-dense` et `mesure-rag-simple` —, et elles bougent en sens contraire.
+
+| | publié le 09-09 (`da305f7`) | rejoué le 13-09 |
+|---|---:|---:|
+| A dense — Hit@1 référence | 1/8 | **3/8** |
+| A dense — MRR | 0,271 | **0,542** |
+| A dense — Recall@5 `attendu_type` | 9/13 | **12/13** |
+| RAG simple — Hit@1 référence | 2/8 | **1/8** |
+
+**Le gain E6 publié rétrécit** : l'« avant » s'améliore, 1/8 → 3/8 face à 8/8. C'est l'inverse
+du mouvement du 07-09, où l'« avant » avait empiré et où le gain était donc sous-estimé. La
+conclusion du chantier ne bouge pas — C reste 8/8, MRR 1,000 — mais l'écart qu'elle chiffre,
+si.
+
+### Ce qui a été écarté, vérifié
+
+* **la passe est stable dans la session** — `make mesure-dense` joué deux fois de suite rend un
+  CSV identique à l'octet. L'instabilité est *entre* sessions, pas dans la mesure ;
+* **l'index est intact** — `make check-index` au vert, décomptes en or tenus ; les trois
+  collections portent 400 éditions et le bon `embedding_model` dans leurs métadonnées ;
+* **aucune surcharge de configuration** — `search_top_k=5`, `search_pool=60`,
+  `rerank_candidates=20`, `max_candidates_per_title=3`, collection `sorabel_corpus` : tous
+  égaux aux défauts du code, relevés à l'exécution et comparés champ à champ ;
+* **le chemin dense n'a pas changé** — les deux seuls commits touchant la recherche depuis
+  `da305f7` sont `cc634ea` (politique de candidats) et `af41ea9` (bascule des embeddings), et
+  `_dense_search` n'utilise ni `search_pool` ni `max_candidates_per_title` ; `top_k` vaut
+  toujours `settings.search_top_k`.
+
+### La piste, et pourquoi elle n'est pas une conclusion
+
+`chroma.sqlite3` — les documents, les métadonnées et les vecteurs — n'a pas été écrit depuis le
+08-09 20:08. En revanche les segments HNSW (`data_level0.bin`, `header.bin`) ont été réécrits le
+13-09 : 15:20 pour l'une des collections, **18:32 pour celle qui est interrogée ici**, c'est-à-dire
+pendant le rejeu. Le conteneur Chroma avait redémarré environ trois heures plus tôt.
+
+**Déduit, pas vérifié** : la différence vient du côté Chroma — seul élément qui ait changé — et
+plus probablement de l'état du graphe HNSW que du corpus ou du code. La démonstration manque :
+il faudrait figer un graphe, le rejouer, puis le reconstruire et rejouer encore. Tant que ce
+n'est pas fait, la cause reste au même niveau qu'au 07-09, où le journal la dit « non
+déterminable ».
+
+Le motif, lui, est le même les deux fois : **seule la colonne A bouge**. En hybride, RRF et le
+rerank absorbent une différence de vivier qui reste visible en dense seul — c'est exactement ce
+que l'axe 6 avait déjà constaté pour le changement d'embedder (« en configuration servie,
+l'embedder est invisible »). La conséquence est désagréable : **l'étage le moins bon est aussi
+le seul instable**, donc le chiffre de référence du gain est le moins solide des trois.
+
+### La contradiction que ce rejeu rouvre — nommée, pas refermée
+
+`da305f7` s'appelait « la colonne A de `rapport_gain.md` contredisait `rapport_embeddings.md` ».
+Vérifié aujourd'hui : les lignes de données de `mesure-emb-local-A.csv` et du `mesure-dense.csv`
+**commité** sont identiques — même cellule, mesurée deux fois, deux cibles. En republiant
+`mesure-dense`, on remet les deux en désaccord : `rapport_embeddings.md` continue d'annoncer
+1/8, MRR 0,271, Recall 9/13 pour `e5` en dense seul.
+
+**Non corrigé, et c'est un choix** : rejouer `make mesure-embeddings` appelle Azure, et la
+question posée était de republier `make mesure`. Les conclusions de `rapport_embeddings.md`
+tiennent — l'écart entre les deux embedders y est lu *à index constant, dans la même session* —
+mais **ses chiffres de la colonne ① sont à reprendre**, comme le sont déjà ceux de
+`rapport_rerank.md` et de `rapport_local_vs_distant.md` depuis l'axe 8.
+
+Une copie des sept sorties est déposée dans `docs/DENSE_VS_HYBRIDE_+_RERANK/`, avec un
+`PROVENANCE.md` qui porte la configuration lue, l'écart et la piste.
+
+### Points ouverts
+
+* **la cause de l'instabilité de la colonne A**, deux fois constatée, jamais démontrée — le
+  protocole ne dit pas ce qui doit être figé entre deux mesures denses, et l'en-tête de CSV à
+  deux lignes ne capte ni l'état du graphe ni la date du dernier redémarrage de Chroma ;
+* **`rapport_embeddings.md` ① à republier**, avec `rapport_rerank.md` et
+  `rapport_local_vs_distant.md`.
