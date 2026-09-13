@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sorabel MCP gateway - Guide d'accès</title>
+<style>
+:root { --ink:#1b1b1b; --soft:#666; --line:#d8d8d8; --bg:#fbfbfa; --accent:#7a5195; }
+* { box-sizing: border-box; }
+body { margin:0; padding:0 20px 60px; background:var(--bg); color:var(--ink);
+       font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif; }
+main { max-width: 980px; margin: 0 auto; }
+header { border-bottom:2px solid var(--ink); padding:32px 0 18px; margin-bottom:28px; }
+h1 { margin:0 0 6px; font-size:26px; }
+h2 { margin:44px 0 14px; font-size:19px; border-bottom:1px solid var(--line);
+     padding-bottom:6px; }
+h3 { margin:0 0 2px; font-size:17px; }
+h4 { margin:20px 0 6px; font-size:13px; text-transform:uppercase; letter-spacing:.06em;
+     color:var(--soft); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92em;
+       background:#efeeec; padding:1px 5px; border-radius:3px; }
+table { border-collapse:collapse; width:100%; margin:8px 0; font-size:14px; }
+th, td { border:1px solid var(--line); padding:6px 9px; text-align:left; }
+th { background:#f0efed; font-weight:600; }
+.matrix td:not(:first-child), .matrix th:not(:first-child) { text-align:center; }
+.matrix .yes { color:#2e7d32; font-weight:700; }
+.matrix .no { color:#bbb; }
+.matrix .sum td { background:#f0efed; }
+.matrix .offband td { background:#faf6ff; border-top:2px solid var(--accent); }
+.matrix .total { text-align:center; font-weight:700; }
+.tool { border:1px solid var(--line); border-left:4px solid var(--accent);
+        background:#fff; padding:18px 20px; margin:18px 0; }
+.title { margin:0 0 10px; color:var(--soft); font-style:italic; }
+.chip { display:inline-block; background:#efeeec; border:1px solid var(--line);
+        border-radius:10px; padding:1px 9px; font-size:12.5px; }
+.holders { margin:0; }
+dl.desc, dl.resp { margin:6px 0; display:grid; grid-template-columns:170px 1fr; gap:4px 14px; }
+dl.desc dt, dl.resp dt { color:var(--soft); font-size:13px; text-transform:uppercase;
+                         letter-spacing:.04em; }
+dl.desc dd, dl.resp dd { margin:0; }
+.variant { margin:14px 0 2px; font-weight:600; font-size:13.5px; color:var(--accent); }
+pre { background:#f4f3f1; border:1px solid var(--line); border-radius:4px; padding:12px 14px;
+      overflow-x:auto; font-size:13px; line-height:1.45; }
+pre code { background:none; padding:0; }
+.refus td:first-child code { background:#fde8e4; }
+.note, .hints { color:var(--soft); font-size:13px; }
+.hints { margin:16px 0 0; }
+.none { color:var(--soft); font-style:italic; }
+.lede { color:var(--soft); margin:4px 0; }
+footer { margin-top:44px; padding-top:14px; border-top:1px solid var(--line);
+         color:var(--soft); font-size:13.5px; }
+@media (max-width:640px) {
+  dl.desc, dl.resp { grid-template-columns:1fr; }
+  dl.desc dt, dl.resp dt { margin-top:8px; }
+}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Sorabel MCP gateway - Guide d'accès</h1>
+  <p class="lede">Page <b>générée</b> le 2026-09-13 par
+     <code>make doc-tools</code>, depuis ce que <code>tools/list</code> répond réellement,
+     profil par profil. Elle n'est pas rédigée : un argument renommé ou un tool retiré à un
+     profil s'y voit à la régénération suivante.</p>
+  <p class="lede">Cette page se suffit à elle-même : se brancher, lire une réponse, et les
+     huit fiches. Ce qu'elle ne porte pas — les garanties détaillées, les limites chiffrées
+     et les écarts assumés — vit dans le guide d'intégration du dépôt.</p>
+</header>
+
+<h2>1 · Se brancher</h2>
+
+<p>Le serveur parle <b>stdio</b> : ni port, ni URL, ni jeton. Un processus par profil, et le
+   profil est posé par <b>qui lance le processus</b> — jamais par le client, jamais par le
+   modèle.</p>
+
+<h3>Prérequis</h3>
+<p>Python <code>&gt;=3.11,&lt;3.12</code>, <a href="https://docs.astral.sh/uv/">uv</a>, et
+   Docker — ce dernier pour la seule base vectorielle.</p>
+<pre><code>uv sync --extra vector        # l'extra est nécessaire : sans lui l'embedder local casse
+cp .env.example .env          # aucune valeur du modèle n'est un secret
+make up                       # Chroma, via docker compose, port 8002
+make seed                     # génère data/sorabel.db
+make ingest                   # indexe le corpus (~400 éditions)</code></pre>
+<p><code>.env</code> n'est pas obligatoire : les <b>26 réglages</b> ont <b>tous</b> un défaut.
+   Il le devient pour les appels de modèle —
+   <code>AZURE_AI_ENDPOINT</code>, <code>AZURE_AI_API_KEY</code>, <code>LLM_CHAT_MODEL</code> — dont dépendent <code>answer_question</code> (la rédaction) et
+   <code>ask_database</code> (la génération SQL). <b>Les six autres tools fonctionnent
+   sans</b> : la recherche et le reclassement tournent en local par défaut.</p>
+
+<h3>Le bloc de configuration</h3>
+<p>À coller dans la configuration de votre client MCP :</p>
+<pre><code>{
+  "mcpServers": {
+    "sorabel": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "mcp_server.server"],
+      "cwd": "/chemin/absolu/vers/brief22-dev-phase_sorabel-gateway",
+      "env": {
+        "SORABEL_PROFILE": "commercial",
+        "TOKENIZERS_PARALLELISM": "false"
+      }
+    }
+  }
+}</code></pre>
+<p><code>cwd</code> est <b>obligatoire</b> : le corpus, la base et la matrice sont résolus
+   relativement à la racine du dépôt. <code>TOKENIZERS_PARALLELISM</code> n'est pas
+   fonctionnel — il fait taire un avertissement de la bibliothèque d'embeddings qui, sinon,
+   encombre la console du client. <code>SORABEL_PROFILE</code> vaut <code>support</code> par
+   défaut ; un nom inconnu retombe sur <code>default</code>, qui n'a aucun tool — un
+   catalogue vide est donc le symptôme d'un profil mal orthographié, pas d'une panne.</p>
+<p><b>Préférez ce bloc à une commande en ligne de commande.</b> Certains clients —
+   l'Inspector officiel en fait partie — analysent les arguments et <b>avalent le
+   <code>-m</code></b>, ce qui lance <code>python</code> sans module : le processus lit alors
+   le JSON-RPC sur son entrée standard et le prend pour du code. Le symptôme est un
+   <code>NameError: name 'true' is not defined</code> suivi d'un délai d'attente dépassé.</p>
+
+<h3>Vérifier que ça répond</h3>
+<pre><code>make serve                    # le serveur, en stdio, profil dans SORABEL_PROFILE
+make client                   # un client de test : le catalogue du profil
+PROFILE=commercial make client
+
+# avec l'Inspector officiel, le bloc ci-dessus enregistré dans mon-serveur.json :
+npx @modelcontextprotocol/inspector --cli \
+  --config mon-serveur.json --server sorabel --method tools/list --format json</code></pre>
+
+
+<h2>2 · Profil × tools — l'étage 1, tel que le serveur l'applique</h2>
+<p class="lede">Chaque colonne est un catalogue réellement obtenu, en lançant le serveur
+   avec <code>SORABEL_PROFILE</code> à cette valeur. Un profil ne voit pas seulement moins
+   de tools : les <b>descriptions</b> qu'il reçoit diffèrent aussi — voir les fiches.</p>
+<table class='matrix'><thead><tr><th>Tool</th><th>default</th><th>dev</th><th>support</th><th>commercial</th><th>admin</th></tr></thead><tbody><tr><td><code>answer_question</code></td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr><td><code>search_docs</code></td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr><td><code>get_document</code></td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr><td><code>list_sources</code></td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr><td><code>ask_database</code></td><td class='no'>·</td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr><td><code>get_schema</code></td><td class='no'>·</td><td class='yes'>✔</td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr><td><code>check_stock</code></td><td class='no'>·</td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr><td><code>order_status</code></td><td class='no'>·</td><td class='no'>·</td><td class='yes'>✔</td><td class='yes'>✔</td><td class='yes'>✔</td></tr><tr class='sum'><td><b>total du catalogue</b></td><td class='total'>0</td><td class='total'>5</td><td class='total'>7</td><td class='total'>8</td><td class='total'>8</td></tr><tr class='offband'><td><code>read_journal</code> <span class='note'>hors protocole</span></td><td class='no'>·</td><td class='no'>·</td><td class='no'>·</td><td class='no'>·</td><td class='yes'>✔</td></tr></tbody></table>
+<p class='lede'><b>Deux colonnes identiques ne veulent pas dire deux profils identiques.</b> La matrice accorde <code>read_journal</code> (admin) — un droit qui n'est <b>pas</b> un tool MCP : il n'est publié par aucun <code>tools/list</code>, et s'exerce par l'API du banc d'essai. Deux profils au même catalogue peuvent donc différer par là.</p>
+
+<h2>3 · Lire une réponse</h2>
+<p class="lede">Les huit tools rendent la <b>même</b> enveloppe, servie comme refusée. Ce
+   qui suit est lu dans l'<code>outputSchema</code> que le serveur publie — c'est le texte
+   que reçoit déjà votre client, pas une paraphrase.</p>
+<p>Enveloppe de réponse de la gateway Sorabel. Le discriminant est « status », puis « payload.code » qui distingue les cas d&#x27;un même statut. Ne jamais rendre à l&#x27;utilisateur un payload dont la clé de charge utile est absente : c&#x27;est un refus ou une non-réponse, et il n&#x27;y a rien à afficher.</p><p class='lede'>Les trois clés sont <b>toujours</b> présentes : <code>status</code>, <code>payload</code>, <code>message</code>.</p><table><thead><tr><th>Clé</th><th>Ce que le serveur en dit</th></tr></thead><tbody><tr><td><code>status</code></td><td>L&#x27;issue de l&#x27;appel. « error » : l&#x27;exécution a échoué. « hors_corpus » : le corpus ne porte pas la réponse — ce n&#x27;est pas un refus. « ok » : servi. « refused » : la gouvernance a tranché.</td></tr><tr><td><code>payload</code></td><td>Objet. Toujours présent : <code>code</code>. Les autres clés dépendent du tool — voir sa fiche — et sont <b>absentes</b>, jamais vides, quand il n'y a rien à mettre dedans.</td></tr><tr><td><code>message</code></td><td>Phrase figée choisie sur le code, destinée à l&#x27;utilisateur. Vide sur « ok », non vide sur tout autre statut. Elle ne contient jamais de texte de modèle, de message de moteur ni de nom d&#x27;interne.</td></tr></tbody></table>
+
+<h3>Les 12 codes</h3>
+<p class="lede">Le <code>status</code> dit l'issue, le <code>code</code> dit le cas précis.
+   <b>Branchez sur <code>code</code></b> : deux codes très différents partagent parfois un
+   statut. Quatre codes seulement sont des refus — les autres sont des constats, et les
+   traiter comme des erreurs surestimerait la sévérité du système.</p>
+<table><thead><tr><th>Code</th><th>Statut</th><th>Domaine</th><th>Refus ?</th></tr></thead><tbody><tr class=''><td><code>ambiguite_donnees</code></td><td><code>ok</code></td><td>base</td><td>non</td></tr><tr class=''><td><code>aucune_ligne</code></td><td><code>ok</code></td><td>base et documentaire</td><td>non</td></tr><tr class=''><td><code>clarification</code></td><td><code>clarification</code></td><td>base</td><td>non</td></tr><tr class=''><td><code>contexte_insuffisant</code></td><td><code>hors_corpus</code></td><td>documentaire</td><td>non</td></tr><tr class='refus'><td><code>ecriture_refusee</code></td><td><code>refused</code></td><td>base</td><td><b>oui</b></td></tr><tr class=''><td><code>erreur_execution</code></td><td><code>error</code></td><td>base et documentaire</td><td>non</td></tr><tr class=''><td><code>hors_corpus</code></td><td><code>hors_corpus</code></td><td>documentaire</td><td>non</td></tr><tr class='refus'><td><code>hors_schema</code></td><td><code>refused</code></td><td>base</td><td><b>oui</b></td></tr><tr class=''><td><code>introuvable</code></td><td><code>ok</code></td><td>documentaire</td><td>non</td></tr><tr class=''><td><code>ok</code></td><td><code>ok</code></td><td>base et documentaire</td><td>non</td></tr><tr class='refus'><td><code>perimetre_interdit</code></td><td><code>refused</code></td><td>base et documentaire</td><td><b>oui</b></td></tr><tr class='refus'><td><code>tool_interdit</code></td><td><code>refused</code></td><td>base et documentaire</td><td><b>oui</b></td></tr></tbody></table>
+
+<h3>Deux réponses réelles</h3>
+<p class="lede">Obtenues en appelant le serveur pendant la génération de cette page, pas
+   recopiées.</p>
+<h4><code>check_stock {&quot;reference&quot;: &quot;REF-8842&quot;}</code> — profil <code>support</code></h4><p class='lede'>Un résultat — la charge utile est là, <code>message</code> est vide.</p><pre><code>{
+  &quot;status&quot;: &quot;ok&quot;,
+  &quot;payload&quot;: {
+    &quot;code&quot;: &quot;ok&quot;,
+    &quot;sql&quot;: &quot;SELECT s.entrepot, s.quantite, s.seuil_reappro, CASE WHEN s.quantite &lt; s.seuil_reappro THEN 1 ELSE 0 END AS sous_seuil FROM stocks s WHERE s.ref = ? ORDER BY s.entrepot&quot;,
+    &quot;columns&quot;: [
+      &quot;entrepot&quot;,
+      &quot;quantite&quot;,
+      &quot;seuil_reappro&quot;,
+      &quot;sous_seuil&quot;
+    ],
+    &quot;rows&quot;: [
+      [
+        &quot;LILLE&quot;,
+        247,
+        10,
+        0
+      ],
+      [
+        &quot;LYON&quot;,
+        100,
+        50,
+        0
+      ],
+      [
+        &quot;NANTES&quot;,
+        427,
+        20,
+        0
+      ]
+    ],
+    &quot;total&quot;: 774,
+    &quot;reference&quot;: &quot;REF-8842&quot;
+  },
+  &quot;message&quot;: &quot;&quot;
+}</code></pre><h4><code>get_schema {}</code> — profil <code>support</code></h4><p class='lede'>Un refus — <code>support</code> n'a pas ce tool. <b>La clé de charge utile n'est pas vide : elle est absente.</b> Il n'y a rien à afficher, et c'est ce qui empêche un client de rendre un refus comme une réponse.</p><pre><code>{
+  &quot;status&quot;: &quot;refused&quot;,
+  &quot;payload&quot;: {
+    &quot;code&quot;: &quot;tool_interdit&quot;
+  },
+  &quot;message&quot;: &quot;Cette information n&#x27;est pas accessible avec votre profil.&quot;
+}</code></pre>
+
+<h2>4 · Les 8 tools</h2>
+
+<section class="tool" id="answer_question">
+  <h3><code>answer_question</code></h3>
+  <p class="title">Réponse documentaire sourcée</p>
+  <p class="holders">Visible par : <span class='chip'>dev</span> <span class='chip'>support</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <table><thead><tr><th>Argument</th><th>Type</th><th>Présence</th><th>Contrainte</th></tr></thead><tbody><tr><td><code>question</code></td><td>string</td><td>requis</td><td>—</td></tr><tr><td><code>collections</code></td><td>array</td><td>optionnel</td><td>tableau de string</td></tr></tbody></table>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>error</code> · <code>hors_corpus</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>answer</code> · <code>sources</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie — elle diffère selon le profil</h4>
+  <p class='variant'>Servie à : dev</p><dl class='desc'><dt>Objet</dt><dd>répondre à une question sur la documentation interne Sorabel, en citant les documents utilisés.</dd><dt>Entrée</dt><dd>`question`, en langage naturel. `collections` restreint aux types de documents voulus, et peut être omis.</dd><dt>Sortie</dt><dd>une réponse rédigée et la liste de ses sources (référence, titre) ; ou une non-réponse quand le corpus ne porte pas de quoi répondre.</dd><dt>Utiliser quand</dt><dd>la question porte sur une procédure, une consigne interne, une notice, ou une caractéristique de produit.</dd><dt>Ne pas utiliser quand</dt><dd>la question attend un chiffre ou un état tenu par la base — la documentation décrit, elle ne compte pas. Pour les extraits bruts sans rédaction, utiliser search_docs.</dd></dl><p class='variant'>Servie à : support, commercial, admin <span class='note'>— seules les rubriques ci-dessous changent</span></p><dl class='desc'><dt>Ne pas utiliser quand</dt><dd>la question attend un chiffre ou un état tenu par la base — la documentation décrit, elle ne compte pas. Pour les extraits bruts sans rédaction, utiliser search_docs. Pour l&#x27;état d&#x27;un produit et non sa description — stock, chiffres, commandes —, utiliser ask_database. Un seul cas demande DEUX appels, et c&#x27;est le seul : une référence donnée SEULE, sans question — « REF-5313 ». Appeler alors AUSSI check_stock, et rendre la fiche ET le stock. Hors de ce cas, un seul tool suffit.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+<section class="tool" id="search_docs">
+  <h3><code>search_docs</code></h3>
+  <p class="title">Recherche d&#x27;extraits documentaires</p>
+  <p class="holders">Visible par : <span class='chip'>dev</span> <span class='chip'>support</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <table><thead><tr><th>Argument</th><th>Type</th><th>Présence</th><th>Contrainte</th></tr></thead><tbody><tr><td><code>query</code></td><td>string</td><td>requis</td><td>—</td></tr><tr><td><code>collections</code></td><td>array</td><td>optionnel</td><td>tableau de string</td></tr></tbody></table>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>error</code> · <code>hors_corpus</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>hits</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie</h4>
+  <dl class='desc'><dt>Objet</dt><dd>rendre les extraits documentaires les plus pertinents pour une recherche, sans rédiger de réponse.</dd><dt>Entrée</dt><dd>`query`, mots-clés ou question. `collections` restreint aux types de documents voulus, et peut être omis.</dd><dt>Sortie</dt><dd>les extraits classés par pertinence, avec leurs métadonnées — identifiant d&#x27;édition, titre, type, thème.</dd><dt>Utiliser quand</dt><dd>il faut lire le texte source lui-même, comparer plusieurs passages, ou obtenir l&#x27;identifiant d&#x27;une édition.</dd><dt>Ne pas utiliser quand</dt><dd>une réponse formulée est attendue, plutôt que des extraits. Pour une réponse rédigée et sourcée, utiliser answer_question. Pour le texte intégral d&#x27;une édition identifiée, utiliser get_document.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+<section class="tool" id="get_document">
+  <h3><code>get_document</code></h3>
+  <p class="title">Texte intégral d&#x27;un document</p>
+  <p class="holders">Visible par : <span class='chip'>dev</span> <span class='chip'>support</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <table><thead><tr><th>Argument</th><th>Type</th><th>Présence</th><th>Contrainte</th></tr></thead><tbody><tr><td><code>doc_id</code></td><td>string</td><td>requis</td><td>—</td></tr><tr><td><code>version</code></td><td>string</td><td>optionnel</td><td>—</td></tr></tbody></table>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>error</code> · <code>hors_corpus</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>text</code> · <code>metadata</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie</h4>
+  <dl class='desc'><dt>Objet</dt><dd>rendre le texte intégral d&#x27;une édition documentaire déjà identifiée.</dd><dt>Entrée</dt><dd>`doc_id`, un identifiant d&#x27;édition de la forme `notices/notice-REF-1589-v1.0`. `version` peut être omis.</dd><dt>Sortie</dt><dd>le texte complet et les métadonnées de l&#x27;édition ; ou une non-réponse quand aucune édition ne porte cet identifiant.</dd><dt>Utiliser quand</dt><dd>l&#x27;identifiant d&#x27;édition est déjà connu, parce qu&#x27;un autre tool documentaire vient de le rendre.</dd><dt>Ne pas utiliser quand</dt><dd>l&#x27;entrée est une question en langage naturel, ou une référence produit de la forme REF-NNNN — une référence produit n&#x27;est pas un identifiant d&#x27;édition, et ce tool ne la trouvera pas. L&#x27;identifiant attendu est celui que rend search_docs. list_sources en donne l&#x27;inventaire. Pour une question, ou pour une référence produit REF-NNNN, utiliser answer_question.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+<section class="tool" id="list_sources">
+  <h3><code>list_sources</code></h3>
+  <p class="title">Inventaire du corpus documentaire</p>
+  <p class="holders">Visible par : <span class='chip'>dev</span> <span class='chip'>support</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <table><thead><tr><th>Argument</th><th>Type</th><th>Présence</th><th>Contrainte</th></tr></thead><tbody><tr><td><code>collections</code></td><td>array</td><td>optionnel</td><td>tableau de string</td></tr></tbody></table>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>error</code> · <code>hors_corpus</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>sources</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie</h4>
+  <dl class='desc'><dt>Objet</dt><dd>inventorier les documents accessibles, sans déclencher de recherche.</dd><dt>Entrée</dt><dd>`collections` restreint aux types de documents voulus, et peut être omis.</dd><dt>Sortie</dt><dd>la liste des documents — identifiant, titre, type — et leur nombre total.</dd><dt>Utiliser quand</dt><dd>il faut savoir ce que le corpus couvre avant de poser une question, ou récupérer des identifiants d&#x27;éditions.</dd><dt>Ne pas utiliser quand</dt><dd>la question porte sur le contenu des documents et non sur leur existence. Pour chercher, utiliser search_docs. Pour une réponse rédigée, utiliser answer_question.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+<section class="tool" id="ask_database">
+  <h3><code>ask_database</code></h3>
+  <p class="title">Interrogation de la base métier</p>
+  <p class="holders">Visible par : <span class='chip'>support</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <table><thead><tr><th>Argument</th><th>Type</th><th>Présence</th><th>Contrainte</th></tr></thead><tbody><tr><td><code>question</code></td><td>string</td><td>requis</td><td>—</td></tr></tbody></table>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>clarification</code> · <code>error</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>sql</code> · <code>columns</code> · <code>rows</code> · <code>conventions</code> · <code>truncated</code> · <code>axes</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie</h4>
+  <dl class='desc'><dt>Objet</dt><dd>traduire une question chiffrée en une lecture SQL de la base commerciale, et l&#x27;exécuter.</dd><dt>Entrée</dt><dd>`question`, en langage naturel.</dd><dt>Sortie</dt><dd>les colonnes et les lignes du résultat, la requête SQL exécutée et les conventions métier appliquées ; ou un refus quand la question sort du périmètre du profil.</dd><dt>Utiliser quand</dt><dd>la question demande un décompte, une somme, une moyenne, un classement, un filtre ou une période sur les produits, stocks, commandes, clients ou ventes.</dd><dt>Ne pas utiliser quand</dt><dd>la réponse attendue est une procédure ou une caractéristique décrite dans un document. Pour le stock d&#x27;une référence, utiliser check_stock. Pour une commande précise, utiliser order_status.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+<section class="tool" id="get_schema">
+  <h3><code>get_schema</code></h3>
+  <p class="title">Schéma SQL autorisé</p>
+  <p class="holders">Visible par : <span class='chip'>dev</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <p class='none'>Aucun argument.</p>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>clarification</code> · <code>error</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>schema</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie — elle diffère selon le profil</h4>
+  <p class='variant'>Servie à : dev</p><dl class='desc'><dt>Objet</dt><dd>rendre lisible la forme de la base — tables, colonnes, énumérations, conventions métier.</dd><dt>Entrée</dt><dd>aucun argument.</dd><dt>Sortie</dt><dd>le schéma des seules tables et colonnes du périmètre, et la plage de dates couverte.</dd><dt>Utiliser quand</dt><dd>il faut savoir ce que la base contient avant de formuler une question, ou écrire du code contre elle.</dd><dt>Ne pas utiliser quand</dt><dd>la question attend une valeur, un décompte ou des lignes — ce tool ne lit aucune donnée, et le schéma seul ne répond à aucune question chiffrée.</dd></dl><p class='variant'>Servie à : commercial, admin <span class='note'>— seules les rubriques ci-dessous changent</span></p><dl class='desc'><dt>Ne pas utiliser quand</dt><dd>la question attend une valeur, un décompte ou des lignes — ce tool ne lit aucune donnée, et le schéma seul ne répond à aucune question chiffrée. Pour obtenir un résultat, utiliser ask_database.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+<section class="tool" id="check_stock">
+  <h3><code>check_stock</code></h3>
+  <p class="title">Stock d&#x27;une référence</p>
+  <p class="holders">Visible par : <span class='chip'>support</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <table><thead><tr><th>Argument</th><th>Type</th><th>Présence</th><th>Contrainte</th></tr></thead><tbody><tr><td><code>reference</code></td><td>string</td><td>requis</td><td><code>^REF-\d{4}$</code></td></tr></tbody></table>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>clarification</code> · <code>error</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>sql</code> · <code>columns</code> · <code>rows</code> · <code>total</code> · <code>reference</code> · <code>truncated</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie</h4>
+  <dl class='desc'><dt>Objet</dt><dd>rendre le stock d&#x27;une référence produit, entrepôt par entrepôt.</dd><dt>Entrée</dt><dd>`reference`, de la forme REF-NNNN exactement.</dd><dt>Sortie</dt><dd>une ligne par entrepôt — quantité et seuil de réapprovisionnement ; ou une non-réponse quand la référence n&#x27;existe pas.</dd><dt>Utiliser quand</dt><dd>la question porte sur la disponibilité ou la quantité d&#x27;une référence connue.</dd><dt>Ne pas utiliser quand</dt><dd>l&#x27;entrée est un nom de produit et non une référence, ou la question porte sur ce qu&#x27;est le produit — ce tool ne rend que des quantités, jamais une caractéristique. Pour les caractéristiques d&#x27;une référence — fiche technique, notice, procédure —, utiliser answer_question. Un seul cas demande DEUX appels, et c&#x27;est le seul : une référence donnée SEULE, sans question — « REF-5313 ». Appeler alors AUSSI answer_question, et rendre la fiche ET le stock. Hors de ce cas, un seul tool suffit. Pour une autre question chiffrée, utiliser ask_database.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+<section class="tool" id="order_status">
+  <h3><code>order_status</code></h3>
+  <p class="title">Statut d&#x27;une commande</p>
+  <p class="holders">Visible par : <span class='chip'>support</span> <span class='chip'>commercial</span> <span class='chip'>admin</span></p>
+  <h4>Arguments</h4>
+  <table><thead><tr><th>Argument</th><th>Type</th><th>Présence</th><th>Contrainte</th></tr></thead><tbody><tr><td><code>order_id</code></td><td>string</td><td>requis</td><td><code>^CMD-\d{4}-\d{4}$</code></td></tr></tbody></table>
+  <h4>Réponse</h4>
+  <dl class='resp'><dt>Statuts possibles</dt><dd><code>clarification</code> · <code>error</code> · <code>ok</code> · <code>refused</code></dd><dt>Clés de charge utile</dt><dd><code>sql</code> · <code>columns</code> · <code>rows</code> · <code>order_id</code> · <code>truncated</code> <span class='note'>absentes sur un refus ou une non-réponse</span></dd></dl>
+  <h4>Description servie</h4>
+  <dl class='desc'><dt>Objet</dt><dd>rendre l&#x27;en-tête d&#x27;une commande.</dd><dt>Entrée</dt><dd>`order_id`, de la forme CMD-AAAA-NNNN exactement.</dd><dt>Sortie</dt><dd>le client, la date, le statut et le montant HT de la commande ; ou une non-réponse quand l&#x27;identifiant n&#x27;existe pas.</dd><dt>Utiliser quand</dt><dd>la question porte sur une commande unique et identifiée.</dd><dt>Ne pas utiliser quand</dt><dd>plusieurs commandes sont visées, ou un agrégat est demandé. Pour plusieurs commandes ou un agrégat, utiliser ask_database.</dd></dl>
+  <p class="hints">Annotations : <code>readOnlyHint</code> · <code>idempotentHint</code></p>
+</section>
+
+<footer>
+  Généré par <code>scripts/build_tool_docs.py</code> — <code>initialize</code>,
+  <code>tools/list</code>, et les deux appels dont les réponses sont montrées plus haut.
+  Aucun appel de modèle.
+  Le contrat de réponse est déclaré dans <code>mcp_server/output_schemas.py</code>,
+  la matrice dans <code>mcp_server/matrice.yaml</code>.
+</footer>
+</main>
+</body>
+</html>
