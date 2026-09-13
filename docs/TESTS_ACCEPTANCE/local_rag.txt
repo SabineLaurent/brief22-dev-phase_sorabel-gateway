@@ -1,6 +1,15 @@
+embeddings : configuration Azure partielle (AZURE_AI_ENDPOINT, AZURE_AI_API_KEY renseignée(s) sur trois) — repli sur le modèle local. Les trois sont nécessaires.
+rerank : configuration Azure partielle (AZURE_RERANK_ENDPOINT, AZURE_RERANK_API_KEY renseignée(s) sur trois) — repli sur le cross-encoder local. Les trois sont nécessaires.
 ============================= test session starts ==============================
 platform darwin -- Python 3.11.15, pytest-8.4.2, pluggy-1.6.0 -- /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/.venv/bin/python
 cachedir: .pytest_cache
+configuration lue par cette exécution (extraite du code, pas recopiée) :
+  embedder  : intfloat/multilingual-e5-base [local]
+  reranker  : cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 [local]
+  seuil     : 0.053 = calibré pour ce couple
+  vectoriel : http://localhost:8002 · sorabel_corpus · 400 éditions · empreinte intfloat/multilingual-e5-base =
+  lexical   : /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/data/bm25/sorabel_corpus.pkl (280 Kio)
+  métier    : /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway/data/sorabel.db (156 Kio)
 rootdir: /Users/sabine/REPO_GIT/brief22-dev-phase_sorabel-gateway
 configfile: pyproject.toml
 plugins: langsmith-0.12.1, anyio-4.14.2, asyncio-0.26.0
@@ -12,4 +21,4 @@ tests/acceptance/test_rag.py::test_hors_corpus_signale_sans_inventer PASSED [ 50
 tests/acceptance/test_rag.py::test_recherche_par_reference_exacte PASSED [ 75%]
 tests/acceptance/test_rag.py::test_gain_hybride_mesure_et_documente PASSED [100%]
 
-============================== 4 passed in 25.69s ==============================
+============================== 4 passed in 22.59s ==============================

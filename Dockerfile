@@ -46,6 +46,11 @@ RUN uv sync --frozen --no-dev --no-install-project
 # DUR dans le pickle : l'arborescence doit être préservée à l'identique, sans quoi le
 # dépicklage lève un `ModuleNotFoundError` qui ne dira pas que le pickle est en cause.
 COPY config.py ./
+# `conftest.py` voyage AVEC `tests/`, jamais sans : il n'ajoute aucun test, il imprime
+# en en-tête la configuration réellement lue — embedder, reranker, seuil, collection et
+# son empreinte, chemins résolus. Une suite jouée dans le conteneur sans lui rendrait
+# un vert dont personne ne pourrait dire contre quel index il a été obtenu.
+COPY conftest.py ./
 COPY packages/ ./packages/
 COPY mcp_server/ ./mcp_server/
 COPY scripts/ ./scripts/

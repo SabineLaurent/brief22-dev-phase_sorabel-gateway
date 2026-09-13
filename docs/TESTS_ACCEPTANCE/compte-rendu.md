@@ -1,6 +1,6 @@
 # Suite d'acceptance rejouée — local et conteneur
 
-**Date** : 2026-09-13 · **Commit** : `343e23a` (branche `deploiement/azure-aca`, arbre propre)
+**Date** : 2026-09-13 · **Commit** : `343e23a` (branche `deploiement/azure-aca`)
 
 ## Résultat
 
@@ -8,37 +8,79 @@
 
 | Suite | Local | Image `sorabel-app:test` |
 |---|---|---|
-| `test_rag.py` (E1, E2, E6) | 4 passed — 25,69 s | 4 passed — 8,86 s |
-| `test_sql.py` (E3, E5) | 4 passed — 9,16 s | 4 passed — 9,51 s |
-| `test_mcp.py` (E4, E5) | 4 passed — 14,56 s | 4 passed — 6,68 s |
+| `test_rag.py` (E1, E2, E6) | 4 passed — 22,59 s | 4 passed — 10,31 s |
+| `test_sql.py` (E3, E5) | 4 passed — 9,19 s | 4 passed — 9,51 s |
+| `test_mcp.py` (E4, E5) | 4 passed — 14,79 s | 4 passed — 7,66 s |
 
-Les fichiers de sortie `pytest -v` complets : `local_*.txt` et `docker_*.txt` dans ce dossier.
+Sorties `pytest -v` complètes : `local_*.txt` et `docker_*.txt`.
 
-## Les deux configurations ne sont pas la même chose
+## Contre quoi le vert a été obtenu
 
-Ce ne sont pas deux exécutions du même code dans deux décors : ce sont **deux cellules de
-modèles différentes**, celle qu'on sert en local et celle qui est déployée.
+Un « 12/12 » ne dit rien tant qu'on ignore quel index a été interrogé, avec quel modèle et
+sous quel seuil. Chaque sortie porte donc en en-tête la configuration **réellement lue**,
+extraite à l'exécution par `conftest.py` (racine) — aucun nom n'y est écrit à la main : les
+modèles viennent du `.name` des fabriques que `search()` appelle, la collection et son
+empreinte de l'objet Chroma que la recherche ouvre, les chemins de `config.settings`,
+résolus en absolu.
+
+```
+                    local                                   conteneur
+embedder   intfloat/multilingual-e5-base [local]     text-embedding-3-small [distant]
+reranker   mmarco-mMiniLMv2-L12-H384-v1 [local]      Cohere-rerank-v4.0-pro [distant]
+seuil      0.053 = calibré pour ce couple            0.6203 = calibré pour ce couple
+vectoriel  localhost:8002 · sorabel_corpus           chroma:8002 · sorabel_corpus_azure_small
+           400 éditions · empreinte e5-base =        400 éditions · empreinte 3-small =
+lexical    data/bm25/sorabel_corpus.pkl              /app/data/bm25/…_azure_small.pkl
+métier     …/data/sorabel.db (156 Kio)               /app/data/sorabel.db (156 Kio)
+```
+
+Trois appariements y sont lisibles d'un coup d'œil, et ce sont les trois qui rendraient un
+vert mensonger s'ils étaient faux :
+
+1. **index ↔ embedder** — l'empreinte inscrite dans la métadonnée de la collection à sa
+   construction, comparée au modèle configuré. Déjà **fatale** dans le code
+   (`_check_embedding_model`) ; l'en-tête la rend simplement lisible sans lire le code.
+2. **seuil ↔ couple de modèles** — `CALIBRATED_THRESHOLDS` de `config.py`. C'est le seul
+   des trois qu'aucune exception ne protège à l'exécution : un seuil étranger déplace la
+   barrière de refus **en silence**, et 0,053 contre 0,6203 est plus d'un ordre de grandeur.
+3. **quel fichier** — chemins résolus en absolu, parce que `.env` pose `SORABEL_DB` et
+   `GATEWAY_JOURNAL` en **relatif** : « ça marche » tant que le répertoire courant vaut
+   `/app`, donc par coïncidence.
+
+L'en-tête décrit le processus pytest ; le serveur MCP que la suite lance est un
+sous-processus qui hérite du même environnement (`tests/conftest.py`), donc de la même
+configuration.
+
+### Contre-épreuve
+
+`contre-epreuve_index_etranger.txt` : la même suite locale pointée sur
+`sorabel_corpus_azure_small`, un index construit avec `text-embedding-3-small`, alors que
+l'embedder configuré est `e5-base`. L'en-tête dit `ILLISIBLE` et donne la raison ; le
+premier test **échoue en 0,84 s**. Un mauvais appariement ne produit donc pas un vert : il
+tombe, et il dit pourquoi.
+
+## Les deux configurations ne sont pas le même décor
+
+Ce sont **deux cellules de modèles** : celle qu'on sert en local (①) et celle qui est
+déployée (④). Même code, mêmes 12 scénarios, chaînes de recherche différentes.
 
 | | Local | Conteneur |
 |---|---|---|
-| Code | arbre de travail | cuit dans l'image (`COPY` nommés du `Dockerfile`) |
-| Python | 3.11.15 (darwin, `.venv`) | 3.11.16 (linux, `/app/.venv`, `uv.lock --frozen`) |
-| Cellule | ① embedder `e5` local + reranker mmarco local | ④ `text-embedding-3-small` + `Cohere-rerank-v4.0-pro`, tous deux distants |
-| Collection | `sorabel_corpus` (Chroma de `make up`, port 8002) | `sorabel_corpus_azure_small` (image `sorabel-chroma:local`, réseau isolé) |
-| Seuil de refus | celui de `config.py` | `RERANK_THRESHOLD=0.6203`, calibré pour ④ |
+| Code | arbre de travail | cuit dans l'image (`COPY` nommés) |
+| Python | 3.11.15, darwin, `.venv` | 3.11.16, linux, `/app/.venv`, `uv.lock --frozen` |
+| Cellule | ① les deux modèles en mémoire | ④ les deux modèles distants |
 | PyTorch | présent (extra `[vector]`) | **absent** — l'image ne peut servir que du distant |
 
-L'écart de durée sur `test_rag.py` (25,7 s → 8,9 s) vient de là : en local le premier appel
-charge deux modèles en mémoire, dans l'image les deux appels partent au réseau.
+L'écart de durée sur le RAG (22,6 s → 10,3 s) vient de là : chargement de deux modèles
+contre deux appels réseau.
 
 ## Ce que ça prouve, et ce que ça ne prouve pas
 
-Le conteneur rejoue **le code de l'image déployée sur Azure Container Apps**, ses dépendances
-figées et son Chroma — pas l'arbre local monté dans un conteneur. Les 12 scénarios se
-comportent donc de la même façon sur ACA.
+Le conteneur rejoue le code de l'image déployée sur Azure Container Apps, ses dépendances
+figées et son Chroma — pas l'arbre local monté dans un conteneur.
 
 Ne sont **pas** couverts : l'architecture `linux/amd64` (l'image de contrôle est bâtie pour
-l'hôte — cf. `DEP-01` de `docs/BUGS.md`), l'ingress et le réseau ACA, et l'image *servie*
+l'hôte, cf. `DEP-01` de `docs/BUGS.md`), l'ingress et le réseau ACA, et l'image *servie*
 elle-même (la cible `test` ajoute le groupe `dev` : 1,86 Go contre 304 Mo).
 
 ## Reproduire
