@@ -1,6 +1,11 @@
 # Suite d'acceptance rejouée — local et conteneur
 
-**Date** : 2026-09-13 · **Commit** : `343e23a` (branche `deploiement/azure-aca`)
+**Date** : 2026-09-13 · branche `deploiement/azure-aca`
+
+Les six sorties sont celles du code de `23e6e14` (l'en-tête de `conftest.py` et sa copie
+dans l'image), les quatre témoins de `e64080e`. Elles ne portent **pas** cette identité
+elles-mêmes : un `.txt` dit contre quelle *configuration* il a été obtenu, pas contre quel
+*commit* ni quelle image — c'est ce compte rendu qui l'affirme, et lui seul.
 
 ## Résultat
 
@@ -46,6 +51,10 @@ vert mensonger s'ils étaient faux :
 3. **quel fichier** — chemins résolus en absolu, parce que `.env` pose `SORABEL_DB` et
    `GATEWAY_JOURNAL` en **relatif** : « ça marche » tant que le répertoire courant vaut
    `/app`, donc par coïncidence.
+
+Les deux lignes « configuration Azure partielle » en tête des sorties locales ne sont pas
+un défaut : le poste a l'endpoint et la clé Azure mais aucun nom de déploiement, donc le
+code replie sur les modèles locaux **et le dit**. C'est la cellule ① attendue en local.
 
 L'en-tête décrit le processus pytest ; le serveur MCP que la suite lance est un
 sous-processus qui hérite du même environnement (`tests/conftest.py`), donc de la même
