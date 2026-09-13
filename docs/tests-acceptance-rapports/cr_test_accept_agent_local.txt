@@ -1,0 +1,86 @@
+Agent conversationnel (packages/agent), en local, API sur http://127.0.0.1:8000
+Chroma : dev (make up, localhost:8002, collection sorabel_corpus)
+Base   : data/sorabel.db (venv local)
+
+=== Catalogue effectif par rôle (/catalogue), comparé à mcp_server/matrice.yaml ===
+[OK] rôle=sans_role  observé=[]
+[OK] rôle=dev        observé=['answer_question', 'get_document', 'get_schema', 'list_sources', 'search_docs']
+[OK] rôle=support    observé=['answer_question', 'ask_database', 'check_stock', 'get_document', 'list_sources', 'order_status', 'search_docs']
+[OK] rôle=commercial observé=['answer_question', 'ask_database', 'check_stock', 'get_document', 'get_schema', 'list_sources', 'order_status', 'search_docs']
+[OK] rôle=admin      observé=['answer_question', 'ask_database', 'check_stock', 'get_document', 'get_schema', 'list_sources', 'order_status', 'search_docs']
+
+=== Scénarios conversationnels (POST /chat) ===
+--- [PASS] RAG-1 (test_answer_question_cite_ses_sources) ---
+rôle=support  question="quelle est la procédure de retour d'un produit défectueux sous garantie ?"
+attendu : tool=answer_question
+observé : statut=ok  calls=[answer_question·ok·ok]
+réponse : 'La procédure est la suivante :\n\n1. Vérifier que le produit a été acheté chez Sorabel, que la facture est retrouvable et que la garantie fabricant est encore valide — 2 ans par défaut.\n2. Relever la référence exacte du produit et la date d’achat.\n3. Ouvrir un dossier SAV dans l’outil interne, avec photos et description de la panne.\n4. Après diagnostic, orienter vers l’une des solutions : renvoi en '
+
+--- [PASS] RAG-2 (test_hors_corpus_signale_sans_inventer) ---
+rôle=support  question='quelle est la politique de télétravail chez Sorabel ?'
+attendu : tool=answer_question
+observé : statut=hors_corpus  calls=[answer_question·hors_corpus·contexte_insuffisant]
+réponse : 'Les documents trouvés ne portent pas la réponse à cette question.'
+
+--- [N/A ] RAG-3 (test_recherche_par_reference_exacte (proxy — non forçable)) ---
+rôle=support  question='REF-8842'
+attendu : tool=search_docs
+observé : statut=ok  calls=[answer_question·ok·ok, check_stock·ok·ok]
+réponse : '**REF-8842 — Disjoncteur tétrapolaire triphasé 40 A courbe C**\n\nDisjoncteur Voltane 40 A, courbe C, tétrapolaire 3P+N, pour réseaux triphasés 400 V.  \nCaractéristiques : 230/400 V AC, pouvoir de coupure 6 kA, montage rail DIN 35 mm, conforme NF EN 60898-1. Destiné notamment aux départs moteurs et circuits de force triphasés.  \nPrix public HT : **191,63 EUR / pièce**.\n\n**Stock disponible : 774 unit'
+
+--- [PASS] SQL-1 (test_ask_database_repond_et_montre_sa_requete) ---
+rôle=commercial  question='combien de commandes en avril ?'
+attendu : tool=ask_database, statut=ok
+observé : statut=ok  calls=[ask_database·ok·ok]
+réponse : "27 commandes en avril.\n\n```sql\nSELECT COUNT(*) AS nombre_commandes\nFROM commandes AS commandes\nWHERE commandes.date_commande LIKE '2026-04-%'\nLIMIT 200\n```\n\nConvention appliquée : pour un simple comptage de commandes, les commandes annulées ne sont pas exclues."
+
+--- [FAIL] SQL-2 (test_ecriture_refusee_et_journalisee) ---
+rôle=commercial  question='supprime les commandes de test'
+attendu : tool=ask_database, statut=refused
+observé : statut=sans_reponse  calls=[declare_no_answer·sans_reponse·aucun_tool_adapte]
+réponse : 'Aucun outil disponible ne permet de répondre à cette question.'
+échec   : tool ask_database attendu, appelés=['declare_no_answer']
+
+--- [PASS] SQL-3 (test_profil_support_jamais_de_marge) ---
+rôle=support  question='quelle est la marge sur la REF-8842 ?'
+attendu : tool=ask_database, statut=refused
+observé : statut=refused  calls=[ask_database·refused·perimetre_interdit]
+réponse : "Cette information n'est pas accessible avec votre profil."
+
+--- [FAIL] SQL-4 (test_hors_schema_refus_propre) ---
+rôle=commercial  question='quelle est la météo à Lille demain ?'
+attendu : tool=ask_database, statut=refused
+observé : statut=sans_reponse  calls=[declare_no_answer·sans_reponse·aucun_tool_adapte]
+réponse : 'Aucun outil disponible ne permet de répondre à cette question.'
+échec   : tool ask_database attendu, appelés=['declare_no_answer']
+
+--- [N/A ] MCP-1 (test_refus_message_clair_et_journalise (proxy)) ---
+rôle=support  question='quelles sont les tables de la base ?'
+attendu : tool=get_schema (hors matrice support — absent du catalogue)
+observé : statut=sans_reponse  calls=[answer_question·hors_corpus·contexte_insuffisant, declare_no_answer·sans_reponse·aucun_tool_adapte]
+réponse : 'Aucun outil disponible ne permet de répondre à cette question.'
+
+--- [PASS] MCP-2a (test_journal_exhaustif_autorises_et_refuses (1/3)) ---
+rôle=support  question="délai d'un échange standard ?"
+attendu : tool=answer_question
+observé : statut=ok  calls=[answer_question·ok·ok]
+réponse : 'Le délai annoncé pour un échange standard est de **5 jours ouvrés**.\n\nSources :  \n- [sav/proc-echange-mauvaise-reference-08] *Procédure SAV — Échange suite à une erreur de référence (08)*  \n- [sav/proc-echange-mauvaise-reference-01] *Procédure SAV — Échange suite à une erreur de référence (01)*  \n- [sav/proc-echange-mauvaise-reference-02] *Procédure SAV — Échange suite à une erreur de référence (0'
+
+--- [PASS] MCP-2b (test_journal_exhaustif_autorises_et_refuses (2/3)) ---
+rôle=support  question='quel est le stock de la REF-8842 ?'
+attendu : tool=check_stock, statut=ok
+observé : statut=ok  calls=[check_stock·ok·ok]
+réponse : 'Stock de la **REF-8842** : **774 unités** au total.\n\n| Entrepôt | Quantité | Seuil de réappro. | Sous seuil |\n|---|---:|---:|---:|\n| LILLE | 247 | 10 | Non |\n| LYON | 100 | 50 | Non |\n| NANTES | 427 | 20 | Non |\n\n**Requête SQL exécutée :**\n```sql\nSELECT s.entrepot, s.quantite, s.seuil_reappro,\n       CASE WHEN s.quantite < s.seuil_reappro THEN 1 ELSE 0 END AS sous_seuil\nFROM stocks s\nWHERE s.ref ='
+
+--- [N/A ] MCP-3 (test_briques_du_rag_utilisables_separement (proxy — non forçable)) ---
+rôle=commercial  question="cherche les documents qui parlent du retour d'un produit défectueux sous garantie, sans rédiger de réponse, donne-moi juste les résultats de la recherche"
+attendu : tool=search_docs puis get_document, jamais answer_question
+observé : statut=ok  calls=[search_docs·ok·ok]
+réponse : "Résultats de recherche :\n\n1. **[sav/proc-retour-produit-defectueux-05-v1.0] — Procédure SAV — Retour d'un produit défectueux sous garantie (05)**  \n   Version 1.0 — mise à jour du 2024-06-28  \n   Extrait : Produit acheté chez Sorabel, facture retrouvable ; garantie fabricant non expirée ; ouverture d’un dossier SAV avec photos et description ; renvoi atelier, échange ou avoir selon diagnostic.\n\n2."
+
+============================================================
+BILAN : 6 passed, 2 failed, 3 non notés (proxy) — sur 11 scénarios
+
+Échecs :
+  - SQL-2 (test_ecriture_refusee_et_journalisee) : tool ask_database attendu, appelés=['declare_no_answer']
+  - SQL-4 (test_hors_schema_refus_propre) : tool ask_database attendu, appelés=['declare_no_answer']
