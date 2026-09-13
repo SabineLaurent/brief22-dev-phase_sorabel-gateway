@@ -51,13 +51,33 @@ L'en-tête décrit le processus pytest ; le serveur MCP que la suite lance est u
 sous-processus qui hérite du même environnement (`tests/conftest.py`), donc de la même
 configuration.
 
-### Contre-épreuve
+### Les témoins : ce que fait la suite quand la configuration est fausse
 
-`contre-epreuve_index_etranger.txt` : la même suite locale pointée sur
-`sorabel_corpus_azure_small`, un index construit avec `text-embedding-3-small`, alors que
-l'embedder configuré est `e5-base`. L'en-tête dit `ILLISIBLE` et donne la raison ; le
-premier test **échoue en 0,84 s**. Un mauvais appariement ne produit donc pas un vert : il
-tombe, et il dit pourquoi.
+Quatre exécutions volontairement mal configurées, conservées telles quelles.
+
+| Témoin | Ce qui est faussé | L'en-tête dit | La suite dit |
+|---|---|---|---|
+| `temoin_1_index_etranger.txt` | index `…azure_small` (3-small) lu par `e5-base` | `ILLISIBLE` + la raison | **1 failed en 0,84 s** |
+| `temoin_2_seuil_etranger.txt` | `RERANK_THRESHOLD=0.6203` sur la cellule ① (12× trop haut) | `≠ CALIBRÉ POUR CE COUPLE (0.053)` | **4 passed** |
+| `temoin_3_chroma_injoignable.txt` | `CHROMA_URL=http://localhost:9999` | `ILLISIBLE` + la raison | 3 failed, 1 passed |
+| `temoin_4_seuil_etranger_conteneur.txt` | `RERANK_THRESHOLD=0.053` sur la cellule ④ (12× trop bas) | `≠ CALIBRÉ POUR CE COUPLE (0.6203)` | **4 passed** |
+
+**T2 et T4 sont le résultat qui compte.** Le seuil de refus peut être faux d'un ordre de
+grandeur, **dans les deux sens**, et la suite d'acceptance reste verte : l'en-tête est le
+seul endroit où ça se voit. La raison est connue et écrite ailleurs — le refus servi tient
+déjà par la **barrière 2**, la garde de suffisance du rédacteur, dont le code
+`contexte_insuffisant` porte le même statut `hors_corpus` que le refus au seuil. Le test de
+refus est donc satisfait des deux côtés de la barrière 1, et le test de réponse a une marge
+confortable. La barrière 1 peut être déréglée sans qu'aucune assertion bouge.
+
+Ce n'est pas un défaut de la suite : les 12 scénarios contrôlent un comportement servi, pas
+un appariement de configuration. C'est exactement le trou que l'en-tête vient combler, et
+c'est pourquoi il nomme le seuil calibré attendu plutôt que d'afficher le seuil seul.
+
+**T1 et T3 tombent, mais pas pour la même raison** : T1 est *fatal par le code*
+(`_check_embedding_model`), T3 ne fait qu'échouer faute d'index. Et dans T3, un test reste
+vert — `test_gain_hybride_mesure_et_documente`, qui lit un rapport publié et ne touche ni
+l'index ni la base. Un vert isolé ne prouve donc rien à lui seul, même quand rien ne marche.
 
 ## Les deux configurations ne sont pas le même décor
 
